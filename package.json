@@ -1,0 +1,28 @@
+{
+  "name": "obelisk",
+  "version": "1.0.0",
+  "description": "Modern FiveM Framework with Lua, Vue 3, and MariaDB",
+  "main": "cli/index.js",
+  "bin": {
+    "obelisk": "./cli/index.js"
+  },
+  "scripts": {
+    "cli": "node cli/index.js",
+    "make:module": "node cli/index.js make:module",
+    "make:plugin": "node cli/index.js make:plugin",
+    "make:model": "node cli/index.js make:model",
+    "make:migration": "node cli/index.js make:migration",
+    "make:seeder": "node cli/index.js make:seeder",
+    "make:action": "node cli/index.js make:action",
+    "make:interaction": "node cli/index.js make:interaction",
+    "make:policy": "node cli/index.js make:policy"
+  },
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "fs-extra": "^11.2.0",
+    "inquirer": "^8.2.5"
+  },
+  "author": "Obelisk Framework",
+  "license": "MIT"
+}

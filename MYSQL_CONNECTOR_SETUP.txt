@@ -1,0 +1,73 @@
+╔════════════════════════════════════════════════════════════════╗
+║      OBELISK - MySQL Connector Setup Instructions              ║
+╚════════════════════════════════════════════════════════════════╝
+
+Current Status: ⚠ No MySQL connector found
+Message: Using in-memory fallback storage
+
+WHAT YOU NEED TO DO:
+
+FiveM doesn't have built-in MySQL in Lua. The oblsk_connector resource
+requires an external MySQL library to work.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1: INSTALL ONE OF THESE MYSQL LIBRARIES
+
+Option A: ghmattimysql (RECOMMENDED)
+  Download: https://github.com/GHMatti/ghmattimysql/releases
+  Extract to: resources/ghmattimysql/
+
+Option B: oxmysql
+  Download: https://github.com/overextended/oxmysql/releases
+  Extract to: resources/oxmysql/
+
+Option C: mysql-async
+  Download: https://github.com/brouznouf/fivem-mysql-async/releases
+  Extract to: resources/mysql-async/
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 2: UPDATE server.cfg
+
+Add BEFORE starting obelisk:
+
+  ensure ghmattimysql          (or oxmysql / mysql-async)
+  ensure obelisk
+
+Example:
+  ensure ghmattimysql
+  ensure obelisk
+  set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 3: ENSURE MARIADB IS RUNNING
+
+  docker-compose up -d
+
+Or ensure your MySQL/MariaDB server is accessible at:
+  Host: mariadb (or localhost)
+  Port: 3306
+  User: obelisk
+  Password: obelisk_password
+  Database: fivem
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 4: START YOUR SERVER
+
+After setup, you should see:
+  [oblsk_connector] ✓ Connected using ghmattimysql
+  [Database] Using oblsk_connector for MySQL
+  [Obelisk] Running migrations...
+
+If you still see "No MySQL connector found":
+  1. Verify MySQL library is in resources/
+  2. Verify it's in server.cfg BEFORE obelisk
+  3. Check MySQL library console output for errors
+  4. Check MariaDB is running and accessible
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For more help, see: SETUP_MYSQL.md
