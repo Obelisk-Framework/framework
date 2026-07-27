@@ -23,7 +23,7 @@ return {
         for _, action in ipairs(actions) do
             Database.insertSync(
                 'INSERT INTO actions (action_id, label, description, options, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                {action.action_id, action.label, action.description, action.options, action.enabled, os.time(), os.time()}
+                {action.action_id, action.label, action.description, action.options, action.enabled, Database.now(), Database.now()}
             )
         end
         

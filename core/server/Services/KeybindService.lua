@@ -59,7 +59,7 @@ function KeybindService.registerGlobal(key, actionId, data)
         VALUES (?, ?, ?, 1, NULL)
     ]]
     
-    local jsonData = data and json.encode(data) or NULL
+    local jsonData = data and json.encode(data) or nil
     local keybindId = Database.insertSync(sql, {key, actionId, jsonData})
     
     print('[KeybindService] Registered global keybind: ' .. key .. ' -> ' .. actionId)
@@ -84,7 +84,7 @@ function KeybindService.registerPlayer(source, key, actionId, data)
         VALUES (?, ?, ?, 0, ?)
     ]]
     
-    local jsonData = data and json.encode(data) or NULL
+    local jsonData = data and json.encode(data) or nil
     local keybindId = Database.insertSync(sql, {key, actionId, jsonData, identifier})
     
     print('[KeybindService] Registered player keybind for ' .. source .. ': ' .. key .. ' -> ' .. actionId)

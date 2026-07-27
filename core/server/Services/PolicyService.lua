@@ -46,14 +46,14 @@ function PolicyService.attach(resourceType, resourceId, policyId, config)
         -- Update existing
         Database.updateSync(
             'UPDATE ' .. table_name .. ' SET data = ?, updated_at = ? WHERE ' .. id_column .. ' = ? AND policy_id = ?',
-            {json.encode(config or {}), os.time(), resourceId, policyId}
+            {json.encode(config or {}), Database.now(), resourceId, policyId}
         )
         print('[PolicyService] Updated policy ' .. policyId .. ' for ' .. resourceType .. '#' .. tostring(resourceId))
     else
         -- Insert new
         Database.insertSync(
             'INSERT INTO ' .. table_name .. ' (' .. id_column .. ', policy_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-            {resourceId, policyId, json.encode(config or {}), os.time(), os.time()}
+            {resourceId, policyId, json.encode(config or {}), Database.now(), Database.now()}
         )
         print('[PolicyService] Attached policy ' .. policyId .. ' to ' .. resourceType .. '#' .. tostring(resourceId))
     end

@@ -122,9 +122,9 @@ end
 function BaseModel:save(callback)
     if self.timestamps then
         if not self.exists then
-            self.attributes.created_at = os.time()
+            self.attributes.created_at = Database.now()
         end
-        self.attributes.updated_at = os.time()
+        self.attributes.updated_at = Database.now()
     end
     
     if self.exists then
@@ -150,9 +150,9 @@ end
 function BaseModel:saveSync()
     if self.timestamps then
         if not self.exists then
-            self.attributes.created_at = os.time()
+            self.attributes.created_at = Database.now()
         end
-        self.attributes.updated_at = os.time()
+        self.attributes.updated_at = Database.now()
     end
     
     if self.exists then
