@@ -197,7 +197,9 @@ function QueryBuilder:buildWhereClause()
         local clause = ''
         
         if i > 1 then
-            clause = clause .. ' ' .. condition.boolean .. ' '
+            -- clauses are joined with a single space below, so only a trailing
+            -- space is needed here (a leading one produced doubled spaces).
+            clause = clause .. condition.boolean .. ' '
         end
         
         if condition.type == 'basic' then

@@ -35,7 +35,15 @@ docker-compose logs mariadb
 docker-compose down
 ```
 
-No test framework configured. Testing is manual via FiveM server.
+### Tests
+
+```bash
+npm test             # runs the Lua unit tests (requires lua5.4)
+```
+
+The pure ORM logic (query building, escaping, schema DDL) has unit tests under
+`tests/` runnable without a FiveM server — see `tests/README.md`. Runtime code
+(net events, NUI, natives, real DB I/O) is still tested manually on a server.
 
 ## MySQL Setup
 

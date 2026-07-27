@@ -216,28 +216,36 @@ end
 --- @param params table Parameters
 --- @return table result
 function Database.executeQuery(query, params)
-    local prepared = Database.prepareQuery(query, params)
-    local queryLower = prepared:lower()
-    
-    -- Try to use any available MySQL resource first
+    params = params or {}
+
+    if Database.debug then
+        print('[Database] SQL: ' .. query)
+    end
+
+    -- Try to use any available MySQL resource first.
+    -- oxmysql and ghmattimysql bind parameters themselves (real prepared
+    -- statements), so the raw query + params array is forwarded to them
+    -- untouched. Connectors whose parameter API we can't rely on
+    -- (oblsk_connector / mysql-async) receive an interpolated string built by
+    -- prepareQuery(), which escapes every value via Database.escape().
     local success, result = pcall(function()
         if GetResourceState('oblsk_connector') == 'started' then
-            return exports.oblsk_connector:executeSync(prepared)
+            return exports.oblsk_connector:executeSync(Database.prepareQuery(query, params))
         elseif GetResourceState('oxmysql') == 'started' then
-            return exports.oxmysql:executeSync(prepared)
-        elseif GetResourceState('mysql-async') == 'started' then
-            return exports['mysql-async']:mysql_fetch_all_sync(prepared)
+            return exports.oxmysql:executeSync(query, params)
         elseif GetResourceState('ghmattimysql') == 'started' then
-            return exports.ghmattimysql:executeSync(prepared)
+            return exports.ghmattimysql:executeSync(query, params)
+        elseif GetResourceState('mysql-async') == 'started' then
+            return exports['mysql-async']:mysql_fetch_all_sync(Database.prepareQuery(query, params))
         end
     end)
-    
+
     if success and result then
         return result
     end
-    
+
     -- Fallback to in-memory storage
-    return Database.executeInMemory(prepared)
+    return Database.executeInMemory(Database.prepareQuery(query, params))
 end
 
 --- Execute in memory (for development/testing)
