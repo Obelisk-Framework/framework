@@ -270,6 +270,51 @@ test('BaseModel.createSync: writes DATETIME-formatted timestamps', function()
 end)
 
 --------------------------------------------------------------------------------
+-- Connector detection / hard-fail (no in-memory fallback)
+--------------------------------------------------------------------------------
+test('detectConnector: nil when none is started', function()
+    local original = GetResourceState
+    _G.GetResourceState = function() return 'stopped' end
+    local connector = Database.detectConnector()
+    _G.GetResourceState = original
+    eq(connector, nil)
+end)
+
+test('detectConnector: returns the started connector', function()
+    local original = GetResourceState
+    _G.GetResourceState = function(name) return name == 'oxmysql' and 'started' or 'stopped' end
+    local connector = Database.detectConnector()
+    _G.GetResourceState = original
+    eq(connector, 'oxmysql')
+end)
+
+test('init: fails and stays not-ready when no connector is present', function()
+    local originalGRS, savedConnector = GetResourceState, Database.connector
+    _G.GetResourceState = function() return 'stopped' end
+    local ok = Database.init()
+    _G.GetResourceState, Database.connector = originalGRS, savedConnector
+    eq(ok, false)
+    eq(Database.ready, false)
+end)
+
+test('init: succeeds and records the connector when one is present', function()
+    local originalGRS, savedConnector = GetResourceState, Database.connector
+    _G.GetResourceState = function(name) return name == 'ghmattimysql' and 'started' or 'stopped' end
+    local ok = Database.init()
+    local detected = Database.connector
+    _G.GetResourceState, Database.connector = originalGRS, savedConnector
+    eq(ok, true)
+    eq(detected, 'ghmattimysql')
+end)
+
+test('executeQuery: errors instead of silently falling back when no connector', function()
+    local savedConnector = Database.connector
+    Database.connector = nil
+    throws(function() Database.executeQuery('SELECT 1', {}) end)
+    Database.connector = savedConnector
+end)
+
+--------------------------------------------------------------------------------
 -- Database.transaction orchestration
 --------------------------------------------------------------------------------
 test('transaction: queues statements in order and commits them', function()

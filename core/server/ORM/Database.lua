@@ -1,7 +1,10 @@
---- Custom Database Manager - Native MySQL implementation
---- No external dependencies required
+--- Database Manager - thin layer over a MySQL connector resource.
+--- A real connector (oxmysql / ghmattimysql / mysql-async / oblsk_connector)
+--- is REQUIRED; there is no in-memory fallback. If none is present the
+--- framework fails fast rather than silently pretending to persist data.
 Database = {}
 Database.ready = false
+Database.connector = nil -- name of the detected connector resource
 Database.config = {
     host = 'mariadb',
     port = 3306,
@@ -12,9 +15,8 @@ Database.config = {
 }
 Database.debug = false
 
---- In-memory storage (fallback for when no MySQL is available)
-Database.storage = {}
-Database.autoIncrement = {}
+--- MySQL connector resources, in order of preference.
+local CONNECTORS = { 'oblsk_connector', 'oxmysql', 'ghmattimysql', 'mysql-async' }
 
 --- Parse MySQL connection string
 --- Format: mysql://user:password@host:port/database
@@ -41,11 +43,24 @@ function Database.parseConnectionString(connectionString)
     return config
 end
 
---- Initialize database
+--- Detect the first available MySQL connector resource.
+--- @return string|nil connector resource name, or nil if none is started
+function Database.detectConnector()
+    for _, name in ipairs(CONNECTORS) do
+        if GetResourceState(name) == 'started' then
+            return name
+        end
+    end
+    return nil
+end
+
+--- Initialize database.
+--- @return boolean ready True if a connector was found; false means the
+--- framework must not continue (there is no in-memory fallback).
 function Database.init()
     local connectionString = GetConvar('mysql_connection_string', '')
     Database.debug = GetConvarInt('db_debug', 0) == 1
-    
+
     if connectionString ~= '' then
         local parsed = Database.parseConnectionString(connectionString)
         for k, v in pairs(parsed) do
@@ -54,34 +69,27 @@ function Database.init()
             end
         end
     end
-    
-    Database.ready = true
-    print('[Database] Initialized')
-    print('[Database] Config: ' .. Database.config.user .. '@' .. Database.config.host .. ':' .. Database.config.port .. '/' .. Database.config.database)
-    
-    -- Check for MySQL connector
-    local connectorFound = false
-    if GetResourceState('oblsk_connector') == 'started' then
-        print('[Database] Using oblsk_connector for MySQL')
-        connectorFound = true
-    elseif GetResourceState('oxmysql') == 'started' then
-        print('[Database] Using oxmysql for MySQL')
-        connectorFound = true
-    elseif GetResourceState('mysql-async') == 'started' then
-        print('[Database] Using mysql-async for MySQL')
-        connectorFound = true
-    elseif GetResourceState('ghmattimysql') == 'started' then
-        print('[Database] Using ghmattimysql for MySQL')
-        connectorFound = true
-    else
-        print('[Database] Warning: No MySQL connector found. Using in-memory fallback storage.')
-        print('[Database] To use a real database, ensure one of these resources is running:')
-        print('[Database]   - oblsk_connector (native FiveM MySQL)')
-        print('[Database]   - oxmysql')
-        print('[Database]   - mysql-async')
-        print('[Database]   - ghmattimysql')
+
+    Database.connector = Database.detectConnector()
+
+    if not Database.connector then
+        Database.ready = false
+        print('[Database] ============================================================')
+        print('[Database] FATAL: No MySQL connector resource found.')
+        print('[Database] Obelisk requires a database and has no in-memory fallback.')
+        print('[Database] Start one of these BEFORE obelisk in your server.cfg:')
+        print('[Database]   ensure oxmysql        (recommended)')
+        print('[Database]   ensure ghmattimysql')
+        print('[Database]   ensure mysql-async')
+        print('[Database]   ensure oblsk_connector')
+        print('[Database] ============================================================')
+        return false
     end
-    
+
+    Database.ready = true
+    print('[Database] Initialized (connector: ' .. Database.connector .. ')')
+    print('[Database] Config: ' .. Database.config.user .. '@' .. Database.config.host .. ':' .. Database.config.port .. '/' .. Database.config.database)
+
     return true
 end
 
@@ -211,7 +219,13 @@ function Database.prepareQuery(query, params)
     return prepared
 end
 
---- Execute query (in-memory fallback)
+--- Execute a query against the detected MySQL connector.
+--- oxmysql and ghmattimysql bind parameters themselves (real prepared
+--- statements), so the raw query + params array is forwarded to them untouched.
+--- Connectors whose parameter API we can't rely on (oblsk_connector /
+--- mysql-async) receive an interpolated string built by prepareQuery(), which
+--- escapes every value via Database.escape(). There is no in-memory fallback:
+--- if no connector is available this errors rather than silently losing data.
 --- @param query string SQL query
 --- @param params table Parameters
 --- @return table result
@@ -222,117 +236,22 @@ function Database.executeQuery(query, params)
         print('[Database] SQL: ' .. query)
     end
 
-    -- Try to use any available MySQL resource first.
-    -- oxmysql and ghmattimysql bind parameters themselves (real prepared
-    -- statements), so the raw query + params array is forwarded to them
-    -- untouched. Connectors whose parameter API we can't rely on
-    -- (oblsk_connector / mysql-async) receive an interpolated string built by
-    -- prepareQuery(), which escapes every value via Database.escape().
-    local success, result = pcall(function()
-        if GetResourceState('oblsk_connector') == 'started' then
-            return exports.oblsk_connector:executeSync(Database.prepareQuery(query, params))
-        elseif GetResourceState('oxmysql') == 'started' then
-            return exports.oxmysql:executeSync(query, params)
-        elseif GetResourceState('ghmattimysql') == 'started' then
-            return exports.ghmattimysql:executeSync(query, params)
-        elseif GetResourceState('mysql-async') == 'started' then
-            return exports['mysql-async']:mysql_fetch_all_sync(Database.prepareQuery(query, params))
-        end
-    end)
-
-    if success and result then
-        return result
+    local connector = Database.connector
+    if not connector then
+        error('[Database] No MySQL connector available (Database.init must succeed first)', 2)
     end
 
-    -- Fallback to in-memory storage
-    return Database.executeInMemory(Database.prepareQuery(query, params))
-end
+    if connector == 'oblsk_connector' then
+        return exports.oblsk_connector:executeSync(Database.prepareQuery(query, params))
+    elseif connector == 'oxmysql' then
+        return exports.oxmysql:executeSync(query, params)
+    elseif connector == 'ghmattimysql' then
+        return exports.ghmattimysql:executeSync(query, params)
+    elseif connector == 'mysql-async' then
+        return exports['mysql-async']:mysql_fetch_all_sync(Database.prepareQuery(query, params))
+    end
 
---- Execute in memory (for development/testing)
---- @param query string Prepared SQL query
---- @return table result
-function Database.executeInMemory(query)
-    local queryLower = query:lower()
-    
-    -- SELECT
-    if queryLower:match('^select') then
-        local tableName = queryLower:match('from%s+(%w+)')
-        if tableName and Database.storage[tableName] then
-            local results = {}
-            for _, row in pairs(Database.storage[tableName]) do
-                table.insert(results, row)
-            end
-            return results
-        end
-        return {}
-    end
-    
-    -- INSERT
-    if queryLower:match('^insert') then
-        local tableName = queryLower:match('insert%s+into%s+(%w+)')
-        if tableName then
-            if not Database.storage[tableName] then
-                Database.storage[tableName] = {}
-                Database.autoIncrement[tableName] = 1
-            end
-            
-            local insertId = Database.autoIncrement[tableName]
-            Database.autoIncrement[tableName] = insertId + 1
-            
-            -- Parse values
-            local valuesStr = query:match('VALUES%s*%((.+)%)')
-            local row = {id = insertId}
-            
-            if valuesStr then
-                local values = {}
-                for value in valuesStr:gmatch('[^,]+') do
-                    table.insert(values, value:match('^%s*(.-)%s*$'))
-                end
-                row._values = values
-            end
-            
-            Database.storage[tableName][insertId] = row
-            
-            return {insertId = insertId, affectedRows = 1}
-        end
-    end
-    
-    -- UPDATE
-    if queryLower:match('^update') then
-        return {affectedRows = 1}
-    end
-    
-    -- DELETE
-    if queryLower:match('^delete') then
-        return {affectedRows = 1}
-    end
-    
-    -- CREATE TABLE
-    if queryLower:match('^create%s+table') then
-        local tableName = queryLower:match('create%s+table%s+`?(%w+)`?')
-        if tableName then
-            Database.storage[tableName] = {}
-            Database.autoIncrement[tableName] = 1
-        end
-        return {affectedRows = 0}
-    end
-    
-    -- DROP TABLE
-    if queryLower:match('^drop%s+table') then
-        local tableName = queryLower:match('drop%s+table%s+`?(%w+)`?')
-        if tableName then
-            Database.storage[tableName] = nil
-            Database.autoIncrement[tableName] = nil
-        end
-        return {affectedRows = 0}
-    end
-    
-    -- ALTER TABLE
-    if queryLower:match('^alter%s+table') then
-        return {affectedRows = 0}
-    end
-    
-    return {}
+    error('[Database] Unknown connector: ' .. tostring(connector), 2)
 end
 
 --- Create a transaction accumulator. Statements queued on it are executed
@@ -400,9 +319,9 @@ end
 function Database.commitTransaction(queries)
     local success, result = pcall(function()
         local connector
-        if GetResourceState('oxmysql') == 'started' then
+        if Database.connector == 'oxmysql' then
             connector = exports.oxmysql
-        elseif GetResourceState('ghmattimysql') == 'started' then
+        elseif Database.connector == 'ghmattimysql' then
             connector = exports.ghmattimysql
         end
 

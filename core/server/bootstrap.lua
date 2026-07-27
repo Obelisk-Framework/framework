@@ -12,8 +12,11 @@ print([[
 
 -- Initialize Database
 Citizen.CreateThread(function()
-    Database.init()
-    
+    if not Database.init() then
+        print('[Obelisk] Startup aborted: no database connector available. See the [Database] FATAL message above.')
+        return
+    end
+
     print('[Obelisk] Database initialized')
     
     -- Run migrations
