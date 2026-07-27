@@ -35,7 +35,15 @@ docker-compose logs mariadb
 docker-compose down
 ```
 
-No test framework configured. Testing is manual via FiveM server.
+### Tests
+
+```bash
+npm test             # runs the Lua unit tests (requires lua5.4)
+```
+
+The pure ORM logic (query building, escaping, schema DDL) has unit tests under
+`tests/` runnable without a FiveM server — see `tests/README.md`. Runtime code
+(net events, NUI, natives, real DB I/O) is still tested manually on a server.
 
 ## MySQL Setup
 
@@ -96,3 +104,4 @@ set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem
 **Migrations**: Use `Schema.create/drop` with fluent table methods
 **Policies**: Register with `PolicyService.register()`, attach to actions/interactions
 **Notifications**: `NotificationService.success(source, title, description, duration)`
+**Transactions**: `Database.transaction(function(tx) tx:add(sql, params) end)` runs the queued statements atomically (batched to the connector's native transaction)

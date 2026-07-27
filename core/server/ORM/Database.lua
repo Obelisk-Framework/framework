@@ -1,7 +1,10 @@
---- Custom Database Manager - Native MySQL implementation
---- No external dependencies required
+--- Database Manager - thin layer over a MySQL connector resource.
+--- A real connector (oxmysql / ghmattimysql / mysql-async / oblsk_connector)
+--- is REQUIRED; there is no in-memory fallback. If none is present the
+--- framework fails fast rather than silently pretending to persist data.
 Database = {}
 Database.ready = false
+Database.connector = nil -- name of the detected connector resource
 Database.config = {
     host = 'mariadb',
     port = 3306,
@@ -12,9 +15,8 @@ Database.config = {
 }
 Database.debug = false
 
---- In-memory storage (fallback for when no MySQL is available)
-Database.storage = {}
-Database.autoIncrement = {}
+--- MySQL connector resources, in order of preference.
+local CONNECTORS = { 'oblsk_connector', 'oxmysql', 'ghmattimysql', 'mysql-async' }
 
 --- Parse MySQL connection string
 --- Format: mysql://user:password@host:port/database
@@ -41,11 +43,24 @@ function Database.parseConnectionString(connectionString)
     return config
 end
 
---- Initialize database
+--- Detect the first available MySQL connector resource.
+--- @return string|nil connector resource name, or nil if none is started
+function Database.detectConnector()
+    for _, name in ipairs(CONNECTORS) do
+        if GetResourceState(name) == 'started' then
+            return name
+        end
+    end
+    return nil
+end
+
+--- Initialize database.
+--- @return boolean ready True if a connector was found; false means the
+--- framework must not continue (there is no in-memory fallback).
 function Database.init()
     local connectionString = GetConvar('mysql_connection_string', '')
     Database.debug = GetConvarInt('db_debug', 0) == 1
-    
+
     if connectionString ~= '' then
         local parsed = Database.parseConnectionString(connectionString)
         for k, v in pairs(parsed) do
@@ -54,34 +69,27 @@ function Database.init()
             end
         end
     end
-    
-    Database.ready = true
-    print('[Database] Initialized')
-    print('[Database] Config: ' .. Database.config.user .. '@' .. Database.config.host .. ':' .. Database.config.port .. '/' .. Database.config.database)
-    
-    -- Check for MySQL connector
-    local connectorFound = false
-    if GetResourceState('oblsk_connector') == 'started' then
-        print('[Database] Using oblsk_connector for MySQL')
-        connectorFound = true
-    elseif GetResourceState('oxmysql') == 'started' then
-        print('[Database] Using oxmysql for MySQL')
-        connectorFound = true
-    elseif GetResourceState('mysql-async') == 'started' then
-        print('[Database] Using mysql-async for MySQL')
-        connectorFound = true
-    elseif GetResourceState('ghmattimysql') == 'started' then
-        print('[Database] Using ghmattimysql for MySQL')
-        connectorFound = true
-    else
-        print('[Database] Warning: No MySQL connector found. Using in-memory fallback storage.')
-        print('[Database] To use a real database, ensure one of these resources is running:')
-        print('[Database]   - oblsk_connector (native FiveM MySQL)')
-        print('[Database]   - oxmysql')
-        print('[Database]   - mysql-async')
-        print('[Database]   - ghmattimysql')
+
+    Database.connector = Database.detectConnector()
+
+    if not Database.connector then
+        Database.ready = false
+        print('[Database] ============================================================')
+        print('[Database] FATAL: No MySQL connector resource found.')
+        print('[Database] Obelisk requires a database and has no in-memory fallback.')
+        print('[Database] Start one of these BEFORE obelisk in your server.cfg:')
+        print('[Database]   ensure oxmysql        (recommended)')
+        print('[Database]   ensure ghmattimysql')
+        print('[Database]   ensure mysql-async')
+        print('[Database]   ensure oblsk_connector')
+        print('[Database] ============================================================')
+        return false
     end
-    
+
+    Database.ready = true
+    print('[Database] Initialized (connector: ' .. Database.connector .. ')')
+    print('[Database] Config: ' .. Database.config.user .. '@' .. Database.config.host .. ':' .. Database.config.port .. '/' .. Database.config.database)
+
     return true
 end
 
@@ -190,144 +198,188 @@ function Database.prepareQuery(query, params)
         return query
     end
     
-    local prepared = query
-    for _, value in ipairs(params) do
-        local escaped = Database.escape(value)
-        prepared = prepared:gsub('?', escaped, 1)
-    end
-    
+    -- Substitute each ? placeholder left-to-right with its escaped value.
+    -- A function replacement is used deliberately: the returned value is
+    -- inserted literally, so a '%' inside a value is not misinterpreted as a
+    -- gsub capture reference, and a '?' inside an already-substituted value is
+    -- never re-scanned (both were bugs with the previous one-at-a-time gsub).
+    local index = 0
+    local prepared = query:gsub('?', function()
+        index = index + 1
+        if index > #params then
+            return '?'
+        end
+        return Database.escape(params[index])
+    end)
+
     if Database.debug then
         print('[Database] Query: ' .. prepared)
     end
-    
+
     return prepared
 end
 
---- Execute query (in-memory fallback)
+--- Execute a query against the detected MySQL connector.
+--- oxmysql and ghmattimysql bind parameters themselves (real prepared
+--- statements), so the raw query + params array is forwarded to them untouched.
+--- Connectors whose parameter API we can't rely on (oblsk_connector /
+--- mysql-async) receive an interpolated string built by prepareQuery(), which
+--- escapes every value via Database.escape(). There is no in-memory fallback:
+--- if no connector is available this errors rather than silently losing data.
 --- @param query string SQL query
 --- @param params table Parameters
 --- @return table result
 function Database.executeQuery(query, params)
-    local prepared = Database.prepareQuery(query, params)
-    local queryLower = prepared:lower()
-    
-    -- Try to use any available MySQL resource first
-    local success, result = pcall(function()
-        if GetResourceState('oblsk_connector') == 'started' then
-            return exports.oblsk_connector:executeSync(prepared)
-        elseif GetResourceState('oxmysql') == 'started' then
-            return exports.oxmysql:executeSync(prepared)
-        elseif GetResourceState('mysql-async') == 'started' then
-            return exports['mysql-async']:mysql_fetch_all_sync(prepared)
-        elseif GetResourceState('ghmattimysql') == 'started' then
-            return exports.ghmattimysql:executeSync(prepared)
-        end
-    end)
-    
-    if success and result then
-        return result
+    params = params or {}
+
+    if Database.debug then
+        print('[Database] SQL: ' .. query)
     end
-    
-    -- Fallback to in-memory storage
-    return Database.executeInMemory(prepared)
+
+    local connector = Database.connector
+    if not connector then
+        error('[Database] No MySQL connector available (Database.init must succeed first)', 2)
+    end
+
+    if connector == 'oblsk_connector' then
+        -- oblsk_connector escapes/interpolates the params itself, so forward
+        -- them rather than pre-interpolating (single source of escaping).
+        return exports.oblsk_connector:executeSync(query, params)
+    elseif connector == 'oxmysql' then
+        return exports.oxmysql:executeSync(query, params)
+    elseif connector == 'ghmattimysql' then
+        return exports.ghmattimysql:executeSync(query, params)
+    elseif connector == 'mysql-async' then
+        return exports['mysql-async']:mysql_fetch_all_sync(Database.prepareQuery(query, params))
+    end
+
+    error('[Database] Unknown connector: ' .. tostring(connector), 2)
 end
 
---- Execute in memory (for development/testing)
---- @param query string Prepared SQL query
---- @return table result
-function Database.executeInMemory(query)
-    local queryLower = query:lower()
-    
-    -- SELECT
-    if queryLower:match('^select') then
-        local tableName = queryLower:match('from%s+(%w+)')
-        if tableName and Database.storage[tableName] then
-            local results = {}
-            for _, row in pairs(Database.storage[tableName]) do
-                table.insert(results, row)
-            end
-            return results
-        end
-        return {}
+--- Create a transaction accumulator. Statements queued on it are executed
+--- together by Database.transaction.
+--- @return table tx
+function Database.newTransaction()
+    local tx = { queries = {} }
+
+    --- Queue a raw statement.
+    --- @param query string
+    --- @param params table|nil
+    --- @return table tx (chainable)
+    function tx:add(query, params)
+        table.insert(self.queries, { query = query, params = params or {} })
+        return self
     end
-    
-    -- INSERT
-    if queryLower:match('^insert') then
-        local tableName = queryLower:match('insert%s+into%s+(%w+)')
-        if tableName then
-            if not Database.storage[tableName] then
-                Database.storage[tableName] = {}
-                Database.autoIncrement[tableName] = 1
-            end
-            
-            local insertId = Database.autoIncrement[tableName]
-            Database.autoIncrement[tableName] = insertId + 1
-            
-            -- Parse values
-            local valuesStr = query:match('VALUES%s*%((.+)%)')
-            local row = {id = insertId}
-            
-            if valuesStr then
-                local values = {}
-                for value in valuesStr:gmatch('[^,]+') do
-                    table.insert(values, value:match('^%s*(.-)%s*$'))
-                end
-                row._values = values
-            end
-            
-            Database.storage[tableName][insertId] = row
-            
-            return {insertId = insertId, affectedRows = 1}
-        end
-    end
-    
-    -- UPDATE
-    if queryLower:match('^update') then
-        return {affectedRows = 1}
-    end
-    
-    -- DELETE
-    if queryLower:match('^delete') then
-        return {affectedRows = 1}
-    end
-    
-    -- CREATE TABLE
-    if queryLower:match('^create%s+table') then
-        local tableName = queryLower:match('create%s+table%s+`?(%w+)`?')
-        if tableName then
-            Database.storage[tableName] = {}
-            Database.autoIncrement[tableName] = 1
-        end
-        return {affectedRows = 0}
-    end
-    
-    -- DROP TABLE
-    if queryLower:match('^drop%s+table') then
-        local tableName = queryLower:match('drop%s+table%s+`?(%w+)`?')
-        if tableName then
-            Database.storage[tableName] = nil
-            Database.autoIncrement[tableName] = nil
-        end
-        return {affectedRows = 0}
-    end
-    
-    -- ALTER TABLE
-    if queryLower:match('^alter%s+table') then
-        return {affectedRows = 0}
-    end
-    
-    return {}
+
+    return tx
 end
 
---- Transaction support
---- @param callback function Transaction callback
+--- Run a set of write statements atomically.
+---
+--- FiveM MySQL connectors pool connections, so issuing START TRANSACTION and
+--- COMMIT as separate executeSync() calls can land on different connections and
+--- would NOT be atomic. Statements are therefore collected and submitted
+--- together to the connector's native transaction API (oxmysql / ghmattimysql),
+--- which wraps them in a single START TRANSACTION ... COMMIT, rolling back on
+--- any error. Because the whole batch is sent at once, the callback cannot
+--- branch on the result of an earlier statement in the same transaction.
+---
+--- Usage:
+---   Database.transaction(function(tx)
+---     tx:add('UPDATE accounts SET balance = balance - ? WHERE id = ?', {100, 1})
+---     tx:add('UPDATE accounts SET balance = balance + ? WHERE id = ?', {100, 2})
+---   end)
+---
+--- @param callback function Receives the transaction accumulator (tx)
+--- @return boolean success True on commit (or when nothing was queued)
 function Database.transaction(callback)
-    if callback then
-        local success, err = pcall(callback)
-        if not success then
-            print('[Database] Transaction failed: ' .. tostring(err))
+    if type(callback) ~= 'function' then
+        return false
+    end
+
+    local tx = Database.newTransaction()
+
+    -- If the callback errors, nothing is committed (rollback-before-commit).
+    local ok, err = pcall(callback, tx)
+    if not ok then
+        print('[Database] Transaction aborted before commit: ' .. tostring(err))
+        return false
+    end
+
+    if #tx.queries == 0 then
+        return true
+    end
+
+    return Database.commitTransaction(tx.queries)
+end
+
+--- Commit a list of { query, params } statements atomically.
+--- Prefers the connector's native batch-transaction API; otherwise falls back
+--- to a manual START TRANSACTION / COMMIT wrapper (see caveat below).
+--- @param queries table Array of { query = string, params = table }
+--- @return boolean success
+function Database.commitTransaction(queries)
+    local success, result = pcall(function()
+        -- Any connector that exports transactionSync gets the native atomic
+        -- path. oblsk_connector is listed here so it wires up automatically
+        -- once it gains a transaction endpoint.
+        local resName = Database.connector
+        if resName == 'oxmysql' or resName == 'ghmattimysql' or resName == 'oblsk_connector' then
+            local connector = exports[resName]
+            if connector and connector.transactionSync then
+                -- Connectors take an array of { query = , values = }.
+                local batch = {}
+                for _, q in ipairs(queries) do
+                    batch[#batch + 1] = { query = q.query, values = q.params }
+                end
+                return connector:transactionSync(batch)
+            end
+        end
+
+        return nil
+    end)
+
+    if success and result ~= nil then
+        return result and true or false
+    end
+
+    -- Fallback: connectors without a batch-transaction API (oblsk_connector /
+    -- mysql-async) and the in-memory store. Best effort only — with a
+    -- connection-pooling connector this is NOT guaranteed atomic, which is why
+    -- the native path above is strongly preferred.
+    return Database.commitTransactionFallback(queries)
+end
+
+--- Manual START TRANSACTION / COMMIT / ROLLBACK fallback.
+--- @param queries table
+--- @return boolean success
+Database._warnedNonAtomic = Database._warnedNonAtomic or {}
+
+function Database.commitTransactionFallback(queries)
+    -- Warn once per connector: the manual wrapper is NOT guaranteed atomic on a
+    -- connection-pooling connector (each statement may run on a different
+    -- connection). Surfaced loudly rather than failing silently.
+    local key = Database.connector or 'none'
+    if not Database._warnedNonAtomic[key] then
+        print('[Database] WARNING: connector "' .. tostring(Database.connector) ..
+              '" has no native transaction API; using a manual START TRANSACTION/COMMIT ' ..
+              'wrapper that is NOT guaranteed atomic on a pooling connector.')
+        Database._warnedNonAtomic[key] = true
+    end
+
+    Database.executeQuery('START TRANSACTION', {})
+
+    for _, q in ipairs(queries) do
+        local ok = pcall(Database.executeQuery, q.query, q.params)
+        if not ok then
+            pcall(Database.executeQuery, 'ROLLBACK', {})
+            print('[Database] Transaction rolled back')
+            return false
         end
     end
+
+    Database.executeQuery('COMMIT', {})
+    return true
 end
 
 --- Escape value for SQL
@@ -353,6 +405,14 @@ function Database.escape(value)
     end
     
     return 'NULL'
+end
+
+--- Current timestamp formatted for DATETIME / TIMESTAMP columns.
+--- MySQL expects 'YYYY-MM-DD HH:MM:SS' for these column types; passing a raw
+--- os.time() integer is rejected (or stored as 0000-00-00) under strict mode.
+--- @return string
+function Database.now()
+    return os.date('%Y-%m-%d %H:%M:%S')
 end
 
 --- Check if database is ready

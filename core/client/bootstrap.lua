@@ -68,7 +68,7 @@ Citizen.CreateThread(function()
         
         if IsControlJustPressed(0, 322) then -- ESC
             -- Check if NUI is focused
-            if GetNuiFocus() then
+            if IsNuiFocused() then
                 CloseNUI()
             end
         end

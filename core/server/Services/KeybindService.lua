@@ -59,7 +59,7 @@ function KeybindService.registerGlobal(key, actionId, data)
         VALUES (?, ?, ?, 1, NULL)
     ]]
     
-    local jsonData = data and json.encode(data) or NULL
+    local jsonData = data and json.encode(data) or nil
     local keybindId = Database.insertSync(sql, {key, actionId, jsonData})
     
     print('[KeybindService] Registered global keybind: ' .. key .. ' -> ' .. actionId)
@@ -84,7 +84,7 @@ function KeybindService.registerPlayer(source, key, actionId, data)
         VALUES (?, ?, ?, 0, ?)
     ]]
     
-    local jsonData = data and json.encode(data) or NULL
+    local jsonData = data and json.encode(data) or nil
     local keybindId = Database.insertSync(sql, {key, actionId, jsonData, identifier})
     
     print('[KeybindService] Registered player keybind for ' .. source .. ': ' .. key .. ' -> ' .. actionId)
@@ -99,22 +99,18 @@ end
 --- @param keybindId number
 --- @param data table Fields to update
 function KeybindService.update(keybindId, data)
-    local setClauses = {}
-    local values = {}
-    
+    local updates = {}
     for field, value in pairs(data) do
         if field == 'data' then
             value = json.encode(value)
         end
-        table.insert(setClauses, field .. ' = ?')
-        table.insert(values, value)
+        updates[field] = value
     end
-    
-    table.insert(values, keybindId)
-    
-    local sql = 'UPDATE keybinds SET ' .. table.concat(setClauses, ', ') .. ' WHERE id = ?'
-    Database.updateSync(sql, values)
-    
+
+    -- Go through QueryBuilder so the column names are quoted/validated as
+    -- identifiers; a crafted field name cannot inject SQL here.
+    QueryBuilder.new('keybinds'):where('id', keybindId):update(updates)
+
     -- Sync to all clients (global) or specific player
     TriggerClientEvent('obelisk:keybinds:requestSync', -1)
 end

@@ -34,30 +34,57 @@ function ActionService.execute(source, actionId, data)
         return false
     end
     
-    -- Run through hook system for extensibility
-    Hooks.runHook('action:before:' .. actionId, function(results)
-        -- Check if any hook cancelled the action
-        for _, result in ipairs(results) do
-            if result == false then
-                print('[ActionService] Action cancelled by hook: ' .. actionId)
+    -- Runs the hook chain and the action handler. Only reached once the
+    -- action's policies (if any) have passed.
+    local function runAction()
+        Hooks.runHook('action:before:' .. actionId, function(results)
+            -- Check if any hook cancelled the action
+            for _, result in ipairs(results) do
+                if result == false then
+                    print('[ActionService] Action cancelled by hook: ' .. actionId)
+                    return
+                end
+            end
+
+            -- Execute the action handler
+            local success, err = pcall(action.handler, source, data)
+
+            if not success then
+                print('[ActionService] Error executing action ' .. actionId .. ': ' .. tostring(err))
                 return
             end
-        end
-        
-        -- Execute the action handler
-        local success, err = pcall(action.handler, source, data)
-        
-        if not success then
-            print('[ActionService] Error executing action ' .. actionId .. ': ' .. tostring(err))
-            return false
-        end
-        
-        -- Run after hooks
-        Hooks.runHook('action:after:' .. actionId, function()
-            -- After hooks complete
+
+            -- Run after hooks
+            Hooks.runHook('action:after:' .. actionId, function()
+                -- After hooks complete
+            end, source, data)
         end, source, data)
-    end, source, data)
-    
+    end
+
+    -- Enforce any policies attached to this action BEFORE running it. This is
+    -- the authorization gate for client-triggered actions (the
+    -- obelisk:action:execute / obelisk:keybinds:pressed net events): without
+    -- it, any client could invoke any registered action with arbitrary data.
+    -- Actions with no attached policies are allowed by default.
+    if PolicyService then
+        PolicyService.check(source, 'action', actionId, function(allowed, reason)
+            if not allowed then
+                print('[ActionService] Action denied by policy: ' .. actionId .. ' for player ' .. tostring(source))
+                if NotificationService then
+                    NotificationService.notify(source, {
+                        type = 'error',
+                        title = 'Access Denied',
+                        description = reason or 'You cannot perform this action'
+                    })
+                end
+                return
+            end
+            runAction()
+        end)
+    else
+        runAction()
+    end
+
     return true
 end
 

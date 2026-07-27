@@ -12,8 +12,11 @@ print([[
 
 -- Initialize Database
 Citizen.CreateThread(function()
-    Database.init()
-    
+    if not Database.init() then
+        print('[Obelisk] Startup aborted: no database connector available. See the [Database] FATAL message above.')
+        return
+    end
+
     print('[Obelisk] Database initialized')
     
     -- Run migrations
@@ -55,9 +58,9 @@ Citizen.CreateThread(function()
                         local success, err = pcall(migrationTable.up)
                         if success then
                             -- Record migration
-                            local res = Database.insertSync('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)', 
-                                              {migration, 1, os.time()})
-                            print("Result: " .. res)
+                            local res = Database.insertSync('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
+                                              {migration, 1, Database.now()})
+                            print("Result: " .. tostring(res))
                             print('[Obelisk] ✓ Migration completed: ' .. migration)
                         else
                             print('[Obelisk] ✗ Migration failed: ' .. migration .. ' - ' .. tostring(err))

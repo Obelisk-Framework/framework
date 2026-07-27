@@ -3,6 +3,62 @@
 QueryBuilder = {}
 QueryBuilder.__index = QueryBuilder
 
+--- Operators permitted in WHERE / JOIN clauses. A caller-supplied operator
+--- outside this set is rejected, so an operator can never smuggle in SQL.
+local ALLOWED_OPERATORS = {
+    ['='] = true, ['!='] = true, ['<>'] = true,
+    ['<'] = true, ['<='] = true, ['>'] = true, ['>='] = true,
+    ['LIKE'] = true, ['NOT LIKE'] = true, ['IS'] = true, ['IS NOT'] = true,
+}
+
+--- Permitted JOIN types.
+local ALLOWED_JOIN_TYPES = {
+    INNER = true, LEFT = true, RIGHT = true, FULL = true, CROSS = true,
+}
+
+--- Quote a column/table identifier for safe interpolation into SQL.
+--- Values are parameterized, but identifiers (table/column names, operators,
+--- directions) are interpolated, so they are the injection surface. Accepts a
+--- bare identifier ("users"), a qualified one ("k.action_id"), "*" or
+--- "table.*". Every part must match [A-Za-z0-9_$]+; anything else (quotes,
+--- spaces, parentheses, semicolons, comment markers, ...) throws. That throw
+--- is what stops identifier-based SQL injection.
+--- @param identifier string
+--- @return string quoted
+function QueryBuilder.quoteIdentifier(identifier)
+    if type(identifier) ~= 'string' or identifier == '' then
+        error('QueryBuilder: invalid identifier: ' .. tostring(identifier), 2)
+    end
+
+    if identifier == '*' then
+        return '*'
+    end
+
+    local parts = {}
+    for part in (identifier .. '.'):gmatch('([^%.]*)%.') do
+        if part == '*' then
+            table.insert(parts, '*')
+        elseif part:match('^[%w_$]+$') then
+            table.insert(parts, '`' .. part .. '`')
+        else
+            error('QueryBuilder: illegal identifier "' .. identifier .. '"', 2)
+        end
+    end
+
+    return table.concat(parts, '.')
+end
+
+--- Validate a WHERE/JOIN operator against the allowlist.
+--- @param operator any
+--- @return string normalized upper-cased operator
+local function normalizeOperator(operator)
+    local op = tostring(operator):upper()
+    if not ALLOWED_OPERATORS[op] then
+        error('QueryBuilder: illegal operator "' .. tostring(operator) .. '"', 2)
+    end
+    return op
+end
+
 --- Create a new QueryBuilder instance
 --- @param tableName string
 --- @return QueryBuilder
@@ -10,6 +66,7 @@ function QueryBuilder.new(tableName)
     local self = setmetatable({}, QueryBuilder)
     self.tableName = tableName
     self.selectColumns = {'*'}
+    self.rawSelect = nil
     self.whereConditions = {}
     self.orderByList = {}
     self.limitValue = nil
@@ -31,6 +88,17 @@ function QueryBuilder:select(columns)
     else
         self.selectColumns = columns
     end
+    self.rawSelect = nil
+    return self
+end
+
+--- Set a raw, unquoted SELECT expression (e.g. an aggregate like COUNT(*)).
+--- Library-internal only: never pass caller-supplied input here, as it is
+--- interpolated verbatim.
+--- @param expression string
+--- @return QueryBuilder
+function QueryBuilder:selectRaw(expression)
+    self.rawSelect = expression
     return self
 end
 
@@ -142,32 +210,35 @@ function QueryBuilder:offset(offset)
 end
 
 --- Add JOIN clause
---- @param table string
+--- @param tableName string
 --- @param first string
 --- @param operator string
 --- @param second string
---- @param type string 'INNER', 'LEFT', 'RIGHT'
+--- @param joinType string 'INNER', 'LEFT', 'RIGHT'
 --- @return QueryBuilder
-function QueryBuilder:join(table, first, operator, second, type)
-    type = type or 'INNER'
+function QueryBuilder:join(tableName, first, operator, second, joinType)
+    -- NB: the table/type parameters are named tableName/joinType so they don't
+    -- shadow the global `table` library (which broke table.insert here) or the
+    -- `type` builtin.
+    joinType = joinType or 'INNER'
     table.insert(self.joins, {
-        table = table,
+        table = tableName,
         first = first,
         operator = operator,
         second = second,
-        type = type
+        type = joinType
     })
     return self
 end
 
 --- Add LEFT JOIN
---- @param table string
+--- @param tableName string
 --- @param first string
 --- @param operator string
 --- @param second string
 --- @return QueryBuilder
-function QueryBuilder:leftJoin(table, first, operator, second)
-    return self:join(table, first, operator, second, 'LEFT')
+function QueryBuilder:leftJoin(tableName, first, operator, second)
+    return self:join(tableName, first, operator, second, 'LEFT')
 end
 
 --- Add GROUP BY
@@ -197,11 +268,14 @@ function QueryBuilder:buildWhereClause()
         local clause = ''
         
         if i > 1 then
-            clause = clause .. ' ' .. condition.boolean .. ' '
+            -- clauses are joined with a single space below, so only a trailing
+            -- space is needed here (a leading one produced doubled spaces).
+            clause = clause .. condition.boolean .. ' '
         end
         
         if condition.type == 'basic' then
-            clause = clause .. condition.column .. ' ' .. condition.operator .. ' ?'
+            clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' ' ..
+                     normalizeOperator(condition.operator) .. ' ?'
             table.insert(self.params, condition.value)
         elseif condition.type == 'in' then
             local placeholders = {}
@@ -209,11 +283,12 @@ function QueryBuilder:buildWhereClause()
                 table.insert(placeholders, '?')
                 table.insert(self.params, val)
             end
-            clause = clause .. condition.column .. ' IN (' .. table.concat(placeholders, ', ') .. ')'
+            clause = clause .. QueryBuilder.quoteIdentifier(condition.column) ..
+                     ' IN (' .. table.concat(placeholders, ', ') .. ')'
         elseif condition.type == 'null' then
-            clause = clause .. condition.column .. ' IS NULL'
+            clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NULL'
         elseif condition.type == 'notNull' then
-            clause = clause .. condition.column .. ' IS NOT NULL'
+            clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NOT NULL'
         end
         
         table.insert(clauses, clause)
@@ -231,9 +306,13 @@ function QueryBuilder:buildOrderByClause()
     
     local clauses = {}
     for _, order in ipairs(self.orderByList) do
-        table.insert(clauses, order.column .. ' ' .. order.direction)
+        local direction = tostring(order.direction):upper()
+        if direction ~= 'ASC' and direction ~= 'DESC' then
+            error('QueryBuilder: illegal order direction "' .. tostring(order.direction) .. '"', 2)
+        end
+        table.insert(clauses, QueryBuilder.quoteIdentifier(order.column) .. ' ' .. direction)
     end
-    
+
     return 'ORDER BY ' .. table.concat(clauses, ', ')
 end
 
@@ -242,14 +321,18 @@ end
 function QueryBuilder:buildLimitClause()
     local clause = ''
     
-    if self.limitValue then
-        clause = 'LIMIT ' .. self.limitValue
+    if self.limitValue ~= nil then
+        local n = tonumber(self.limitValue)
+        if not n then error('QueryBuilder: LIMIT must be numeric', 2) end
+        clause = 'LIMIT ' .. math.floor(n)
     end
-    
-    if self.offsetValue then
-        clause = clause .. ' OFFSET ' .. self.offsetValue
+
+    if self.offsetValue ~= nil then
+        local n = tonumber(self.offsetValue)
+        if not n then error('QueryBuilder: OFFSET must be numeric', 2) end
+        clause = clause .. ' OFFSET ' .. math.floor(n)
     end
-    
+
     return clause
 end
 
@@ -262,22 +345,43 @@ function QueryBuilder:buildJoinClause()
     
     local clauses = {}
     for _, join in ipairs(self.joins) do
-        local clause = join.type .. ' JOIN ' .. join.table .. ' ON ' .. 
-                      join.first .. ' ' .. join.operator .. ' ' .. join.second
+        local joinType = tostring(join.type):upper()
+        if not ALLOWED_JOIN_TYPES[joinType] then
+            error('QueryBuilder: illegal join type "' .. tostring(join.type) .. '"', 2)
+        end
+        local clause = joinType .. ' JOIN ' .. QueryBuilder.quoteIdentifier(join.table) .. ' ON ' ..
+                      QueryBuilder.quoteIdentifier(join.first) .. ' ' .. normalizeOperator(join.operator) ..
+                      ' ' .. QueryBuilder.quoteIdentifier(join.second)
         table.insert(clauses, clause)
     end
     
     return table.concat(clauses, ' ')
 end
 
+--- Build the SELECT column list.
+--- A rawSelect expression (set via selectRaw, e.g. COUNT(*)) is emitted as-is;
+--- otherwise every column is quoted/validated as an identifier.
+--- @return string
+function QueryBuilder:buildSelectClause()
+    if self.rawSelect then
+        return self.rawSelect
+    end
+
+    local columns = {}
+    for _, col in ipairs(self.selectColumns) do
+        table.insert(columns, QueryBuilder.quoteIdentifier(col))
+    end
+    return table.concat(columns, ', ')
+end
+
 --- Build complete SELECT query
 --- @return string, table SQL and parameters
 function QueryBuilder:toSql()
     self.params = {} -- Reset params
-    
-    local sql = 'SELECT ' .. table.concat(self.selectColumns, ', ') .. 
-                ' FROM ' .. self.tableName
-    
+
+    local sql = 'SELECT ' .. self:buildSelectClause() ..
+                ' FROM ' .. QueryBuilder.quoteIdentifier(self.tableName)
+
     local joinClause = self:buildJoinClause()
     if joinClause ~= '' then
         sql = sql .. ' ' .. joinClause
@@ -289,7 +393,11 @@ function QueryBuilder:toSql()
     end
     
     if #self.groupByColumns > 0 then
-        sql = sql .. ' GROUP BY ' .. table.concat(self.groupByColumns, ', ')
+        local grouped = {}
+        for _, col in ipairs(self.groupByColumns) do
+            table.insert(grouped, QueryBuilder.quoteIdentifier(col))
+        end
+        sql = sql .. ' GROUP BY ' .. table.concat(grouped, ', ')
     end
     
     local orderByClause = self:buildOrderByClause()
@@ -339,11 +447,11 @@ end
 --- Count results
 --- @param callback function
 function QueryBuilder:count(callback)
-    local originalSelect = self.selectColumns
-    self.selectColumns = {'COUNT(*) as count'}
-    
+    local originalRaw = self.rawSelect
+    self:selectRaw('COUNT(*) as count')
+
     self:first(function(result)
-        self.selectColumns = originalSelect
+        self.rawSelect = originalRaw
         callback(result and result.count or 0)
     end)
 end
@@ -351,12 +459,12 @@ end
 --- Count synchronously
 --- @return number
 function QueryBuilder:countSync()
-    local originalSelect = self.selectColumns
-    self.selectColumns = {'COUNT(*) as count'}
-    
+    local originalRaw = self.rawSelect
+    self:selectRaw('COUNT(*) as count')
+
     local result = self:firstSync()
-    self.selectColumns = originalSelect
-    
+    self.rawSelect = originalRaw
+
     return result and result.count or 0
 end
 
@@ -369,13 +477,13 @@ function QueryBuilder:insert(data, callback)
     local values = {}
     
     for column, value in pairs(data) do
-        table.insert(columns, column)
+        table.insert(columns, QueryBuilder.quoteIdentifier(column))
         table.insert(placeholders, '?')
         table.insert(values, value)
     end
-    
-    local sql = 'INSERT INTO ' .. self.tableName .. 
-                ' (' .. table.concat(columns, ', ') .. ') VALUES (' .. 
+
+    local sql = 'INSERT INTO ' .. QueryBuilder.quoteIdentifier(self.tableName) ..
+                ' (' .. table.concat(columns, ', ') .. ') VALUES (' ..
                 table.concat(placeholders, ', ') .. ')'
     
     if callback then
@@ -393,11 +501,11 @@ function QueryBuilder:update(data, callback)
     local values = {}
     
     for column, value in pairs(data) do
-        table.insert(setClauses, column .. ' = ?')
+        table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = ?')
         table.insert(values, value)
     end
-    
-    local sql = 'UPDATE ' .. self.tableName .. ' SET ' .. table.concat(setClauses, ', ')
+
+    local sql = 'UPDATE ' .. QueryBuilder.quoteIdentifier(self.tableName) .. ' SET ' .. table.concat(setClauses, ', ')
     
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
@@ -417,7 +525,7 @@ end
 --- Delete records
 --- @param callback function
 function QueryBuilder:delete(callback)
-    local sql = 'DELETE FROM ' .. self.tableName
+    local sql = 'DELETE FROM ' .. QueryBuilder.quoteIdentifier(self.tableName)
     
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
