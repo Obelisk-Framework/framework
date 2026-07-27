@@ -270,6 +270,104 @@ test('BaseModel.createSync: writes DATETIME-formatted timestamps', function()
 end)
 
 --------------------------------------------------------------------------------
+-- Database.transaction orchestration
+--------------------------------------------------------------------------------
+test('transaction: queues statements in order and commits them', function()
+    local committed
+    local original = Database.commitTransaction
+    Database.commitTransaction = function(queries) committed = queries return true end
+
+    local ok = Database.transaction(function(tx)
+        tx:add('UPDATE accounts SET balance = balance - ? WHERE id = ?', {100, 1})
+        tx:add('UPDATE accounts SET balance = balance + ? WHERE id = ?', {100, 2})
+    end)
+
+    Database.commitTransaction = original
+
+    eq(ok, true)
+    eq(#committed, 2)
+    eq(committed[1].query, 'UPDATE accounts SET balance = balance - ? WHERE id = ?')
+    eqList(committed[1].params, {100, 1})
+    eqList(committed[2].params, {100, 2})
+end)
+
+test('transaction: a callback error aborts without committing', function()
+    local called = false
+    local original = Database.commitTransaction
+    Database.commitTransaction = function() called = true return true end
+
+    local ok = Database.transaction(function(tx)
+        tx:add('INSERT INTO t (a) VALUES (?)', {1})
+        error('boom')
+    end)
+
+    Database.commitTransaction = original
+
+    eq(ok, false)
+    eq(called, false, 'commit must not run when the callback errors')
+end)
+
+test('transaction: an empty transaction commits nothing and succeeds', function()
+    local called = false
+    local original = Database.commitTransaction
+    Database.commitTransaction = function() called = true return true end
+
+    local ok = Database.transaction(function() end)
+
+    Database.commitTransaction = original
+
+    eq(ok, true)
+    eq(called, false)
+end)
+
+test('commitTransactionFallback: wraps statements in BEGIN/COMMIT', function()
+    local calls = {}
+    local original = Database.executeQuery
+    Database.executeQuery = function(query) calls[#calls + 1] = query return {} end
+
+    local ok = Database.commitTransactionFallback({
+        {query = 'INSERT INTO t (a) VALUES (?)', params = {1}},
+        {query = 'UPDATE t SET a = ? WHERE id = ?', params = {2, 1}},
+    })
+
+    Database.executeQuery = original
+
+    eq(ok, true)
+    eqList(calls, {
+        'START TRANSACTION',
+        'INSERT INTO t (a) VALUES (?)',
+        'UPDATE t SET a = ? WHERE id = ?',
+        'COMMIT',
+    })
+end)
+
+test('commitTransactionFallback: rolls back and stops on a failing statement', function()
+    local calls = {}
+    local original = Database.executeQuery
+    Database.executeQuery = function(query)
+        calls[#calls + 1] = query
+        if query == 'BOOM' then error('statement failed') end
+        return {}
+    end
+
+    local ok = Database.commitTransactionFallback({
+        {query = 'INSERT INTO t (a) VALUES (?)', params = {1}},
+        {query = 'BOOM', params = {}},
+        {query = 'SHOULD NOT RUN', params = {}},
+    })
+
+    Database.executeQuery = original
+
+    eq(ok, false)
+    eqList(calls, {
+        'START TRANSACTION',
+        'INSERT INTO t (a) VALUES (?)',
+        'BOOM',
+        'ROLLBACK',
+    })
+end)
+
+--------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
 print('Running ORM unit tests\n')

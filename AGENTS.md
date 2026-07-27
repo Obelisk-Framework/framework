@@ -104,3 +104,4 @@ set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem
 **Migrations**: Use `Schema.create/drop` with fluent table methods
 **Policies**: Register with `PolicyService.register()`, attach to actions/interactions
 **Notifications**: `NotificationService.success(source, title, description, duration)`
+**Transactions**: `Database.transaction(function(tx) tx:add(sql, params) end)` runs the queued statements atomically (batched to the connector's native transaction)
