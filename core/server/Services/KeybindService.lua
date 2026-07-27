@@ -99,22 +99,18 @@ end
 --- @param keybindId number
 --- @param data table Fields to update
 function KeybindService.update(keybindId, data)
-    local setClauses = {}
-    local values = {}
-    
+    local updates = {}
     for field, value in pairs(data) do
         if field == 'data' then
             value = json.encode(value)
         end
-        table.insert(setClauses, field .. ' = ?')
-        table.insert(values, value)
+        updates[field] = value
     end
-    
-    table.insert(values, keybindId)
-    
-    local sql = 'UPDATE keybinds SET ' .. table.concat(setClauses, ', ') .. ' WHERE id = ?'
-    Database.updateSync(sql, values)
-    
+
+    -- Go through QueryBuilder so the column names are quoted/validated as
+    -- identifiers; a crafted field name cannot inject SQL here.
+    QueryBuilder.new('keybinds'):where('id', keybindId):update(updates)
+
     -- Sync to all clients (global) or specific player
     TriggerClientEvent('obelisk:keybinds:requestSync', -1)
 end

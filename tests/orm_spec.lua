@@ -43,6 +43,10 @@ local function truthy(v, msg)
     if not v then error(msg or 'expected a truthy value', 2) end
 end
 
+local function throws(fn, msg)
+    if pcall(fn) then error(msg or 'expected an error but none was raised', 2) end
+end
+
 local BS = string.char(92) -- a single backslash
 
 --------------------------------------------------------------------------------
@@ -99,13 +103,13 @@ test('toSql: select with where/order/limit', function()
         :orderBy('name', 'asc')
         :limit(5)
         :toSql()
-    eq(sql, 'SELECT * FROM users WHERE age > ? ORDER BY name ASC LIMIT 5')
+    eq(sql, 'SELECT * FROM `users` WHERE `age` > ? ORDER BY `name` ASC LIMIT 5')
     eqList(params, {18})
 end)
 
 test('toSql: whereIn expands placeholders', function()
     local sql, params = QueryBuilder.new('users'):whereIn('id', {1, 2, 3}):toSql()
-    eq(sql, 'SELECT * FROM users WHERE id IN (?, ?, ?)')
+    eq(sql, 'SELECT * FROM `users` WHERE `id` IN (?, ?, ?)')
     eqList(params, {1, 2, 3})
 end)
 
@@ -115,13 +119,13 @@ test('toSql: AND / OR chaining and whereNull', function()
         :orWhere('vip', true)
         :whereNull('banned_at')
         :toSql()
-    eq(sql, 'SELECT * FROM players WHERE level >= ? OR vip = ? AND banned_at IS NULL')
+    eq(sql, 'SELECT * FROM `players` WHERE `level` >= ? OR `vip` = ? AND `banned_at` IS NULL')
     eqList(params, {10, true})
 end)
 
 test('toSql: two-arg where defaults operator to =', function()
     local sql, params = QueryBuilder.new('users'):where('id', 7):toSql()
-    eq(sql, 'SELECT * FROM users WHERE id = ?')
+    eq(sql, 'SELECT * FROM `users` WHERE `id` = ?')
     eqList(params, {7})
 end)
 
@@ -144,7 +148,7 @@ test('insert: builds INSERT with placeholders', function()
     withCapture(function(get)
         local id = QueryBuilder.new('users'):insert({name = 'bob'})
         eq(id, 1)
-        eq(get().query, 'INSERT INTO users (name) VALUES (?)')
+        eq(get().query, 'INSERT INTO `users` (`name`) VALUES (?)')
         eqList(get().params, {'bob'})
     end)
 end)
@@ -152,7 +156,7 @@ end)
 test('update: SET values precede WHERE params', function()
     withCapture(function(get)
         QueryBuilder.new('users'):where('id', 42):update({name = 'bob'})
-        eq(get().query, 'UPDATE users SET name = ? WHERE id = ?')
+        eq(get().query, 'UPDATE `users` SET `name` = ? WHERE `id` = ?')
         eqList(get().params, {'bob', 42})
     end)
 end)
@@ -160,9 +164,65 @@ end)
 test('delete: builds DELETE with where params', function()
     withCapture(function(get)
         QueryBuilder.new('users'):where('id', 42):delete()
-        eq(get().query, 'DELETE FROM users WHERE id = ?')
+        eq(get().query, 'DELETE FROM `users` WHERE `id` = ?')
         eqList(get().params, {42})
     end)
+end)
+
+--------------------------------------------------------------------------------
+-- Identifier hardening (SQL-injection defence)
+--------------------------------------------------------------------------------
+test('quoteIdentifier: bare, qualified and star', function()
+    eq(QueryBuilder.quoteIdentifier('users'), '`users`')
+    eq(QueryBuilder.quoteIdentifier('k.action_id'), '`k`.`action_id`')
+    eq(QueryBuilder.quoteIdentifier('*'), '*')
+    eq(QueryBuilder.quoteIdentifier('users.*'), '`users`.*')
+end)
+
+test('quoteIdentifier: rejects injection attempts', function()
+    throws(function() QueryBuilder.quoteIdentifier('id; DROP TABLE users') end, 'semicolon')
+    throws(function() QueryBuilder.quoteIdentifier('id`') end, 'stray backtick')
+    throws(function() QueryBuilder.quoteIdentifier('(SELECT 1)') end, 'subquery')
+    throws(function() QueryBuilder.quoteIdentifier('a b') end, 'space')
+    throws(function() QueryBuilder.quoteIdentifier('') end, 'empty')
+end)
+
+test('where: a malicious column name is rejected', function()
+    throws(function()
+        QueryBuilder.new('users'):where('name = 1 OR 1=1 -- ', 'x'):toSql()
+    end)
+end)
+
+test('where: an operator outside the allowlist is rejected', function()
+    throws(function()
+        QueryBuilder.new('users'):where('id', 'UNION SELECT', 1):toSql()
+    end)
+end)
+
+test('orderBy: a non-ASC/DESC direction is rejected', function()
+    throws(function()
+        QueryBuilder.new('users'):orderBy('name', 'ASC; DROP TABLE users'):toSql()
+    end)
+end)
+
+test('limit: a non-numeric limit is rejected', function()
+    throws(function()
+        QueryBuilder.new('users'):limit('1; DROP TABLE users'):toSql()
+    end)
+end)
+
+test('selectRaw: aggregate expression passes through unquoted', function()
+    local sql = QueryBuilder.new('users'):selectRaw('COUNT(*) as count'):toSql()
+    eq(sql, 'SELECT COUNT(*) as count FROM `users`')
+end)
+
+test('join: qualified identifiers quote each part (belongsToMany path)', function()
+    local sql = QueryBuilder.new('items')
+        :join('inventory_items', 'items.id', '=', 'inventory_items.item_id')
+        :where('inventory_items.inventory_id', 5)
+        :toSql()
+    eq(sql, 'SELECT * FROM `items` INNER JOIN `inventory_items` ON `items`.`id` = ' ..
+        '`inventory_items`.`item_id` WHERE `inventory_items`.`inventory_id` = ?')
 end)
 
 --------------------------------------------------------------------------------

@@ -4,6 +4,26 @@
 PolicyService = {}
 PolicyService.registry = {}
 
+--- Resource types with a backing "<type>_policy" pivot table. The resource
+--- type is concatenated into table/column names, so it must never be
+--- caller-controlled beyond this allowlist.
+local ALLOWED_RESOURCE_TYPES = {
+    action = true,
+    interaction = true,
+}
+
+--- Resolve the pivot table and id column for a resource type, rejecting
+--- anything outside the allowlist.
+--- @param resourceType string
+--- @return string tableName
+--- @return string idColumn
+local function resolveResourceTable(resourceType)
+    if not ALLOWED_RESOURCE_TYPES[resourceType] then
+        error('PolicyService: invalid resource type "' .. tostring(resourceType) .. '"', 2)
+    end
+    return resourceType .. '_policy', resourceType .. '_id'
+end
+
 --- Register a policy validator
 --- @param policyId string Unique policy identifier
 --- @param validator function function(source, resource, config) return boolean, reason
@@ -33,8 +53,7 @@ function PolicyService.attach(resourceType, resourceId, policyId, config)
         return false
     end
     
-    local table_name = resourceType .. '_policy'
-    local id_column = resourceType .. '_id'
+    local table_name, id_column = resolveResourceTable(resourceType)
     
     -- Check if already attached
     local existing = Database.querySync(
@@ -66,8 +85,7 @@ end
 --- @param resourceId any Resource identifier
 --- @param policyId string Optional, detaches all if nil
 function PolicyService.detach(resourceType, resourceId, policyId)
-    local table_name = resourceType .. '_policy'
-    local id_column = resourceType .. '_id'
+    local table_name, id_column = resolveResourceTable(resourceType)
     
     if policyId then
         -- Remove specific policy
@@ -91,8 +109,7 @@ end
 --- @param resourceId any Resource identifier
 --- @return table Array of {policyId, config}
 function PolicyService.getPolicies(resourceType, resourceId)
-    local table_name = resourceType .. '_policy'
-    local id_column = resourceType .. '_id'
+    local table_name, id_column = resolveResourceTable(resourceType)
     
     local results = Database.querySync(
         'SELECT policy_id, data FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
