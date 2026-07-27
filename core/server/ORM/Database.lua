@@ -335,15 +335,117 @@ function Database.executeInMemory(query)
     return {}
 end
 
---- Transaction support
---- @param callback function Transaction callback
+--- Create a transaction accumulator. Statements queued on it are executed
+--- together by Database.transaction.
+--- @return table tx
+function Database.newTransaction()
+    local tx = { queries = {} }
+
+    --- Queue a raw statement.
+    --- @param query string
+    --- @param params table|nil
+    --- @return table tx (chainable)
+    function tx:add(query, params)
+        table.insert(self.queries, { query = query, params = params or {} })
+        return self
+    end
+
+    return tx
+end
+
+--- Run a set of write statements atomically.
+---
+--- FiveM MySQL connectors pool connections, so issuing START TRANSACTION and
+--- COMMIT as separate executeSync() calls can land on different connections and
+--- would NOT be atomic. Statements are therefore collected and submitted
+--- together to the connector's native transaction API (oxmysql / ghmattimysql),
+--- which wraps them in a single START TRANSACTION ... COMMIT, rolling back on
+--- any error. Because the whole batch is sent at once, the callback cannot
+--- branch on the result of an earlier statement in the same transaction.
+---
+--- Usage:
+---   Database.transaction(function(tx)
+---     tx:add('UPDATE accounts SET balance = balance - ? WHERE id = ?', {100, 1})
+---     tx:add('UPDATE accounts SET balance = balance + ? WHERE id = ?', {100, 2})
+---   end)
+---
+--- @param callback function Receives the transaction accumulator (tx)
+--- @return boolean success True on commit (or when nothing was queued)
 function Database.transaction(callback)
-    if callback then
-        local success, err = pcall(callback)
-        if not success then
-            print('[Database] Transaction failed: ' .. tostring(err))
+    if type(callback) ~= 'function' then
+        return false
+    end
+
+    local tx = Database.newTransaction()
+
+    -- If the callback errors, nothing is committed (rollback-before-commit).
+    local ok, err = pcall(callback, tx)
+    if not ok then
+        print('[Database] Transaction aborted before commit: ' .. tostring(err))
+        return false
+    end
+
+    if #tx.queries == 0 then
+        return true
+    end
+
+    return Database.commitTransaction(tx.queries)
+end
+
+--- Commit a list of { query, params } statements atomically.
+--- Prefers the connector's native batch-transaction API; otherwise falls back
+--- to a manual START TRANSACTION / COMMIT wrapper (see caveat below).
+--- @param queries table Array of { query = string, params = table }
+--- @return boolean success
+function Database.commitTransaction(queries)
+    local success, result = pcall(function()
+        local connector
+        if GetResourceState('oxmysql') == 'started' then
+            connector = exports.oxmysql
+        elseif GetResourceState('ghmattimysql') == 'started' then
+            connector = exports.ghmattimysql
+        end
+
+        if connector and connector.transactionSync then
+            -- Both connectors take an array of { query = , values = }.
+            local batch = {}
+            for _, q in ipairs(queries) do
+                batch[#batch + 1] = { query = q.query, values = q.params }
+            end
+            return connector:transactionSync(batch)
+        end
+
+        return nil
+    end)
+
+    if success and result ~= nil then
+        return result and true or false
+    end
+
+    -- Fallback: connectors without a batch-transaction API (oblsk_connector /
+    -- mysql-async) and the in-memory store. Best effort only — with a
+    -- connection-pooling connector this is NOT guaranteed atomic, which is why
+    -- the native path above is strongly preferred.
+    return Database.commitTransactionFallback(queries)
+end
+
+--- Manual START TRANSACTION / COMMIT / ROLLBACK fallback.
+--- @param queries table
+--- @return boolean success
+function Database.commitTransactionFallback(queries)
+    Database.executeQuery('START TRANSACTION', {})
+
+    for _, q in ipairs(queries) do
+        local ok = pcall(Database.executeQuery, q.query, q.params)
+        if not ok then
+            pcall(Database.executeQuery, 'ROLLBACK', {})
+            print('[Database] Transaction rolled back')
+            return false
         end
     end
+
+    Database.executeQuery('COMMIT', {})
+    return true
 end
 
 --- Escape value for SQL

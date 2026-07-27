@@ -27,6 +27,9 @@ The runner exits non-zero if any test fails, so it works in CI.
 - `Schema.create` — generated `CREATE TABLE` DDL
 - `BaseModel:createSync` — `created_at` / `updated_at` are written as
   `DATETIME`-formatted strings
+- `Database.transaction` — statements are collected in order, a callback error
+  aborts before commit, and the manual fallback wraps them in
+  `START TRANSACTION` / `COMMIT` (or `ROLLBACK` on failure)
 
 `tests/support/fivem_stubs.lua` stubs the handful of CitizenFX globals these
 files reference (`Citizen`, `exports`, `GetResourceState`, `json`, …) so the
