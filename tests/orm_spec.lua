@@ -314,6 +314,24 @@ test('executeQuery: errors instead of silently falling back when no connector', 
     Database.connector = savedConnector
 end)
 
+test('executeQuery: forwards raw query + params to oblsk_connector', function()
+    local savedConnector, captured = Database.connector, nil
+    exports.oblsk_connector = {
+        executeSync = function(_, q, p) captured = {query = q, params = p} return {} end,
+    }
+    Database.connector = 'oblsk_connector'
+
+    Database.executeQuery('SELECT * FROM users WHERE id = ?', {5})
+
+    exports.oblsk_connector = nil
+    Database.connector = savedConnector
+
+    -- The connector escapes params itself, so core must pass the placeholder
+    -- query and the params array through untouched (not a pre-interpolated string).
+    eq(captured.query, 'SELECT * FROM users WHERE id = ?')
+    eqList(captured.params, {5})
+end)
+
 --------------------------------------------------------------------------------
 -- Database.transaction orchestration
 --------------------------------------------------------------------------------
