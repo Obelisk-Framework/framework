@@ -12,8 +12,10 @@ _G.Citizen = _G.Citizen or {
 
 _G.exports = _G.exports or setmetatable({}, {__index = function() return {} end})
 
--- No MySQL connector is present in tests, so queries fall back to the
--- in-memory path (or to whatever spy a given test installs).
+-- No MySQL connector is present in tests. Tests that need query execution
+-- install their own spy over Database.executeQuery / Database.querySync;
+-- individual tests override GetResourceState when they exercise connector
+-- detection.
 _G.GetResourceState = _G.GetResourceState or function() return 'stopped' end
 _G.GetConvar = _G.GetConvar or function(_, default) return default end
 _G.GetConvarInt = _G.GetConvarInt or function(_, default) return default end
