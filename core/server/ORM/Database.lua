@@ -242,7 +242,9 @@ function Database.executeQuery(query, params)
     end
 
     if connector == 'oblsk_connector' then
-        return exports.oblsk_connector:executeSync(Database.prepareQuery(query, params))
+        -- oblsk_connector escapes/interpolates the params itself, so forward
+        -- them rather than pre-interpolating (single source of escaping).
+        return exports.oblsk_connector:executeSync(query, params)
     elseif connector == 'oxmysql' then
         return exports.oxmysql:executeSync(query, params)
     elseif connector == 'ghmattimysql' then
@@ -318,20 +320,20 @@ end
 --- @return boolean success
 function Database.commitTransaction(queries)
     local success, result = pcall(function()
-        local connector
-        if Database.connector == 'oxmysql' then
-            connector = exports.oxmysql
-        elseif Database.connector == 'ghmattimysql' then
-            connector = exports.ghmattimysql
-        end
-
-        if connector and connector.transactionSync then
-            -- Both connectors take an array of { query = , values = }.
-            local batch = {}
-            for _, q in ipairs(queries) do
-                batch[#batch + 1] = { query = q.query, values = q.params }
+        -- Any connector that exports transactionSync gets the native atomic
+        -- path. oblsk_connector is listed here so it wires up automatically
+        -- once it gains a transaction endpoint.
+        local resName = Database.connector
+        if resName == 'oxmysql' or resName == 'ghmattimysql' or resName == 'oblsk_connector' then
+            local connector = exports[resName]
+            if connector and connector.transactionSync then
+                -- Connectors take an array of { query = , values = }.
+                local batch = {}
+                for _, q in ipairs(queries) do
+                    batch[#batch + 1] = { query = q.query, values = q.params }
+                end
+                return connector:transactionSync(batch)
             end
-            return connector:transactionSync(batch)
         end
 
         return nil
@@ -351,7 +353,20 @@ end
 --- Manual START TRANSACTION / COMMIT / ROLLBACK fallback.
 --- @param queries table
 --- @return boolean success
+Database._warnedNonAtomic = Database._warnedNonAtomic or {}
+
 function Database.commitTransactionFallback(queries)
+    -- Warn once per connector: the manual wrapper is NOT guaranteed atomic on a
+    -- connection-pooling connector (each statement may run on a different
+    -- connection). Surfaced loudly rather than failing silently.
+    local key = Database.connector or 'none'
+    if not Database._warnedNonAtomic[key] then
+        print('[Database] WARNING: connector "' .. tostring(Database.connector) ..
+              '" has no native transaction API; using a manual START TRANSACTION/COMMIT ' ..
+              'wrapper that is NOT guaranteed atomic on a pooling connector.')
+        Database._warnedNonAtomic[key] = true
+    end
+
     Database.executeQuery('START TRANSACTION', {})
 
     for _, q in ipairs(queries) do
