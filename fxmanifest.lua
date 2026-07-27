@@ -12,10 +12,10 @@ dependencies {
 }
 
 -- UI
-ui_page 'web/dist/index.html'
+ui_page 'core/html/index.html'
 
 files {
-    'web/dist/**/*'
+    'core/html/**/*'
 }
 
 -- Shared scripts (load order matters)
@@ -54,11 +54,11 @@ server_scripts {
 -- Client scripts
 client_scripts {
     -- Client Services
-    'core/client/services/KeybindService.lua',
-    'core/client/services/InteractionService.lua',
-    'core/client/services/NotificationService.lua',
-    'core/client/services/ProgressService.lua',
-    'core/client/services/**/*.lua',
+    'core/client/Services/KeybindService.lua',
+    'core/client/Services/InteractionService.lua',
+    'core/client/Services/NotificationService.lua',
+    'core/client/Services/ProgressService.lua',
+    'core/client/Services/**/*.lua',
     
     -- Client Actions
     'core/client/actions/**/*.lua',

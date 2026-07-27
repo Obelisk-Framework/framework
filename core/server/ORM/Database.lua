@@ -190,16 +190,24 @@ function Database.prepareQuery(query, params)
         return query
     end
     
-    local prepared = query
-    for _, value in ipairs(params) do
-        local escaped = Database.escape(value)
-        prepared = prepared:gsub('?', escaped, 1)
-    end
-    
+    -- Substitute each ? placeholder left-to-right with its escaped value.
+    -- A function replacement is used deliberately: the returned value is
+    -- inserted literally, so a '%' inside a value is not misinterpreted as a
+    -- gsub capture reference, and a '?' inside an already-substituted value is
+    -- never re-scanned (both were bugs with the previous one-at-a-time gsub).
+    local index = 0
+    local prepared = query:gsub('?', function()
+        index = index + 1
+        if index > #params then
+            return '?'
+        end
+        return Database.escape(params[index])
+    end)
+
     if Database.debug then
         print('[Database] Query: ' .. prepared)
     end
-    
+
     return prepared
 end
 
@@ -353,6 +361,14 @@ function Database.escape(value)
     end
     
     return 'NULL'
+end
+
+--- Current timestamp formatted for DATETIME / TIMESTAMP columns.
+--- MySQL expects 'YYYY-MM-DD HH:MM:SS' for these column types; passing a raw
+--- os.time() integer is rejected (or stored as 0000-00-00) under strict mode.
+--- @return string
+function Database.now()
+    return os.date('%Y-%m-%d %H:%M:%S')
 end
 
 --- Check if database is ready
