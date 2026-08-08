@@ -33,7 +33,10 @@ Citizen.CreateThread(function()
 
     local function runMigrationsAt(basePath, label)
         local migrationsJsonContent = LoadResourceFile(GetCurrentResourceName(), basePath .. 'migrations.json')
-        local migrationsData = json.decode(migrationsJsonContent or '') or { migrations = {} }
+        local ok, migrationsData = pcall(json.decode, migrationsJsonContent or '')
+        if not ok or not migrationsData then
+            migrationsData = { migrations = {} }
+        end
         local migrations = migrationsData.migrations or {}
 
         for _, migration in ipairs(migrations) do
@@ -67,8 +70,8 @@ Citizen.CreateThread(function()
         if not content then
             return {}
         end
-        local decoded = json.decode(content)
-        if not decoded then
+        local ok, decoded = pcall(json.decode, content)
+        if not ok or not decoded then
             print('[Obelisk] WARNING: could not parse ' .. path)
             return {}
         end

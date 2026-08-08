@@ -44,7 +44,6 @@ That generates:
 
 ```
 plugins/TownHall/
-├── fxmanifest.lua
 ├── README.md
 ├── shared/
 │   └── config.lua
