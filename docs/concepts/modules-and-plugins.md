@@ -50,24 +50,17 @@ server_scripts {
 
 `shared_scripts` and `client_scripts` follow the same shape: core's own entries first, then `modules/*/...` and `plugins/*/...` globs. Core's own entries always come first so the ORM and services finish loading before any module or plugin script runs. Since modules and plugins have no `fxmanifest.lua` of their own, they have no glob patterns to declare either. It's purely a `core/fxmanifest.lua` concern.
 
+Migrations work differently: `core/server/bootstrap.lua` runs migrations for a module or plugin only if its name appears in `modules/registry.json` or `plugins/registry.json`. `make:module` and `make:plugin` add that entry for you automatically as part of scaffolding, so anything created through the CLI just works. A module or plugin added by other means, for example cloned in directly rather than scaffolded, like the framework's own pre-existing example plugins such as `oblsk_inventory` and `oblsk_character-selection`, is not in the registry and needs its name added to the relevant `registry.json` by hand before its migrations will run automatically. Its scripts still load either way, since that's governed by the glob patterns above, not by the registry.
+
 ## The `web/*.vue` + `web/routes.js` convention
 
-Plugins that ship a Vue UI don't declare their own `ui_page`. Instead they list their Vue files under `files {}` so the resource ships them, and core's build picks the routes up at build time via a glob over `plugins/*/web/routes.js`. `plugins/oblsk_inventory/fxmanifest.lua` documents this directly:
+Plugins that ship a Vue UI don't declare their own `ui_page`. Instead, core's build picks the routes up at build time via a glob over `plugins/*/web/routes.js`, and it's `core/fxmanifest.lua`'s own `files { 'core/html/**/*' }` entry that ships the resulting built UI assets, since the Vue app is compiled into core's bundle rather than served from a per-plugin build.
 
-```lua
--- The Vue UI (web/*.vue, web/routes.js) is compiled into the core bundle at
--- build time via core's router glob (plugins/*/web/routes.js), so this plugin
--- does not declare its own ui_page. These files are listed only so they ship
--- with the resource.
-files {
-    'web/*.vue',
-    'web/routes.js',
-}
-```
+`oblsk_inventory` predates the CLI-generated convention: it's a real, hand-authored plugin that happens to still have its own `fxmanifest.lua` on disk, left over from before modules and plugins were folded into `core`. That file's `files {}` block used to be needed to ship its `web/*.vue` and `web/routes.js` sources, but for a plugin scaffolded going forward with `make:plugin`, there's no `fxmanifest.lua` of any kind, so no `files {}` block to write either. Its scripts load purely through `core/fxmanifest.lua`'s `plugins/*/...` globs (see [Script globs](#script-globs) above), and its Vue source files are picked up the same way, by the `plugins/*/web/routes.js` glob feeding into core's build, not by any manifest entry naming them.
 
-In practice this means: a plugin's Vue components and its `routes.js` route table live under `<plugin>/web/`, core's build tooling globs every `plugins/*/web/routes.js` to assemble the combined Vue Router config, and the plugin's `fxmanifest.lua` only needs `files {}` entries so FXServer actually ships those source files with the resource — there's no per-plugin `ui_page` or separate web server to run.
+In practice this means: a plugin's Vue components and its `routes.js` route table live under `<plugin>/web/`, core's build tooling globs every `plugins/*/web/routes.js` to assemble the combined Vue Router config, and FXServer ships the compiled result because it's covered by core's own `files { 'core/html/**/*' }` entry, not because any plugin declares its own `files {}`.
 
-`make:plugin` reflects a lighter version of this when you opt into the "Vue UI Page" feature: it scaffolds a `web/` directory with a Vite + Vue 3 + Tailwind `package.json` and a starter `.vue` component under `web/src/components/`. Since a generated plugin has no `fxmanifest.lua` of its own, there's no `ui_page` or `files {}` block to set either.
+`make:plugin` reflects this when you opt into the "Vue UI Page" feature: it scaffolds a `web/` directory with a Vite + Vue 3 + Tailwind `package.json` and a starter `.vue` component under `web/src/components/`. Since a generated plugin has no `fxmanifest.lua` of its own, there's no `ui_page` or `files {}` block to set, now or later.
 
 ## Scaffolding with the CLI
 

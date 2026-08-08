@@ -1,10 +1,12 @@
 # Existing Plugins
 
-The Obelisk organization ships a handful of example plugins and modules alongside core. Two of them have real, working implementations you can read end-to-end; the rest are reserved names for functionality that hasn't been built yet. This page is an honest inventory of both — don't expect the reserved ones to contain source you can copy.
+The Obelisk organization ships a handful of example plugins and modules alongside core. Two of them have real, working implementations you can read end-to-end; the rest are reserved names for functionality that hasn't been built yet. This page is an honest inventory of both, don't expect the reserved ones to contain source you can copy.
+
+Both real examples below, `oblsk_character-selection` and `oblsk_inventory`, predate the CLI-generated plugin convention and still carry their own `fxmanifest.lua` for that historical reason. Plugins generated today with `obelisk make:plugin` don't get one: they're registered by name in `plugins/registry.json` instead, and their scripts load as part of `core` itself through the globs in `core/fxmanifest.lua` (see [Modules & Plugins](/concepts/modules-and-plugins)).
 
 ## `oblsk_character-selection`
 
-A CLI-scaffolded plugin (`obelisk make:plugin`) that demonstrates the actions feature combined with a Vue UI page. Its `fxmanifest.lua` declares the standard plugin shape — dependency on `obelisk`, glob'd `shared/client/server` scripts, and its own `ui_page`:
+A real, pre-existing plugin that demonstrates the actions feature combined with a Vue UI page. It predates the CLI-generated convention this framework now uses: it was hand-authored (or scaffolded by an earlier version of the CLI) back when plugins still declared their own `fxmanifest.lua`, and it still has one on disk today, with a dependency on `obelisk`, glob'd `shared/client/server` scripts, and its own `ui_page`:
 
 ```lua
 fx_version 'cerulean'

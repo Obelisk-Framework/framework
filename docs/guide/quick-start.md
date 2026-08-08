@@ -40,7 +40,7 @@ Press `space` to toggle a choice and `enter` to confirm. For this walkthrough, a
 
 ## 3. What gets generated
 
-Every run creates the module directory itself, `modules/MyFeature/`, along with an `fxmanifest.lua` and a `README.md` that lists the features you selected. Beyond that, each selected feature currently adds one generated file:
+Every run creates the module directory itself, `modules/MyFeature/`, along with a `README.md` that lists the features you selected. Beyond that, each selected feature currently adds one generated file:
 
 | Feature | File |
 | --- | --- |
@@ -55,7 +55,6 @@ With the default selections, running the command above produces:
 
 ```
 modules/MyFeature/
-├── fxmanifest.lua
 ├── README.md
 ├── server/
 │   ├── models/MyFeature.lua
