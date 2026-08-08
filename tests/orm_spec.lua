@@ -366,9 +366,105 @@ test('postgres: plain index becomes a standalone CREATE INDEX, unique stays inli
         truthy(captured[1]:find('CONSTRAINT "players_name_unique" UNIQUE ("name")', 1, true),
             'unique constraint is inline')
         truthy(not captured[1]:find('CREATE INDEX', 1, true), 'CREATE TABLE has no inline plain index')
-        truthy(captured[2]:find('CREATE INDEX "players_name_index" ON "players" ("name")', 1, true),
-            'plain index is a standalone statement')
+        truthy(captured[2]:find('CREATE INDEX IF NOT EXISTS "players_name_index" ON "players" ("name")', 1, true),
+            'plain index is a standalone, idempotent statement (safe to re-run against an existing table)')
     end)
+end)
+
+test('postgres: ALTER TABLE ADD INDEX is also idempotent (CREATE INDEX IF NOT EXISTS)', function()
+    withDialect('postgres', function()
+        local q = Database.dialect.quoteIdentifier
+        local stmts = Database.dialect.alterAddIndexStatements('players', {name = 'players_name_index', columns = {'name'}, unique = false}, q)
+        eq(#stmts, 1)
+        eq(stmts[1], 'CREATE INDEX IF NOT EXISTS "players_name_index" ON "players" ("name");')
+    end)
+end)
+
+--------------------------------------------------------------------------------
+-- Schema.hasTable / Schema.hasColumn dialect parity
+--------------------------------------------------------------------------------
+test('mysql: hasTable queries TABLE_SCHEMA = DATABASE()', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {{count = 1}} end
+
+    local exists = Schema.hasTable('users')
+
+    Database.querySync = original
+    truthy(captured:find('TABLE_SCHEMA = DATABASE()', 1, true), 'uses DATABASE() to scope TABLE_SCHEMA')
+    eq(exists, true)
+end)
+
+test('postgres: hasTable queries table_catalog/table_schema, not TABLE_SCHEMA = current_database()', function()
+    withDialect('postgres', function()
+        local captured
+        local original = Database.querySync
+        Database.querySync = function(query) captured = query return {{count = 1}} end
+
+        local exists = Schema.hasTable('users')
+
+        Database.querySync = original
+        truthy(captured:find('table_catalog = current_database() AND table_schema = current_schema()', 1, true),
+            'scopes by table_catalog + table_schema, not the MySQL-only TABLE_SCHEMA = current_database()')
+        truthy(not captured:find('TABLE_SCHEMA = current_database()', 1, true),
+            'does not use the MySQL-shaped predicate under postgres')
+        eq(exists, true)
+    end)
+end)
+
+test('postgres: hasTable copes with a string-typed COUNT(*) result (pg returns bigint as string)', function()
+    withDialect('postgres', function()
+        local original = Database.querySync
+        Database.querySync = function() return {{count = '0'}} end
+        local exists = Schema.hasTable('users')
+        Database.querySync = original
+        eq(exists, false)
+    end)
+end)
+
+test('mysql: hasColumn queries TABLE_SCHEMA = DATABASE()', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {{count = 1}} end
+
+    local exists = Schema.hasColumn('users', 'name')
+
+    Database.querySync = original
+    truthy(captured:find('TABLE_SCHEMA = DATABASE()', 1, true), 'uses DATABASE() to scope TABLE_SCHEMA')
+    eq(exists, true)
+end)
+
+test('postgres: hasColumn queries table_catalog/table_schema', function()
+    withDialect('postgres', function()
+        local captured
+        local original = Database.querySync
+        Database.querySync = function(query) captured = query return {{count = '1'}} end
+
+        local exists = Schema.hasColumn('users', 'name')
+
+        Database.querySync = original
+        truthy(captured:find('table_catalog = current_database() AND table_schema = current_schema()', 1, true),
+            'scopes by table_catalog + table_schema')
+        eq(exists, true, 'a string "1" count (as pg returns) must still compare as existing')
+    end)
+end)
+
+--------------------------------------------------------------------------------
+-- QueryBuilder:count / countSync coping with string-typed pg results
+--------------------------------------------------------------------------------
+test('countSync: coerces a string count (pg bigint) to a number', function()
+    local qb = QueryBuilder.new('users')
+    qb.firstSync = function() return {count = '3'} end
+    local result = qb:countSync()
+    eq(result, 3)
+end)
+
+test('count (async): coerces a string count (pg bigint) to a number', function()
+    local qb = QueryBuilder.new('users')
+    qb.first = function(_, callback) callback({count = '7'}) end
+    local received
+    qb:count(function(n) received = n end)
+    eq(received, 7)
 end)
 
 test('postgres: renameColumn uses RENAME COLUMN, not CHANGE', function()
@@ -532,6 +628,27 @@ test('Database.init: postgres driver with a mysql-only connector fails fast', fu
 
     truthy(not ok, 'init should fail: oxmysql cannot serve postgres')
     truthy(not Database.ready, 'Database.ready must stay false')
+end)
+
+test('Database.init: postgres-scheme connection string alone does NOT select postgres (db_driver is the only source)', function()
+    local originalConvar = _G.GetConvar
+    _G.GetConvar = function(name, default)
+        if name == 'mysql_connection_string' then return 'postgres://obelisk:secret@db/fivem' end
+        -- db_driver deliberately left unset here.
+        return default
+    end
+    _G.GetResourceState = function(name) return name == 'oxmysql' and 'started' or 'stopped' end
+
+    Database.config.driver = nil
+    local ok = Database.init()
+    _G.GetConvar = originalConvar
+    _G.GetResourceState = function() return 'stopped' end
+
+    truthy(ok, 'init should succeed: with no db_driver convar the driver must default to mysql, ' ..
+        'a valid pairing with the mysql-only oxmysql connector')
+    eq(Database.config.driver, 'mysql',
+        'a postgres:// connection string must NOT set the driver by itself; only db_driver may')
+    eq(Database.dialect.quoteIdentifier('x'), '`x`')
 end)
 
 test('Database.init: postgres driver with oblsk_connector succeeds', function()

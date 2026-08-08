@@ -5,6 +5,8 @@
 ---   formatDefault(kind, value) -> string
 ---   tableOptions() -> string
 ---   currentDatabaseExpr() -> string
+---   tableExistsPredicate() -> string (WHERE-clause fragment scoping an
+---     information_schema.TABLES/COLUMNS query to the current database)
 ---   inlineConstraints(indexes, q) -> string[]
 ---   standaloneIndexStatements(tableName, indexes, q) -> string[]
 ---   alterAddIndexStatements(tableName, idx, q) -> string[]

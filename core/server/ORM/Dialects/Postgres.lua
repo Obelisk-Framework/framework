@@ -74,6 +74,15 @@ function PostgresDialect.currentDatabaseExpr()
     return 'current_database()'
 end
 
+--- WHERE-clause fragment (no leading AND, no trailing space) that scopes an
+--- information_schema.tables/columns query to the current database. In
+--- Postgres, table_schema is the namespace (typically 'public'), NOT the
+--- database name — the database lives in table_catalog, so both must be
+--- checked.
+function PostgresDialect.tableExistsPredicate()
+    return 'table_catalog = current_database() AND table_schema = current_schema()'
+end
+
 local function quotedColumnList(columns, q)
     local quoted = {}
     for _, col in ipairs(columns) do
@@ -100,7 +109,7 @@ function PostgresDialect.standaloneIndexStatements(tableName, indexes, q)
     local statements = {}
     for _, idx in ipairs(indexes) do
         if not idx.unique then
-            statements[#statements + 1] = 'CREATE INDEX ' .. q(idx.name) .. ' ON ' .. q(tableName) ..
+            statements[#statements + 1] = 'CREATE INDEX IF NOT EXISTS ' .. q(idx.name) .. ' ON ' .. q(tableName) ..
                 ' (' .. quotedColumnList(idx.columns, q) .. ');'
         end
     end
@@ -112,7 +121,7 @@ function PostgresDialect.alterAddIndexStatements(tableName, idx, q)
     if idx.unique then
         return { 'ALTER TABLE ' .. q(tableName) .. ' ADD CONSTRAINT ' .. q(idx.name) .. ' UNIQUE (' .. list .. ');' }
     end
-    return { 'CREATE INDEX ' .. q(idx.name) .. ' ON ' .. q(tableName) .. ' (' .. list .. ');' }
+    return { 'CREATE INDEX IF NOT EXISTS ' .. q(idx.name) .. ' ON ' .. q(tableName) .. ' (' .. list .. ');' }
 end
 
 function PostgresDialect.renameColumnSQL(tableName, from, to)

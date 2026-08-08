@@ -434,7 +434,7 @@ function QueryBuilder:count(callback)
 
     self:first(function(result)
         self.rawSelect = originalRaw
-        callback(result and result.count or 0)
+        callback(tonumber(result and result.count) or 0)
     end)
 end
 
@@ -447,7 +447,7 @@ function QueryBuilder:countSync()
     local result = self:firstSync()
     self.rawSelect = originalRaw
 
-    return result and result.count or 0
+    return tonumber(result and result.count) or 0
 end
 
 --- Insert data

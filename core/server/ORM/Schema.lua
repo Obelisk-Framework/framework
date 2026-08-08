@@ -346,10 +346,10 @@ end
 
 --- Check if a table exists
 function Schema.hasTable(tableName)
-    local sql = 'SELECT COUNT(*) as count FROM information_schema.TABLES WHERE TABLE_SCHEMA = ' ..
-                Database.dialect.currentDatabaseExpr() .. ' AND TABLE_NAME = ?'
+    local sql = 'SELECT COUNT(*) as count FROM information_schema.TABLES WHERE ' ..
+                Database.dialect.tableExistsPredicate() .. ' AND TABLE_NAME = ?'
     local result = Database.querySync(sql, {tableName})
-    return result and result[1] and result[1].count > 0
+    return result and result[1] and (tonumber(result[1].count) or 0) > 0
 end
 
 --- Modify an existing table
@@ -390,10 +390,10 @@ end
 
 --- Check if a column exists
 function Schema.hasColumn(tableName, columnName)
-    local sql = 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ' ..
-                Database.dialect.currentDatabaseExpr() .. ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+    local sql = 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE ' ..
+                Database.dialect.tableExistsPredicate() .. ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
     local result = Database.querySync(sql, {tableName, columnName})
-    return result and result[1] and result[1].count > 0
+    return result and result[1] and (tonumber(result[1].count) or 0) > 0
 end
 
 --- Drop a column

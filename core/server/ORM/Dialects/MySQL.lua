@@ -63,6 +63,13 @@ function MySQLDialect.currentDatabaseExpr()
     return 'DATABASE()'
 end
 
+--- WHERE-clause fragment (no leading AND, no trailing space) that scopes an
+--- information_schema.TABLES/COLUMNS query to the current database. In
+--- MySQL, TABLE_SCHEMA holds the database name.
+function MySQLDialect.tableExistsPredicate()
+    return 'TABLE_SCHEMA = ' .. MySQLDialect.currentDatabaseExpr()
+end
+
 local function quotedColumnList(columns, q)
     local quoted = {}
     for _, col in ipairs(columns) do

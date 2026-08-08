@@ -74,14 +74,23 @@ function Database.init()
     if connectionString ~= '' then
         local parsed = Database.parseConnectionString(connectionString)
         for k, v in pairs(parsed) do
-            if v and v ~= '' then
+            -- driver is deliberately excluded here: the sibling oblsk_connector
+            -- resource (a separate process/repo) has no visibility into this
+            -- connection string and resolves its own driver purely from the
+            -- db_driver convar. If core also inferred a driver from the
+            -- connection-string scheme, the two sides could silently disagree
+            -- (e.g. core generates Postgres SQL while the connector's sidecar
+            -- stays on a MySQL pool). So db_driver is the ONLY source of truth
+            -- for Database.config.driver, matching the connector exactly.
+            if k ~= 'driver' and v and v ~= '' then
                 Database.config[k] = v
             end
         end
     end
 
-    -- An explicit db_driver convar wins over whatever the connection string
-    -- scheme implied; defaults to mysql when neither is set.
+    -- db_driver convar is the sole source of truth for the driver; defaults
+    -- to mysql when unset. See the comment above the connection-string merge
+    -- for why the connection-string scheme is deliberately NOT consulted.
     local driverConvar = GetConvar('db_driver', '')
     if driverConvar ~= '' then
         Database.config.driver = driverConvar
