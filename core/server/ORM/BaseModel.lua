@@ -27,7 +27,7 @@ end
 --- Create a new query builder for this model
 --- @return QueryBuilder
 function BaseModel:newQuery()
-    return QueryBuilder.new(self.table)
+    return QueryBuilder.new(self.table, self.primaryKey)
 end
 
 --- Find a model by primary key (async)

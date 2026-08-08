@@ -77,6 +77,22 @@ test('escape: backslashes are doubled', function()
 end)
 
 --------------------------------------------------------------------------------
+-- Dialect wiring
+--------------------------------------------------------------------------------
+test('Database.dialect defaults to mysql before init() runs', function()
+    eq(Database.dialect.quoteIdentifier('users'), '`users`')
+end)
+
+test('QueryBuilder.quoteIdentifier delegates to Database.dialect', function()
+    local original = Database.dialect
+    Database.dialect = Dialects.resolve('postgres')
+    local ok, result = pcall(QueryBuilder.quoteIdentifier, 'users')
+    Database.dialect = original
+    truthy(ok, 'quoteIdentifier should not error')
+    eq(result, '"users"')
+end)
+
+--------------------------------------------------------------------------------
 -- Database.prepareQuery  (regression tests for the substitution bugs)
 --------------------------------------------------------------------------------
 test('prepareQuery: no params returns the query unchanged', function()
@@ -146,6 +162,13 @@ local function withCapture(fn)
     Database.executeQuery = original
     if not ok then error(err, 2) end
 end
+
+test('insert: mysql adds no RETURNING clause', function()
+    withCapture(function(get)
+        QueryBuilder.new('users'):insert({name = 'bob'})
+        truthy(not get().query:find('RETURNING', 1, true), 'mysql insert has no RETURNING')
+    end)
+end)
 
 test('insert: builds INSERT with placeholders', function()
     withCapture(function(get)

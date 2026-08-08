@@ -26,26 +26,7 @@ local ALLOWED_JOIN_TYPES = {
 --- @param identifier string
 --- @return string quoted
 function QueryBuilder.quoteIdentifier(identifier)
-    if type(identifier) ~= 'string' or identifier == '' then
-        error('QueryBuilder: invalid identifier: ' .. tostring(identifier), 2)
-    end
-
-    if identifier == '*' then
-        return '*'
-    end
-
-    local parts = {}
-    for part in (identifier .. '.'):gmatch('([^%.]*)%.') do
-        if part == '*' then
-            table.insert(parts, '*')
-        elseif part:match('^[%w_$]+$') then
-            table.insert(parts, '`' .. part .. '`')
-        else
-            error('QueryBuilder: illegal identifier "' .. identifier .. '"', 2)
-        end
-    end
-
-    return table.concat(parts, '.')
+    return Database.dialect.quoteIdentifier(identifier)
 end
 
 --- Validate a WHERE/JOIN operator against the allowlist.
@@ -62,9 +43,10 @@ end
 --- Create a new QueryBuilder instance
 --- @param tableName string
 --- @return QueryBuilder
-function QueryBuilder.new(tableName)
+function QueryBuilder.new(tableName, primaryKey)
     local self = setmetatable({}, QueryBuilder)
     self.tableName = tableName
+    self.primaryKey = primaryKey or 'id'
     self.selectColumns = {'*'}
     self.rawSelect = nil
     self.whereConditions = {}
@@ -484,8 +466,9 @@ function QueryBuilder:insert(data, callback)
 
     local sql = 'INSERT INTO ' .. QueryBuilder.quoteIdentifier(self.tableName) ..
                 ' (' .. table.concat(columns, ', ') .. ') VALUES (' ..
-                table.concat(placeholders, ', ') .. ')'
-    
+                table.concat(placeholders, ', ') .. ')' ..
+                Database.dialect.insertReturningClause(self.primaryKey)
+
     if callback then
         Database.insert(sql, values, callback)
     else

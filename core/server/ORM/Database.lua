@@ -15,6 +15,12 @@ Database.config = {
 }
 Database.debug = false
 
+-- Default dialect: MySQL, matching Database.config's default host/port. Real
+-- driver selection (from db_driver convar or connection-string scheme)
+-- happens in Database.init(); this default lets QueryBuilder/Schema build
+-- correct SQL even before init() runs (e.g. in unit tests).
+Database.dialect = Dialects.resolve('mysql')
+
 --- MySQL connector resources, in order of preference.
 local CONNECTORS = { 'oblsk_connector', 'oxmysql', 'ghmattimysql', 'mysql-async' }
 
