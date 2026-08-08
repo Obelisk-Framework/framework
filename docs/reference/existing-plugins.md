@@ -116,12 +116,3 @@ end
 Unlike `oblsk_character-selection`, `oblsk_inventory`'s Vue UI (`web/Inventory.vue`, `web/InventorySlot.vue`, `web/routes.js`) doesn't declare its own `ui_page` — it participates in core's combined build glob instead, as described in [Modules & Plugins](/concepts/modules-and-plugins).
 
 Source: `plugins/oblsk_inventory/` in the main Obelisk Framework checkout.
-
-## Reserved (not yet implemented)
-
-The following names exist as empty repositories reserved for future work. They contain no `fxmanifest.lua` and no source yet — do not treat them as usable examples:
-
-- **`oblsk_banking`** — reserved plugin name, no implementation yet.
-- **`oblsk_garage`** — reserved plugin name, no implementation yet.
-- **`modules/oblsk_items`** — reserved module name, no implementation yet.
-- **`modules/oblsk_vehicles`** — reserved module name, no implementation yet.
