@@ -477,6 +477,79 @@ test('executeQuery: forwards raw query + params to oblsk_connector', function()
 end)
 
 --------------------------------------------------------------------------------
+-- Database driver resolution
+--------------------------------------------------------------------------------
+test('parseConnectionString: mysql scheme (default port 3306)', function()
+    local cfg = Database.parseConnectionString('mysql://obelisk:secret@db:3307/fivem')
+    eq(cfg.driver, 'mysql')
+    eq(cfg.user, 'obelisk')
+    eq(cfg.password, 'secret')
+    eq(cfg.host, 'db')
+    eq(cfg.port, 3307)
+    eq(cfg.database, 'fivem')
+end)
+
+test('parseConnectionString: postgres scheme defaults port 5432', function()
+    local cfg = Database.parseConnectionString('postgres://obelisk:secret@db/fivem')
+    eq(cfg.driver, 'postgres')
+    eq(cfg.port, 5432)
+end)
+
+test('Database.init: db_driver convar wins over connection-string scheme', function()
+    local originalConvar, originalConnStr = _G.GetConvar, nil
+    _G.GetConvar = function(name, default)
+        if name == 'mysql_connection_string' then return 'postgres://obelisk:secret@db/fivem' end
+        if name == 'db_driver' then return 'mysql' end
+        return default
+    end
+    _G.GetResourceState = function(name) return name == 'oxmysql' and 'started' or 'stopped' end
+
+    local ok = Database.init()
+    _G.GetConvar = originalConvar
+    _G.GetResourceState = function() return 'stopped' end
+
+    truthy(ok, 'init should succeed (mysql driver + mysql-only connector is valid)')
+    eq(Database.config.driver, 'mysql')
+    eq(Database.dialect.quoteIdentifier('x'), '`x`')
+end)
+
+test('Database.init: postgres driver with a mysql-only connector fails fast', function()
+    local originalConvar = _G.GetConvar
+    _G.GetConvar = function(name, default)
+        if name == 'db_driver' then return 'postgres' end
+        return default
+    end
+    _G.GetResourceState = function(name) return name == 'oxmysql' and 'started' or 'stopped' end
+
+    local ok = Database.init()
+    _G.GetConvar = originalConvar
+    _G.GetResourceState = function() return 'stopped' end
+
+    truthy(not ok, 'init should fail: oxmysql cannot serve postgres')
+    truthy(not Database.ready, 'Database.ready must stay false')
+end)
+
+test('Database.init: postgres driver with oblsk_connector succeeds', function()
+    local originalConvar = _G.GetConvar
+    _G.GetConvar = function(name, default)
+        if name == 'db_driver' then return 'postgres' end
+        return default
+    end
+    _G.GetResourceState = function(name) return name == 'oblsk_connector' and 'started' or 'stopped' end
+
+    local ok = Database.init()
+    _G.GetConvar = originalConvar
+    _G.GetResourceState = function() return 'stopped' end
+
+    truthy(ok, 'init should succeed')
+    eq(Database.dialect.quoteIdentifier('x'), '"x"')
+
+    -- Reset global state so later tests (which assume the mysql default) aren't affected.
+    Database.config.driver = 'mysql'
+    Database.dialect = Dialects.resolve('mysql')
+end)
+
+--------------------------------------------------------------------------------
 -- Database.transaction orchestration
 --------------------------------------------------------------------------------
 test('transaction: queues statements in order and commits them', function()

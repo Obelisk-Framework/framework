@@ -30,22 +30,26 @@ local CONNECTORS = { 'oblsk_connector', 'oxmysql', 'ghmattimysql', 'mysql-async'
 --- @return table config
 function Database.parseConnectionString(connectionString)
     local config = {}
-    
-    local userPass, hostPath = connectionString:match('mysql://([^@]+)@(.+)')
+
+    local scheme, userPass, hostPath = connectionString:match('^(%a+)://([^@]+)@(.+)$')
+    if scheme then
+        config.driver = (scheme == 'postgres' or scheme == 'postgresql') and 'postgres' or 'mysql'
+    end
+
     if userPass then
         config.user, config.password = userPass:match('([^:]+):(.+)')
     end
-    
+
     if hostPath then
         local hostPort, database = hostPath:match('([^/]+)/(.+)')
         if hostPort then
             local host, port = hostPort:match('([^:]+):?(%d*)')
             config.host = host
-            config.port = tonumber(port) or 3306
+            config.port = tonumber(port) or (config.driver == 'postgres' and 5432 or 3306)
             config.database = database
         end
     end
-    
+
     return config
 end
 
@@ -76,6 +80,15 @@ function Database.init()
         end
     end
 
+    -- An explicit db_driver convar wins over whatever the connection string
+    -- scheme implied; defaults to mysql when neither is set.
+    local driverConvar = GetConvar('db_driver', '')
+    if driverConvar ~= '' then
+        Database.config.driver = driverConvar
+    end
+    Database.config.driver = Database.config.driver or 'mysql'
+    Database.dialect = Dialects.resolve(Database.config.driver)
+
     Database.connector = Database.detectConnector()
 
     if not Database.connector then
@@ -92,8 +105,18 @@ function Database.init()
         return false
     end
 
+    if Database.config.driver == 'postgres' and Database.connector ~= 'oblsk_connector' then
+        Database.ready = false
+        print('[Database] ============================================================')
+        print('[Database] FATAL: db_driver "postgres" requires oblsk_connector.')
+        print('[Database] Connector "' .. Database.connector .. '" only speaks MySQL.')
+        print('[Database] Start oblsk_connector instead, or set db_driver back to mysql.')
+        print('[Database] ============================================================')
+        return false
+    end
+
     Database.ready = true
-    print('[Database] Initialized (connector: ' .. Database.connector .. ')')
+    print('[Database] Initialized (connector: ' .. Database.connector .. ', driver: ' .. Database.config.driver .. ')')
     print('[Database] Config: ' .. Database.config.user .. '@' .. Database.config.host .. ':' .. Database.config.port .. '/' .. Database.config.database)
 
     return true
