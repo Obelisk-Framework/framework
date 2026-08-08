@@ -1,11 +1,15 @@
 name: Deploy Docs
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/docs.yml'
+  # GitHub Pages needs a public repo or a paid plan for a private repo.
+  # Re-enable the push trigger (branches/paths below) once Pages is
+  # available for this repo; until then, run manually via workflow_dispatch.
+  workflow_dispatch: {}
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'docs/**'
+  #     - '.github/workflows/docs.yml'
 
 permissions:
   contents: read
