@@ -1,1 +1,5 @@
 node_modules
+modules/*
+plugins/*
+!modules/registry.json
+!plugins/registry.json

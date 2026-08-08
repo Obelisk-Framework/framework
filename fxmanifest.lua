@@ -20,7 +20,9 @@ files {
 
 -- Shared scripts (load order matters)
 shared_scripts {
-    'core/shared/**/*.lua'
+    'core/shared/**/*.lua',
+    'modules/*/shared/**/*.lua',
+    'plugins/*/shared/**/*.lua'
 }
 
 -- Server scripts
@@ -51,7 +53,9 @@ server_scripts {
     'core/server/Policies/**/*.lua',
     
     -- Bootstrap
-    'core/server/bootstrap.lua'
+    'core/server/bootstrap.lua',
+    'modules/*/server/**/*.lua',
+    'plugins/*/server/**/*.lua'
 }
 
 -- Client scripts
@@ -67,5 +71,7 @@ client_scripts {
     'core/client/actions/**/*.lua',
     
     -- Bootstrap
-    'core/client/bootstrap.lua'
+    'core/client/bootstrap.lua',
+    'modules/*/client/**/*.lua',
+    'plugins/*/client/**/*.lua'
 }
