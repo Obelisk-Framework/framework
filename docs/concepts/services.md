@@ -15,6 +15,41 @@ core/server/Services/*.lua
 
 Because they're globals loaded in this fixed order, later services can call earlier ones directly (e.g. `ActionService` calls `PolicyService.check` and `NotificationService.notify`).
 
+## Hooks
+
+A minimal event-hook system (`core/server/Services/Hooks.lua`), loaded before every other service so they can all register and run hooks against each other's lifecycle events.
+
+- **`Hooks.registerHook(hookName, callback)`**: registers `callback` under `hookName`. Multiple callbacks can register under the same name; they run in registration order.
+- **`Hooks.runHook(hookName, finalCallback, ...)`**: runs every callback registered under `hookName`, passing `...` to each, then calls `finalCallback(results)` once they've all finished. `results` is an array of each callback's return value, in registration order.
+
+Each callback can be synchronous or asynchronous:
+
+- **Synchronous**: return a plain value directly. It's collected into `results` as-is.
+- **Asynchronous**: return a `function(cb)`. `runHook` calls it and waits for `cb(result)` before moving to the next callback (or calling `finalCallback` if it was the last one). This is how a hook can, for example, run its own database query before contributing a result.
+
+A callback that errors is caught via `pcall`; the error is printed and that callback's slot in `results` is left `nil`, but the chain continues to the next callback rather than aborting.
+
+```lua
+Hooks.registerHook('interaction:use', function(source, interaction)
+    print(('[MyPlugin] %s used %s'):format(source, interaction.label))
+    return true -- synchronous result
+end)
+
+Hooks.registerHook('action:before:open_stash', function(source, data)
+    return function(cb)
+        PolicyService.checkSync(source, 'custom', 'stash-cooldown')
+        cb(true) -- asynchronous result, via the callback
+    end
+end)
+```
+
+Hooks the built-in services already run, that a plugin/module can register against without modifying core:
+
+- **`action:before:<actionId>`** / **`action:after:<actionId>`**: run by `ActionService.execute` around the action handler. Any callback returning `false` from `action:before:<actionId>` cancels the action before it runs.
+- **`interaction:use`**: run by `InteractionService.use` after a successful interaction (policy passed, associated action executed).
+- **`notification:sent`**: run by `NotificationService.notify`, but only for a specific `target` (never for a `-1` broadcast).
+- **`death:handle`**: run by `DeathService:handlePlayerDeath`. If any callback's result is truthy, the default respawn/heal behavior is skipped, letting a plugin (e.g. a custom death screen) take over entirely.
+
 ## ActionService
 
 A registry/dispatcher for named, server-executed operations — the thing keybinds, interactions, and UI events all funnel through.
