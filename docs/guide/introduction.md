@@ -14,7 +14,7 @@ Obelisk is split across several resources and directories, each with a distinct 
 
 - **`core`** (this repository) — the main framework resource: the ORM, core services (hooks, actions, interactions, policies, notifications, progress, keybinds), and the CLI.
 - **`oblsk_connector`** — a companion FiveM resource paired with a Node.js HTTP sidecar. It's the piece that actually issues queries against MySQL/MariaDB or PostgreSQL, since FXServer's Lua runtime can't load a native DB driver directly.
-- **`modules/`** — first-party framework modules maintained alongside core, such as `oblsk_items` and `oblsk_vehicles`.
+- **`modules/`** — first-party framework modules maintained alongside core; `oblsk_items` and `oblsk_vehicles` are names reserved for planned modules here (see [Existing Plugins](/reference/existing-plugins) for what's actually implemented today).
 - **`plugins/`** — third-party or project-specific plugins that build on the framework, such as `oblsk_inventory` and `oblsk_character-selection`.
 - **`core/web`** — the Vue 3 + Vite NUI application. It's built and its output is served in-game as the player-facing UI.
 

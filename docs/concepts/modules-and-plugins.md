@@ -47,6 +47,10 @@ dependencies {
 
 `make:plugin` generates the same `dependencies { 'obelisk' }` block for every new plugin.
 
+::: warning `obelisk` isn't an actual resource name
+This dependency references a resource named `obelisk`, but that's not how the framework is actually deployed today — the core resource is mounted and `ensure`d as `core` (see every `server.cfg` example in these docs). No resource is ever literally named `obelisk`, so `dependencies { 'obelisk' }` doesn't currently resolve to anything. This is a known naming inconsistency in the framework, not something you need to work around yourself.
+:::
+
 ### Script globs
 
 Both core and generated modules/plugins use FiveM's glob patterns to list scripts, e.g. core's:

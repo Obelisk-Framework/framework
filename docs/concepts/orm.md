@@ -11,13 +11,24 @@ There is no in-memory fallback: `Database.init()` fails fast if no connector res
 
 ## Models
 
-Every model extends `BaseModel`, giving it query, save, and relationship helpers:
+Every model extends `BaseModel`, giving it query, save, and relationship helpers. The intended, documented API is `extend`:
 
 ```lua
 Inventory = BaseModel:extend('inventories')
 ```
 
-`extend(tableName)` returns a subclass whose class-level lookups fall back to `BaseModel` and whose instances resolve custom methods and relationship definitions on the child. It centralizes the `setmetatable` boilerplate that `make:model` generates for you.
+`extend(tableName)` is meant to return a subclass whose class-level lookups fall back to `BaseModel` and whose instances resolve custom methods and relationship definitions on the child, centralizing the `setmetatable` boilerplate that model generation otherwise requires.
+
+::: warning `BaseModel:extend()` is not implemented on this branch
+`BaseModel:extend` doesn't exist yet in `core/server/ORM/BaseModel.lua` on this branch — calling it raises `attempt to call a nil value`. A fix exists on an unmerged branch (`origin/claude/basemodel-extend`), but until it lands, use the explicit form instead, which is exactly what `obelisk make:model` generates today:
+
+```lua
+Inventory = {}
+setmetatable(Inventory, { __index = BaseModel })
+```
+
+Treat `extend()` above as the pattern the framework is headed toward, not something that works right now.
+:::
 
 A model configures itself with class-level fields, all inherited from `BaseModel`'s defaults:
 

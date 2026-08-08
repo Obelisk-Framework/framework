@@ -43,10 +43,12 @@ Before the server will actually run, edit `server-data/server.cfg` and set a rea
 MariaDB is the default DB backend. To use PostgreSQL instead:
 
 1. In `server-data/server.cfg`, set `db_driver "postgres"` and point `mysql_connection_string` at the `postgres` service instead of `mariadb`.
-2. Start the `postgres` compose service instead of (not alongside) `mariadb`:
+2. Start the `postgres` compose service alongside the rest:
 
    ```bash
    docker compose --profile postgres up postgres fxserver
    ```
+
+   Note that `mariadb` will still start too — it's an unused dependency of the `fxserver` service (`depends_on: [mariadb]` in `docker-compose.yml`), so Compose brings it up regardless of the `--profile postgres` flag. It's the `db_driver postgres` setting in `server.cfg` that actually determines which database the connector talks to, not which containers happen to be running.
 
 `db_driver` is the only thing that selects the ORM's SQL dialect — see [ORM: Dialects](/concepts/orm#dialects) for details.
