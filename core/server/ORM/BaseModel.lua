@@ -20,8 +20,45 @@ function BaseModel.new(attributes)
     instance.original = {}
     instance.relations = {}
     instance.exists = false
-    
+
     return instance
+end
+
+--- Create a subclass of this model (Active Record class inheritance)
+--- Class-level lookups fall back to the parent, and instances use the child
+--- as their metatable so custom methods and relationships resolve on instances.
+--- @param tableName string|nil Optional table name for the new model
+--- @return table The new model class
+function BaseModel:extend(tableName)
+    local child = {}
+    child.__index = child
+    setmetatable(child, { __index = self })
+
+    if tableName then
+        child.table = tableName
+    end
+
+    --- Create a new instance of the child model
+    --- @param attributes table
+    --- @return table
+    function child.new(attributes)
+        local instance = setmetatable({}, child)
+        instance.attributes = attributes or {}
+        instance.original = {}
+        instance.relations = {}
+        instance.exists = false
+
+        instance.table = child.table
+        instance.primaryKey = child.primaryKey
+        instance.timestamps = child.timestamps
+        instance.fillable = child.fillable
+        instance.hidden = child.hidden
+        instance.casts = child.casts
+
+        return instance
+    end
+
+    return child
 end
 
 --- Create a new query builder for this model
