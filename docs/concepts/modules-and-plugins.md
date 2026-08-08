@@ -35,21 +35,7 @@ dependencies {
 
 ### Plugin manifests
 
-Plugins instead depend on the `obelisk` resource by name, since they build on globals (`BaseModel`, services) that core provides and must be started first. `plugins/oblsk_inventory/fxmanifest.lua`:
-
-```lua
--- Requires the Obelisk core resource: it provides the shared globals this
--- plugin builds on (BaseModel/ORM, services) and must load first.
-dependencies {
-    'obelisk'
-}
-```
-
-`make:plugin` generates the same `dependencies { 'obelisk' }` block for every new plugin.
-
-::: warning `obelisk` isn't an actual resource name
-This dependency references a resource named `obelisk`, but that's not how the framework is actually deployed today — the core resource is mounted and `ensure`d as `core` (see every `server.cfg` example in these docs). No resource is ever literally named `obelisk`, so `dependencies { 'obelisk' }` doesn't currently resolve to anything. This is a known naming inconsistency in the framework, not something you need to work around yourself.
-:::
+Plugins don't have their own `fxmanifest.lua`. `make:plugin` scaffolds a plugin's directory tree (`server/`, `client/`, `shared/`, and for Vue-enabled plugins `web/`) and registers its name in `plugins/registry.json`; its scripts load as part of `core`'s own resource via the `plugins/*/...` globs in `core/fxmanifest.lua`, so `core`'s ORM and services (which every plugin depends on) are always loaded first, by construction, before this plugin's scripts run.
 
 ### Script globs
 
