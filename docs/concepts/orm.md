@@ -17,18 +17,12 @@ Every model extends `BaseModel`, giving it query, save, and relationship helpers
 Inventory = BaseModel:extend('inventories')
 ```
 
-`extend(tableName)` is meant to return a subclass whose class-level lookups fall back to `BaseModel` and whose instances resolve custom methods and relationship definitions on the child, centralizing the `setmetatable` boilerplate that model generation otherwise requires.
-
-::: warning `BaseModel:extend()` is not implemented on this branch
-`BaseModel:extend` doesn't exist yet in `core/server/ORM/BaseModel.lua` on this branch — calling it raises `attempt to call a nil value`. A fix exists on an unmerged branch (`origin/claude/basemodel-extend`), but until it lands, use the explicit form instead, which is exactly what `obelisk make:model` generates today:
+`extend(tableName)` returns a subclass whose class-level lookups fall back to `BaseModel` and whose instances resolve custom methods and relationship definitions on the child, centralizing the `setmetatable` boilerplate that model generation otherwise requires. It's equivalent to the explicit form below, which older generated models and some existing plugins still use:
 
 ```lua
 Inventory = {}
 setmetatable(Inventory, { __index = BaseModel })
 ```
-
-Treat `extend()` above as the pattern the framework is headed toward, not something that works right now.
-:::
 
 A model configures itself with class-level fields, all inherited from `BaseModel`'s defaults:
 
@@ -179,3 +173,5 @@ set db_driver "postgres"
 ```
 
 Setting `db_driver postgres` also requires `oblsk_connector` to be the active connector resource — any other connector (`oxmysql`, `ghmattimysql`, `mysql-async`) only speaks MySQL, and `Database.init()` fails fast with a fatal error if `db_driver` is `postgres` while a different connector is running.
+
+For the complete function-by-function signature list, including the lower-level `Database` layer and every `QueryBuilder`/`Blueprint` method only summarized above, see the [ORM API Reference](/reference/orm).

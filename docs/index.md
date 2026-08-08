@@ -17,7 +17,7 @@ features:
   - title: Dual-dialect ORM
     details: An Eloquent-inspired ORM (models, query builder, migrations) that generates correct SQL for both MySQL/MariaDB and PostgreSQL, switchable via a single convar.
   - title: Modules & Plugins
-    details: A clear split between core-owned modules and third-party plugins, both scaffolded by the CLI with fxmanifest conventions baked in.
+    details: A clear split between core-owned modules and third-party plugins, both scaffolded by the CLI and registered automatically so they load as part of core.
   - title: CLI generators
     details: 'obelisk make:module, make:plugin, make:model, make:migration, make:action, make:policy, and more — scaffolding that matches the framework''s own conventions.'
   - title: Docker-ready

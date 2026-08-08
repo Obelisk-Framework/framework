@@ -31,10 +31,12 @@ The repository root (one level above `core/`) has a `docker-compose.yml`, a `doc
 ```bash
 # from the repo root (one level above core/)
 scripts/update-fivem-server.sh        # or scripts\update-fivem-server.bat on Windows
-docker compose up --build
+docker compose --profile mariadb up --build mariadb fxserver
 ```
 
-`docker compose up --build` starts three things: the `mariadb` service (the default DB backend), the `fxserver` service (built from `docker/fivem/Dockerfile`, which mounts `./core` and `./oblsk_connector` straight from the repo as resources), and `oblsk_connector`'s Node.js sidecar, which the container's entrypoint script starts alongside FXServer before running `./run.sh +exec server.cfg`.
+`mariadb` and `postgres` are both gated behind a Compose profile (`--profile mariadb` / `--profile postgres`) so only one database container ever starts. There's no implicit default profile, even for MariaDB, so the flag is required in every invocation, including this one.
+
+`docker compose --profile mariadb up --build mariadb fxserver` starts three things: the `mariadb` service (the default DB backend), the `fxserver` service (built from `docker/fivem/Dockerfile`, which mounts `./core` and `./oblsk_connector` straight from the repo as resources), and `oblsk_connector`'s Node.js sidecar, which the container's entrypoint script starts alongside FXServer before running `./run.sh +exec server.cfg`.
 
 Before the server will actually run, edit `server-data/server.cfg` and set a real `sv_licenseKey` — get one from [keymaster.fivem.net](https://keymaster.fivem.net). The placeholder value `"changeme"` will not work.
 
@@ -49,6 +51,6 @@ MariaDB is the default DB backend. To use PostgreSQL instead:
    docker compose --profile postgres up postgres fxserver
    ```
 
-   Note that `mariadb` will still start too — it's an unused dependency of the `fxserver` service (`depends_on: [mariadb]` in `docker-compose.yml`), so Compose brings it up regardless of the `--profile postgres` flag. It's the `db_driver postgres` setting in `server.cfg` that actually determines which database the connector talks to, not which containers happen to be running.
+   `mariadb` is gated behind its own `mariadb` profile, so it does not start alongside `postgres` here. `db_driver postgres` in `server.cfg` is still what actually selects the database the connector talks to; the profile flag only controls which containers run.
 
 `db_driver` is the only thing that selects the ORM's SQL dialect — see [ORM: Dialects](/concepts/orm#dialects) for details.
