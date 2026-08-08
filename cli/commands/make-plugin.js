@@ -2,6 +2,7 @@ const inquirer = require('inquirer');
 const fs = require('fs-extra');
 const path = require('path');
 const chalk = require('chalk');
+const { appendToRegistry } = require('../lib/registry');
 
 async function makePlugin(name) {
   console.log(chalk.blue('\n🔌 Obelisk Plugin Generator\n'));
@@ -71,46 +72,6 @@ async function makePlugin(name) {
     await fs.ensureDir(path.join(pluginDir, 'web'));
   }
   
-  // Create fxmanifest.lua
-  const manifestContent = `fx_version 'cerulean'
-game 'gta5'
-
-author '${details.author}'
-description '${details.description}'
-version '1.0.0'
-
--- Plugin dependencies
-dependencies {
-    'obelisk'
-}
-
--- Shared scripts
-shared_scripts {
-    'shared/**/*.lua'
-}
-
--- Client scripts
-client_scripts {
-    'client/**/*.lua'
-}
-
--- Server scripts
-server_scripts {
-    '@oxmysql/lib/MySQL.lua',  -- If using database
-    'server/**/*.lua'
-}
-
-${details.features.includes('vue') ? `-- UI
-ui_page 'web/dist/index.html'
-
-files {
-    'web/dist/**/*'
-}
-` : ''}
-`;
-  
-  await fs.writeFile(path.join(pluginDir, 'fxmanifest.lua'), manifestContent);
-  
   // Create config file
   const configContent = `Config = {}
 
@@ -159,10 +120,7 @@ ${details.author}
 ${details.features.map(f => `- ${f}`).join('\n')}
 
 ## Installation
-1. Ensure Obelisk framework is installed
-2. Place this plugin in the \`plugins/\` directory
-3. Add \`ensure ${pluginName}\` to your server.cfg
-4. Restart your server
+This plugin loads as part of the \`core\` resource. Place it in the \`plugins/\` directory and restart \`core\` (or the whole server) to pick it up.
 
 ## Configuration
 Edit \`shared/config.lua\` to configure the plugin.
@@ -172,7 +130,13 @@ Add usage instructions here.
 `;
   
   await fs.writeFile(path.join(pluginDir, 'README.md'), readmeContent);
-  
+
+  await appendToRegistry(
+    path.join(process.cwd(), 'plugins', 'registry.json'),
+    pluginName,
+    'plugins'
+  );
+
   console.log(chalk.green(`\n✓ Plugin ${pluginName} created successfully!`));
   console.log(chalk.gray(`\n  Location: ${pluginDir}`));
   
