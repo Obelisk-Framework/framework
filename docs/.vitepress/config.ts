@@ -57,6 +57,7 @@ export default defineConfig({
         {
           text: 'Reference',
           items: [
+            { text: 'ORM API Reference', link: '/reference/orm' },
             { text: 'Existing Plugins', link: '/reference/existing-plugins' }
           ]
         }
