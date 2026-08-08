@@ -1,0 +1,82 @@
+# Quick Start
+
+This walks through the shortest real path from a fresh clone to a generated, loadable module, using only commands that actually exist in this repository.
+
+## 1. Install dependencies
+
+From the `core` directory:
+
+```bash
+cd core
+npm install
+```
+
+## 2. Generate a module
+
+Run the `make:module` generator through the `cli` npm script, passing the module name as an argument:
+
+```bash
+npm run cli -- make:module MyFeature
+```
+
+This is equivalent to running `node cli/index.js make:module MyFeature` directly — `cli` is just the `"cli": "node cli/index.js"` script defined in `core/package.json`. (If you passed no name, the CLI would prompt for one interactively instead.)
+
+### The feature checklist
+
+Next, `make:module` asks which features to scaffold with an interactive checkbox prompt, `Select features to include:`, offering exactly these choices (checked ones are pre-selected):
+
+- Database Model *(checked)*
+- Database Migration *(checked)*
+- Database Seeder
+- Actions *(checked)*
+- Interactions
+- Keybinds
+- Policies
+- Vue Component
+- Client Services *(checked)*
+- Server Services *(checked)*
+
+Press `space` to toggle a choice and `enter` to confirm. For this walkthrough, accept the defaults.
+
+## 3. What gets generated
+
+Every run creates the module directory itself, `modules/MyFeature/`, along with an `fxmanifest.lua` and a `README.md` that lists the features you selected. Beyond that, each selected feature currently adds one generated file:
+
+| Feature | File |
+| --- | --- |
+| Database Model | `modules/MyFeature/server/models/MyFeature.lua` |
+| Database Migration | `modules/MyFeature/server/migrations/<timestamp>_create_myfeatures_table.lua` |
+| Database Seeder | `modules/MyFeature/server/seeders/MyFeatureSeeder.lua` |
+| Actions | `modules/MyFeature/server/actions/Example.lua` |
+| Server Services | `modules/MyFeature/server/services/MyFeatureService.lua` |
+| Client Services | `modules/MyFeature/client/services/MyFeatureService.lua` |
+
+With the default selections, running the command above produces:
+
+```
+modules/MyFeature/
+├── fxmanifest.lua
+├── README.md
+├── server/
+│   ├── models/MyFeature.lua
+│   ├── migrations/<timestamp>_create_myfeatures_table.lua
+│   ├── actions/Example.lua
+│   └── services/MyFeatureService.lua
+└── client/
+    └── services/MyFeatureService.lua
+```
+
+## 4. Load the module
+
+Generated modules aren't loaded automatically — like any FiveM resource, they need an `ensure` line. Add one to your server config (`server-data/server.cfg` if you're running the Docker setup described in [Installation](/guide/installation)):
+
+```
+ensure MyFeature
+```
+
+Restart (or start) the server and the module's scripts will load alongside the rest of the framework.
+
+## Next steps
+
+- [Modules & Plugins](/concepts/modules-and-plugins) — how modules and plugins fit into the framework architecture.
+- [Building a Plugin](/examples/building-a-plugin) — a full worked example that goes further than the default scaffold.
