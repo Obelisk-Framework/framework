@@ -271,11 +271,11 @@ return function(source, data)
 end
 ```
 
-The CLI also prints a reminder that you still need to wire it into `ActionService`:
+The CLI also prints a reminder that you still need to wire it into `ActionService`, with a `require(...)` call built from the absolute path it just wrote the file to (based on `process.cwd()`), something like:
 
 ```
 Remember to register this action in your initialization code:
-ActionService.register('assign_mayor', require('plugins/TownHall/server/actions/AssignMayor.lua'))
+ActionService.register('assign_mayor', require('/absolute/path/to/plugins/TownHall/server/actions/AssignMayor.lua'))
 ```
 
 Fill in the actual logic — updating the `TownHall` row's `mayor` column — and register it, consistent with the `ActionService.register(actionId, handler, options)` signature from [Services: ActionService](/concepts/services#actionservice):
@@ -393,8 +393,7 @@ Add the plugin to `server-data/server.cfg`, alongside the other `ensure` lines (
 
 ```
 ensure oblsk_connector
-ensure obelisk
-ensure oblsk_character-selection
+ensure core
 ensure TownHall
 ```
 
