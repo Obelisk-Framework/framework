@@ -293,6 +293,107 @@ test('Schema.create: updated_at has no ON UPDATE clause (app layer owns it)', fu
 end)
 
 --------------------------------------------------------------------------------
+-- Postgres dialect
+--------------------------------------------------------------------------------
+local function withDialect(name, fn)
+    local original = Database.dialect
+    Database.dialect = Dialects.resolve(name)
+    local ok, err = pcall(fn)
+    Database.dialect = original
+    if not ok then error(err, 2) end
+end
+
+test('postgres: quoteIdentifier uses double quotes', function()
+    withDialect('postgres', function()
+        eq(QueryBuilder.quoteIdentifier('users'), '"users"')
+        eq(QueryBuilder.quoteIdentifier('items.id'), '"items"."id"')
+    end)
+end)
+
+test('postgres: quoteIdentifier still rejects illegal identifiers', function()
+    withDialect('postgres', function()
+        throws(function() QueryBuilder.quoteIdentifier('name; DROP TABLE users') end)
+    end)
+end)
+
+test('postgres: toSql uses double-quoted identifiers', function()
+    withDialect('postgres', function()
+        local sql, params = QueryBuilder.new('users'):where('age', '>', 18):toSql()
+        eq(sql, 'SELECT * FROM "users" WHERE "age" > ?')
+        eqList(params, {18})
+    end)
+end)
+
+test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', function()
+    withDialect('postgres', function()
+        local captured
+        local original = Database.querySync
+        Database.querySync = function(query) captured = query return {} end
+
+        Schema.create('users', function(t)
+            t:id()
+            t:string('name', 100):notNullable()
+            t:boolean('active')
+        end)
+
+        Database.querySync = original
+
+        truthy(captured:find('CREATE TABLE IF NOT EXISTS "users"', 1, true), 'has CREATE TABLE header')
+        truthy(captured:find('"id" SERIAL NOT NULL', 1, true), 'has SERIAL id')
+        truthy(captured:find('PRIMARY KEY ("id")', 1, true), 'has primary key')
+        truthy(captured:find('"name" VARCHAR(100) NOT NULL', 1, true), 'has not-null varchar')
+        truthy(captured:find('"active" BOOLEAN DEFAULT FALSE', 1, true), 'boolean default renders as FALSE')
+        truthy(not captured:find('ENGINE', 1, true), 'no MySQL ENGINE clause')
+    end)
+end)
+
+test('postgres: plain index becomes a standalone CREATE INDEX, unique stays inline', function()
+    withDialect('postgres', function()
+        local captured = {}
+        local original = Database.querySync
+        Database.querySync = function(query) table.insert(captured, query) return {} end
+
+        Schema.create('players', function(t)
+            t:id()
+            t:string('name', 100)
+            t:index('name')
+            t:unique('name', 'players_name_unique')
+        end)
+
+        Database.querySync = original
+
+        eq(#captured, 2, 'one CREATE TABLE + one standalone CREATE INDEX')
+        truthy(captured[1]:find('CONSTRAINT "players_name_unique" UNIQUE ("name")', 1, true),
+            'unique constraint is inline')
+        truthy(not captured[1]:find('CREATE INDEX', 1, true), 'CREATE TABLE has no inline plain index')
+        truthy(captured[2]:find('CREATE INDEX "players_name_index" ON "players" ("name")', 1, true),
+            'plain index is a standalone statement')
+    end)
+end)
+
+test('postgres: renameColumn uses RENAME COLUMN, not CHANGE', function()
+    withDialect('postgres', function()
+        local captured
+        local original = Database.querySync
+        Database.querySync = function(query) captured = query return {} end
+
+        Schema.renameColumn('users', 'old_name', 'new_name')
+
+        Database.querySync = original
+        eq(captured, 'ALTER TABLE "users" RENAME COLUMN "old_name" TO "new_name"')
+    end)
+end)
+
+test('postgres: insert appends RETURNING <primaryKey>', function()
+    withDialect('postgres', function()
+        withCapture(function(get)
+            QueryBuilder.new('users', 'id'):insert({name = 'bob'})
+            truthy(get().query:find('RETURNING "id"', 1, true), 'insert has RETURNING clause')
+        end)
+    end)
+end)
+
+--------------------------------------------------------------------------------
 -- BaseModel timestamps (regression test for the DATETIME fix)
 --------------------------------------------------------------------------------
 test('BaseModel.createSync: writes DATETIME-formatted timestamps', function()

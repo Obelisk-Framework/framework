@@ -1,13 +1,5 @@
---- Postgres dialect. See core/server/ORM/Dialects/Init.lua for the interface
---- every dialect implements.
----
---- PLACEHOLDER: this is a minimal stub, not the full Postgres implementation.
---- `tests/orm_spec.lua` (committed in Task 1) unconditionally dofiles this
---- path and Task 2's dialect-wiring test needs `Dialects.resolve('postgres')`
---- to work, so a stub is required to unblock the suite before Task 2 is
---- done. Only `quoteIdentifier` is exercised/verified before Task 4, which
---- is responsible for fleshing this out into a fully correct, tested
---- Postgres dialect (column types, index DDL, RETURNING, etc).
+--- PostgreSQL dialect. See core/server/ORM/Dialects/Init.lua for the
+--- interface every dialect implements.
 local PostgresDialect = {}
 
 PostgresDialect.quoteIdentifier = Dialects.buildQuoter('"')
@@ -28,7 +20,15 @@ function PostgresDialect.columnType(kind, opts, isAutoIncrement)
     elseif kind == 'json' then
         return 'JSONB'
     elseif kind == 'float' then
-        return 'REAL'
+        if opts.precision then
+            if opts.scale then
+                -- Postgres FLOAT takes no scale argument; a scale means the
+                -- caller wants fixed-point behavior, so map to NUMERIC.
+                return 'NUMERIC(' .. opts.precision .. ',' .. opts.scale .. ')'
+            end
+            return 'FLOAT(' .. opts.precision .. ')'
+        end
+        return 'DOUBLE PRECISION'
     elseif kind == 'decimal' then
         return 'NUMERIC(' .. (opts.precision or 8) .. ',' .. (opts.scale or 2) .. ')'
     elseif kind == 'boolean' then
@@ -40,19 +40,24 @@ function PostgresDialect.columnType(kind, opts, isAutoIncrement)
     elseif kind == 'timestamp' then
         return 'TIMESTAMP'
     elseif kind == 'enum' then
-        return 'TEXT'
+        -- No inline enum type in Postgres (would need CREATE TYPE); values
+        -- are not DB-enforced under this dialect.
+        return 'VARCHAR(255)'
     end
 
     error('PostgresDialect: unknown column kind "' .. tostring(kind) .. '"', 2)
 end
 
 function PostgresDialect.autoIncrementSuffix()
+    -- SERIAL/BIGSERIAL already imply auto-increment; no separate keyword.
     return ''
 end
 
 function PostgresDialect.formatDefault(kind, value)
     if type(value) == 'string' and value:match('CURRENT_TIMESTAMP') then
         return value
+    elseif kind == 'boolean' then
+        return (value == 1 or value == true) and 'TRUE' or 'FALSE'
     elseif type(value) == 'number' then
         return tostring(value)
     elseif type(value) == 'boolean' then
@@ -66,7 +71,7 @@ function PostgresDialect.tableOptions()
 end
 
 function PostgresDialect.currentDatabaseExpr()
-    return 'CURRENT_DATABASE()'
+    return 'current_database()'
 end
 
 local function quotedColumnList(columns, q)
@@ -77,14 +82,15 @@ local function quotedColumnList(columns, q)
     return table.concat(quoted, ', ')
 end
 
---- Postgres has no inline non-unique KEY syntax; unique constraints are
---- emitted inline, everything else goes through standaloneIndexStatements.
+--- Only UNIQUE constraints can be inline in Postgres' CREATE TABLE; plain
+--- indexes must be separate CREATE INDEX statements (see
+--- standaloneIndexStatements).
 function PostgresDialect.inlineConstraints(indexes, q)
     local clauses = {}
     for _, idx in ipairs(indexes) do
         if idx.unique then
-            local list = quotedColumnList(idx.columns, q)
-            clauses[#clauses + 1] = 'CONSTRAINT ' .. q(idx.name) .. ' UNIQUE (' .. list .. ')'
+            clauses[#clauses + 1] = 'CONSTRAINT ' .. q(idx.name) .. ' UNIQUE (' ..
+                quotedColumnList(idx.columns, q) .. ')'
         end
     end
     return clauses
@@ -94,8 +100,8 @@ function PostgresDialect.standaloneIndexStatements(tableName, indexes, q)
     local statements = {}
     for _, idx in ipairs(indexes) do
         if not idx.unique then
-            local list = quotedColumnList(idx.columns, q)
-            statements[#statements + 1] = 'CREATE INDEX ' .. q(idx.name) .. ' ON ' .. q(tableName) .. ' (' .. list .. ');'
+            statements[#statements + 1] = 'CREATE INDEX ' .. q(idx.name) .. ' ON ' .. q(tableName) ..
+                ' (' .. quotedColumnList(idx.columns, q) .. ');'
         end
     end
     return statements
@@ -114,8 +120,9 @@ function PostgresDialect.renameColumnSQL(tableName, from, to)
     return 'ALTER TABLE ' .. q(tableName) .. ' RENAME COLUMN ' .. q(from) .. ' TO ' .. q(to)
 end
 
---- Postgres connectors don't return a connector-native insertId; RETURNING
---- is required to recover it.
+--- Postgres connectors have no connector-native insertId; RETURNING the
+--- primary key is how oblsk_connector's Postgres path recovers it (see
+--- oblsk_connector/index.js).
 function PostgresDialect.insertReturningClause(primaryKey)
     return ' RETURNING ' .. PostgresDialect.quoteIdentifier(primaryKey)
 end
