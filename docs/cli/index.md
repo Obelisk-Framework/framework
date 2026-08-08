@@ -51,7 +51,7 @@ as a checkbox list — `Database Model` (checked), `Database Migration` (checked
 
 **What it generates**, under `modules/<ModuleName>/` (the name with only its first letter capitalized, e.g. `myModule` → `MyModule`):
 
-- `fxmanifest.lua` — with `dependencies { '/server:5848', '/onesync' }`, and `shared_scripts { 'shared/**/*.lua' }` / `client_scripts { 'client/**/*.lua' }` / `server_scripts { 'server/**/*.lua' }`
+- No `fxmanifest.lua` of its own: the module's scripts load as part of `core`'s own resource, via the `modules/*/...` globs in the root `fxmanifest.lua`. Its name is appended to `modules/registry.json` instead (used by `core/server/bootstrap.lua` to run its migrations alongside core's).
 - `README.md`
 - `server/`, `client/`, `shared/` directories (always created)
 - if `Database Model` selected: `server/models/<ModuleName>.lua`
@@ -69,7 +69,6 @@ obelisk make:module Garage
 
 ```
 modules/Garage/
-├── fxmanifest.lua
 ├── README.md
 ├── server/
 │   ├── actions/
@@ -116,7 +115,7 @@ checkbox — `Database Tables` (checked), `Actions` (checked), `Interactions`, `
 
 **What it generates**, under `plugins/<PluginName>/`:
 
-- `fxmanifest.lua` — with `dependencies { 'obelisk' }`, `server_scripts` including `'@oxmysql/lib/MySQL.lua'` and `'server/**/*.lua'`; if `Vue UI Page` is selected, also `ui_page 'web/dist/index.html'` and `files { 'web/dist/**/*' }`
+- No `fxmanifest.lua` of its own: the plugin's scripts load as part of `core`'s own resource, via the `plugins/*/...` globs in the root `fxmanifest.lua`. Its name is appended to `plugins/registry.json` instead (used by `core/server/bootstrap.lua` to run its migrations alongside core's).
 - `shared/config.lua`
 - `README.md`
 - `server/main.lua` and `client/main.lua` (always created)
@@ -133,7 +132,6 @@ obelisk make:plugin Garage
 
 ```
 plugins/Garage/
-├── fxmanifest.lua
 ├── README.md
 ├── shared/
 │   └── config.lua

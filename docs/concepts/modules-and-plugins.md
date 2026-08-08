@@ -1,6 +1,6 @@
 # Modules & Plugins
 
-Obelisk splits everything that isn't the core framework into two directory trees: `modules/` and `plugins/`. Both hold ordinary FiveM resources — each with its own `fxmanifest.lua` — but they mean different things and are treated differently.
+Obelisk splits everything that isn't the core framework into two directory trees: `modules/` and `plugins/`. Neither has its own `fxmanifest.lua` (see the conventions below), but they mean different things and are treated differently.
 
 - `modules/` — first-party, framework-owned functionality. Code that ships as part of Obelisk itself (or is developed as if it were core code) lives here.
 - `plugins/` — third-party or project-specific resources. This is where `oblsk_inventory` and anything you or the community build on top of Obelisk lives.
@@ -9,7 +9,7 @@ The distinction is about ownership and dependency direction, not capability: a m
 
 ## `fxmanifest.lua` conventions
 
-Every module and plugin is a real FiveM resource, so it needs a real `fxmanifest.lua`. The `dependencies {}` block is where core and plugins diverge.
+Only `core` has a real `fxmanifest.lua`. Modules and plugins don't: their scripts get folded into `core`'s own resource through glob patterns in that one manifest, rather than declaring resources of their own.
 
 ### Core's own manifest
 
@@ -23,23 +23,17 @@ dependencies {
 }
 ```
 
-`make:module` reuses this exact pattern for generated modules, since a module is expected to load as part of core:
+### Module manifests
 
-```lua
--- Module dependencies
-dependencies {
-    '/server:5848',
-    '/onesync'
-}
-```
+Modules don't have their own `fxmanifest.lua`. `make:module` scaffolds a module's directory tree (`server/`, `client/`, `shared/`) and registers its name in `modules/registry.json`; its scripts load as part of `core`'s own resource via the `modules/*/...` globs in `core/fxmanifest.lua`.
 
 ### Plugin manifests
 
-Plugins don't have their own `fxmanifest.lua`. `make:plugin` scaffolds a plugin's directory tree (`server/`, `client/`, `shared/`, and for Vue-enabled plugins `web/`) and registers its name in `plugins/registry.json`; its scripts load as part of `core`'s own resource via the `plugins/*/...` globs in `core/fxmanifest.lua`, so `core`'s ORM and services (which every plugin depends on) are always loaded first, by construction, before this plugin's scripts run.
+Plugins don't have their own `fxmanifest.lua` either. `make:plugin` scaffolds a plugin's directory tree (`server/`, `client/`, `shared/`, and for Vue-enabled plugins `web/`) and registers its name in `plugins/registry.json`; its scripts load as part of `core`'s own resource via the `plugins/*/...` globs in `core/fxmanifest.lua`, so `core`'s ORM and services (which every plugin depends on) are always loaded first, by construction, before this plugin's scripts run.
 
 ### Script globs
 
-Both core and generated modules/plugins use FiveM's glob patterns to list scripts, e.g. core's:
+Core's `fxmanifest.lua` uses FiveM's glob patterns to list its own scripts, then reaches into every module and plugin with a second set of globs appended to the same list:
 
 ```lua
 server_scripts {
@@ -48,11 +42,13 @@ server_scripts {
     'core/server/Services/*.lua',
     'core/server/Models/**/*.lua',
     'core/server/Policies/**/*.lua',
-    'core/server/bootstrap.lua'
+    'core/server/bootstrap.lua',
+    'modules/*/server/**/*.lua',
+    'plugins/*/server/**/*.lua'
 }
 ```
 
-A generated module or plugin is simpler, typically just `server/**/*.lua`, `client/**/*.lua`, and `shared/**/*.lua` (see `make:module` and `make:plugin` in [`/cli/index`](/cli/index) for the exact generated content).
+`shared_scripts` and `client_scripts` follow the same shape: core's own entries first, then `modules/*/...` and `plugins/*/...` globs. Core's own entries always come first so the ORM and services finish loading before any module or plugin script runs. Since modules and plugins have no `fxmanifest.lua` of their own, they have no glob patterns to declare either. It's purely a `core/fxmanifest.lua` concern.
 
 ## The `web/*.vue` + `web/routes.js` convention
 
@@ -71,8 +67,8 @@ files {
 
 In practice this means: a plugin's Vue components and its `routes.js` route table live under `<plugin>/web/`, core's build tooling globs every `plugins/*/web/routes.js` to assemble the combined Vue Router config, and the plugin's `fxmanifest.lua` only needs `files {}` entries so FXServer actually ships those source files with the resource — there's no per-plugin `ui_page` or separate web server to run.
 
-`make:plugin` reflects a lighter version of this when you opt into the "Vue UI Page" feature: it scaffolds a `web/` directory with a Vite + Vue 3 + Tailwind `package.json` and a starter `.vue` component, and (for that generator) sets `ui_page 'web/dist/index.html'` plus a `files { 'web/dist/**/*' }` block, since a standalone generated plugin doesn't yet participate in core's combined build glob the way `oblsk_inventory` does.
+`make:plugin` reflects a lighter version of this when you opt into the "Vue UI Page" feature: it scaffolds a `web/` directory with a Vite + Vue 3 + Tailwind `package.json` and a starter `.vue` component under `web/src/components/`. Since a generated plugin has no `fxmanifest.lua` of its own, there's no `ui_page` or `files {}` block to set either.
 
 ## Scaffolding with the CLI
 
-You don't hand-write any of the above — `obelisk make:module` and `obelisk make:plugin` generate the directory structure, `fxmanifest.lua`, and optional feature files (models, migrations, seeders, actions, services, Vue UI, etc.) interactively. See [`/cli/index`](/cli/index) for the full command reference, including every prompt and generated file path.
+You don't hand-write any of the above — `obelisk make:module` and `obelisk make:plugin` generate the directory structure, the `README.md`, the registry entry, and optional feature files (models, migrations, seeders, actions, services, Vue UI, etc.) interactively. See [`/cli/index`](/cli/index) for the full command reference, including every prompt and generated file path.
