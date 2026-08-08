@@ -2,6 +2,7 @@ const inquirer = require('inquirer');
 const fs = require('fs-extra');
 const path = require('path');
 const chalk = require('chalk');
+const { appendToRegistry } = require('../lib/registry');
 
 async function makeModule(name) {
   console.log(chalk.blue('\n🔨 Obelisk Module Generator\n'));
@@ -57,39 +58,7 @@ async function makeModule(name) {
   await fs.ensureDir(path.join(moduleDir, 'server'));
   await fs.ensureDir(path.join(moduleDir, 'client'));
   await fs.ensureDir(path.join(moduleDir, 'shared'));
-  
-  // Create fxmanifest.lua
-  const manifestContent = `fx_version 'cerulean'
-game 'gta5'
 
-author 'Obelisk Framework'
-description '${moduleName} Module'
-version '1.0.0'
-
--- Module dependencies
-dependencies {
-    '/server:5848',
-    '/onesync'
-}
-
--- Shared scripts
-shared_scripts {
-    'shared/**/*.lua'
-}
-
--- Client scripts
-client_scripts {
-    'client/**/*.lua'
-}
-
--- Server scripts
-server_scripts {
-    'server/**/*.lua'
-}
-`;
-  
-  await fs.writeFile(path.join(moduleDir, 'fxmanifest.lua'), manifestContent);
-  
   // Create README
   const readmeContent = `# ${moduleName} Module
 
@@ -100,14 +69,20 @@ Add your module description here.
 ${features.features.map(f => `- ${f}`).join('\n')}
 
 ## Installation
-This module is automatically loaded by the Obelisk framework.
+This module loads as part of the \`core\` resource. Restart \`core\` (or the whole server) to pick up this module.
 
 ## Usage
 Add usage instructions here.
 `;
   
   await fs.writeFile(path.join(moduleDir, 'README.md'), readmeContent);
-  
+
+  await appendToRegistry(
+    path.join(process.cwd(), 'modules', 'registry.json'),
+    moduleName,
+    'modules'
+  );
+
   // Generate selected features
   if (features.features.includes('model')) {
     await generateModel(moduleDir, moduleName);
