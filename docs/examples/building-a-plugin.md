@@ -393,21 +393,14 @@ Now `ActionService.execute` will call `PolicyService.check` before running `assi
 
 ## 6. Load it
 
-Add the plugin to `server-data/server.cfg`, alongside the other `ensure` lines (see [Installation](/guide/installation) for the full server layout):
+Add `core` and `oblsk_connector` to `server-data/server.cfg` (see [Installation](/guide/installation) for the full server layout):
 
 ```
 ensure oblsk_connector
 ensure core
-ensure TownHall
 ```
 
-::: warning `TownHall` needs its own resource mount
-Under the current Docker setup, only `core` and `oblsk_connector` are mounted as separate FXServer resources (see `docker-compose.yml` at the repo root). A plugin scaffolded under `core/plugins/` (like `TownHall`) lives inside `core`'s own directory tree, and FXServer stops recursing into a directory once it finds an `fxmanifest.lua` there — so it finds `core`'s manifest first and never discovers `plugins/TownHall/fxmanifest.lua` as an independent resource. Until this is fixed, `ensure TownHall` won't find anything unless you add its own mount to `docker-compose.yml`, e.g.:
-
-```yaml
-- ./core/plugins/TownHall:/fxserver/server/resources/local/TownHall:ro
-```
-:::
+`TownHall` loads as part of `core`'s own resource (its scripts are picked up by `core/fxmanifest.lua`'s `plugins/*/...` globs), so there's no separate `ensure TownHall` line to add.
 
 Restart the server:
 
@@ -431,9 +424,7 @@ For `TownHall`, that's:
 
 If you see both lines with no errors in between, the plugin loaded successfully and `assign_mayor` and `isMayorOrAdmin` are registered and ready.
 
-::: warning Plugin/module migrations are not auto-run
-The only migration runner in the framework is `core/server/bootstrap.lua`, and it's hard-coded to `core/server/database/migrations/` + `core/server/database/migrations.json` inside the `core` resource itself. Nothing currently reads a plugin's or module's own `server/migrations.json` — that's the `-- Add migration runner here` TODO you saw in `server/main.lua` back in Step 1. The `create_town_halls_table` migration written in Step 3 is generated and ready, but it will **not** run automatically as part of `TownHall` loading. Until a plugin-level migration runner exists, run it manually — e.g. from a one-off script (`require`/`load` the migration file and call its exported `up()` function) or by calling `up()` from the plugin's own startup code in `server/main.lua`.
-:::
+`core/server/bootstrap.lua`'s migration runner also covers every plugin and module listed in `plugins/registry.json`/`modules/registry.json` (which `make:plugin`/`make:module` keep up to date automatically). The `create_town_halls_table` migration written in Step 3 runs the same way core's own migrations do, no manual step needed.
 
 ## What's next
 

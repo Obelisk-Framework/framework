@@ -68,21 +68,11 @@ modules/MyFeature/
 
 ## 4. Load the module
 
-Generated modules aren't loaded automatically — like any FiveM resource, they need an `ensure` line. Add one to your server config (`server-data/server.cfg` if you're running the Docker setup described in [Installation](/guide/installation)):
+`MyFeature` loads as part of `core`'s own resource (its scripts are picked up by `core/fxmanifest.lua`'s `modules/*/...` globs). There's nothing to `ensure` separately: restart `core` (or the whole server), and the module's scripts load alongside the rest of the framework.
 
+```bash
+docker compose restart fxserver
 ```
-ensure MyFeature
-```
-
-::: warning `MyFeature` needs its own resource mount
-Under the current Docker setup, only `core` and `oblsk_connector` are mounted as separate FXServer resources (see `docker-compose.yml` at the repo root). `MyFeature` was scaffolded under `core/modules/`, inside `core`'s own directory tree — and FXServer stops recursing into a directory once it finds an `fxmanifest.lua` there, so it finds `core`'s manifest first and never discovers `modules/MyFeature/fxmanifest.lua` as an independent resource. Until this is fixed, `ensure MyFeature` won't find anything unless you add its own mount to `docker-compose.yml`, e.g.:
-
-```yaml
-- ./core/modules/MyFeature:/fxserver/server/resources/local/MyFeature:ro
-```
-:::
-
-Restart (or start) the server and the module's scripts will load alongside the rest of the framework.
 
 ## Next steps
 
