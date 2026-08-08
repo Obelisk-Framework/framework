@@ -26,6 +26,9 @@ shared_scripts {
 -- Server scripts
 server_scripts {
     -- ORM Layer
+    'core/server/ORM/Dialects/Init.lua',
+    'core/server/ORM/Dialects/MySQL.lua',
+    'core/server/ORM/Dialects/Postgres.lua',
     'core/server/ORM/Database.lua',
     'core/server/ORM/QueryBuilder.lua',
     'core/server/ORM/Schema.lua',

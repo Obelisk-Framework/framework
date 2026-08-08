@@ -13,6 +13,9 @@ local ROOT = scriptDir .. '..'
 dofile(scriptDir .. 'support/fivem_stubs.lua')
 
 -- Load the ORM source (each file assigns a global and/or returns the module).
+dofile(ROOT .. '/core/server/ORM/Dialects/Init.lua')
+dofile(ROOT .. '/core/server/ORM/Dialects/MySQL.lua')
+dofile(ROOT .. '/core/server/ORM/Dialects/Postgres.lua')
 dofile(ROOT .. '/core/server/ORM/Database.lua')
 dofile(ROOT .. '/core/server/ORM/QueryBuilder.lua')
 dofile(ROOT .. '/core/server/ORM/Schema.lua')
