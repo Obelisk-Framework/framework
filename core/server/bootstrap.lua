@@ -20,10 +20,8 @@ Citizen.CreateThread(function()
     print('[Obelisk] Database initialized')
     
     -- Run migrations
-    local migrationsPath = GetResourcePath(GetCurrentResourceName()) .. '/core/server/database/migrations/'
     print('[Obelisk] Running migrations...')
-    
-    -- Check if migrations table exists
+
     if not Schema.hasTable('migrations') then
         Schema.create('migrations', function(table)
             table:id()
@@ -32,45 +30,61 @@ Citizen.CreateThread(function()
             table:timestamp('created_at')
         end)
     end
-    
-    -- Load migrations from migrations.json
-    local migrationsJsonPath = GetResourcePath(GetCurrentResourceName()) .. '/core/server/database/migrations.json'
-    local migrationsJsonContent = LoadResourceFile(GetCurrentResourceName(), 'core/server/database/migrations.json')
-    local migrationsData = json.decode(migrationsJsonContent) or { migrations = {} }
-    local migrations = migrationsData.migrations or {}
-    
-    for _, migration in ipairs(migrations) do
-        -- Check if already run
-        local result = Database.querySync('SELECT * FROM migrations WHERE migration = ?', {migration})
-        
-        if not result or #result == 0 then
-            print('[Obelisk] Running migration: ' .. migration)
-            
-            -- Load migration file
-            local migrationModule = LoadResourceFile(GetCurrentResourceName(), 'core/server/database/migrations/' .. migration .. '.lua')
-            
-            if migrationModule then
-                local migrationFunc = load(migrationModule)
-                if migrationFunc then
-                    local migrationTable = migrationFunc()
-                    if migrationTable and migrationTable.up then
-                        -- Run migration
-                        local success, err = pcall(migrationTable.up)
-                        if success then
-                            -- Record migration
-                            local res = Database.insertSync('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
-                                              {migration, 1, Database.now()})
-                            print("Result: " .. tostring(res))
-                            print('[Obelisk] ✓ Migration completed: ' .. migration)
-                        else
-                            print('[Obelisk] ✗ Migration failed: ' .. migration .. ' - ' .. tostring(err))
+
+    local function runMigrationsAt(basePath, label)
+        local migrationsJsonContent = LoadResourceFile(GetCurrentResourceName(), basePath .. 'migrations.json')
+        local migrationsData = json.decode(migrationsJsonContent or '') or { migrations = {} }
+        local migrations = migrationsData.migrations or {}
+
+        for _, migration in ipairs(migrations) do
+            local result = Database.querySync('SELECT * FROM migrations WHERE migration = ?', {migration})
+            if not result or #result == 0 then
+                print('[Obelisk] Running migration (' .. label .. '): ' .. migration)
+                local migrationModule = LoadResourceFile(GetCurrentResourceName(), basePath .. 'migrations/' .. migration .. '.lua')
+                if migrationModule then
+                    local migrationFunc = load(migrationModule)
+                    if migrationFunc then
+                        local migrationTable = migrationFunc()
+                        if migrationTable and migrationTable.up then
+                            local success, err = pcall(migrationTable.up)
+                            if success then
+                                local res = Database.insertSync('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
+                                                  {migration, 1, Database.now()})
+                                print("Result: " .. tostring(res))
+                                print('[Obelisk] Migration completed (' .. label .. '): ' .. migration)
+                            else
+                                print('[Obelisk] Migration failed (' .. label .. '): ' .. migration .. ' - ' .. tostring(err))
+                            end
                         end
                     end
                 end
             end
         end
     end
-    
+
+    local function loadRegistry(path, key)
+        local content = LoadResourceFile(GetCurrentResourceName(), path)
+        if not content then
+            return {}
+        end
+        local decoded = json.decode(content)
+        if not decoded then
+            print('[Obelisk] WARNING: could not parse ' .. path)
+            return {}
+        end
+        return decoded[key] or {}
+    end
+
+    runMigrationsAt('core/server/database/', 'core')
+
+    for _, name in ipairs(loadRegistry('modules/registry.json', 'modules')) do
+        runMigrationsAt('modules/' .. name .. '/server/', name)
+    end
+
+    for _, name in ipairs(loadRegistry('plugins/registry.json', 'plugins')) do
+        runMigrationsAt('plugins/' .. name .. '/server/', name)
+    end
+
     print('[Obelisk] Migrations complete')
     
     -- Run seeders
