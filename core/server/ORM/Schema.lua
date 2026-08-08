@@ -19,7 +19,8 @@ function Blueprint:id(name)
     name = name or 'id'
     table.insert(self.columns, {
         name = name,
-        type = 'INT',
+        kind = 'integer',
+        opts = {},
         autoIncrement = true,
         primary = true,
         nullable = false
@@ -29,10 +30,10 @@ end
 
 --- Add a string column
 function Blueprint:string(name, length)
-    length = length or 255
     table.insert(self.columns, {
         name = name,
-        type = 'VARCHAR(' .. length .. ')',
+        kind = 'string',
+        opts = { length = length or 255 },
         nullable = true
     })
     return self
@@ -40,75 +41,50 @@ end
 
 --- Add a text column
 function Blueprint:text(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'TEXT',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'text', opts = {}, nullable = true })
     return self
 end
 
 --- Add a JSON column
 function Blueprint:json(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'JSON',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'json', opts = {}, nullable = true })
     return self
 end
 
 --- Add an integer column
 function Blueprint:integer(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'INT',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'integer', opts = {}, nullable = true })
     return self
 end
 
 --- Add a big integer column
 function Blueprint:bigInteger(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'BIGINT',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'bigInteger', opts = {}, nullable = true })
     return self
 end
 
 --- Add an unsigned integer column
 function Blueprint:unsignedInteger(name)
     table.insert(self.columns, {
-        name = name,
-        type = 'INT UNSIGNED',
-        nullable = true
+        name = name, kind = 'integer', opts = { unsigned = true }, nullable = true
     })
     return self
 end
 
 --- Add a float column
 function Blueprint:float(name, precision, scale)
-    local typeDef = 'FLOAT'
-    if precision then
-        typeDef = 'FLOAT(' .. precision .. (scale and ',' .. scale or '') .. ')'
-    end
     table.insert(self.columns, {
-        name = name,
-        type = typeDef,
-        nullable = true
+        name = name, kind = 'float', opts = { precision = precision, scale = scale }, nullable = true
     })
     return self
 end
 
 --- Add a decimal column
 function Blueprint:decimal(name, precision, scale)
-    precision = precision or 8
-    scale = scale or 2
     table.insert(self.columns, {
         name = name,
-        type = 'DECIMAL(' .. precision .. ',' .. scale .. ')',
+        kind = 'decimal',
+        opts = { precision = precision or 8, scale = scale or 2 },
         nullable = true
     })
     return self
@@ -117,69 +93,47 @@ end
 --- Add a boolean column
 function Blueprint:boolean(name)
     table.insert(self.columns, {
-        name = name,
-        type = 'TINYINT(1)',
-        nullable = true,
-        default = 0
+        name = name, kind = 'boolean', opts = {}, nullable = true, default = 0
     })
     return self
 end
 
 --- Add a date column
 function Blueprint:date(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'DATE',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'date', opts = {}, nullable = true })
     return self
 end
 
 --- Add a datetime column
 function Blueprint:datetime(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'DATETIME',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'datetime', opts = {}, nullable = true })
     return self
 end
 
 --- Add a timestamp column
 function Blueprint:timestamp(name)
-    table.insert(self.columns, {
-        name = name,
-        type = 'TIMESTAMP',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'timestamp', opts = {}, nullable = true })
     return self
 end
 
---- Add timestamps (created_at, updated_at)
+--- Add timestamps (created_at, updated_at). Both default to CURRENT_TIMESTAMP
+--- at the DB level; updated_at is NOT auto-refreshed by the database (no
+--- portable equivalent of MySQL's ON UPDATE CURRENT_TIMESTAMP in Postgres) —
+--- BaseModel already sets it on every save via Database.now(), so no DB-level
+--- trigger is needed.
 function Blueprint:timestamps()
     table.insert(self.columns, {
-        name = 'created_at',
-        type = 'TIMESTAMP',
-        nullable = true,
-        default = 'CURRENT_TIMESTAMP'
+        name = 'created_at', kind = 'timestamp', opts = {}, nullable = true, default = 'CURRENT_TIMESTAMP'
     })
     table.insert(self.columns, {
-        name = 'updated_at',
-        type = 'TIMESTAMP',
-        nullable = true,
-        default = 'CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
+        name = 'updated_at', kind = 'timestamp', opts = {}, nullable = true, default = 'CURRENT_TIMESTAMP'
     })
     return self
 end
 
 --- Add an enum column
 function Blueprint:enum(name, values)
-    local valueStr = "'" .. table.concat(values, "','") .. "'"
-    table.insert(self.columns, {
-        name = name,
-        type = 'ENUM(' .. valueStr .. ')',
-        nullable = true
-    })
+    table.insert(self.columns, { name = name, kind = 'enum', opts = { values = values }, nullable = true })
     return self
 end
 
@@ -207,12 +161,13 @@ function Blueprint:default(value)
     return self
 end
 
---- Make the last column unsigned
+--- Make the last column unsigned (integer/bigInteger only; Postgres has no
+--- unsigned integer types, so this is a no-op under that dialect).
 function Blueprint:unsigned()
     if #self.columns > 0 then
         local col = self.columns[#self.columns]
-        if col.type:match('INT') then
-            col.type = col.type .. ' UNSIGNED'
+        if col.kind == 'integer' or col.kind == 'bigInteger' then
+            col.opts.unsigned = true
         end
     end
     return self
@@ -294,74 +249,72 @@ function Blueprint:foreign(column)
     }
 end
 
---- Build the CREATE TABLE SQL
+--- Build the CREATE TABLE statement(s). Returns a list because Postgres
+--- can't express non-unique indexes inline (see Dialects/Postgres.lua) — the
+--- first element is always the CREATE TABLE itself; any further elements are
+--- standalone CREATE INDEX statements that must run after it.
+--- @return string[] statements
 function Blueprint:toSql()
-    local sql = 'CREATE TABLE IF NOT EXISTS `' .. self.tableName .. '` (\n'
-    
-    -- Add columns
+    local dialect = Database.dialect
+    local q = dialect.quoteIdentifier
+
+    local sql = 'CREATE TABLE IF NOT EXISTS ' .. q(self.tableName) .. ' (\n'
+
     local columnDefs = {}
     for _, col in ipairs(self.columns) do
-        local def = '  `' .. col.name .. '` ' .. col.type
-        
+        local typeStr = dialect.columnType(col.kind, col.opts, col.autoIncrement)
+        local def = '  ' .. q(col.name) .. ' ' .. typeStr
+
         if not col.nullable then
             def = def .. ' NOT NULL'
         end
-        
+
         if col.autoIncrement then
-            def = def .. ' AUTO_INCREMENT'
+            def = def .. dialect.autoIncrementSuffix()
         end
-        
+
         if col.default ~= nil then
-            if type(col.default) == 'string' and col.default:match('CURRENT_TIMESTAMP') then
-                def = def .. ' DEFAULT ' .. col.default
-            elseif type(col.default) == 'number' then
-                def = def .. ' DEFAULT ' .. col.default
-            else
-                def = def .. ' DEFAULT \'' .. tostring(col.default) .. '\''
-            end
+            def = def .. ' DEFAULT ' .. dialect.formatDefault(col.kind, col.default)
         end
-        
+
         table.insert(columnDefs, def)
     end
-    
+
     sql = sql .. table.concat(columnDefs, ',\n')
-    
-    -- Add primary key
+
     for _, col in ipairs(self.columns) do
         if col.primary then
-            sql = sql .. ',\n  PRIMARY KEY (`' .. col.name .. '`)'
+            sql = sql .. ',\n  PRIMARY KEY (' .. q(col.name) .. ')'
             break
         end
     end
-    
-    -- Add indexes
-    for _, idx in ipairs(self.indexes) do
-        if idx.unique then
-            sql = sql .. ',\n  UNIQUE KEY `' .. idx.name .. '` (' .. 
-                  self:buildColumnList(idx.columns) .. ')'
-        else
-            sql = sql .. ',\n  KEY `' .. idx.name .. '` (' .. 
-                  self:buildColumnList(idx.columns) .. ')'
-        end
+
+    for _, clause in ipairs(dialect.inlineConstraints(self.indexes, q)) do
+        sql = sql .. ',\n  ' .. clause
     end
-    
-    -- Add foreign keys
+
     for _, fk in ipairs(self.foreignKeys) do
-        sql = sql .. ',\n  FOREIGN KEY (`' .. fk.column .. '`) REFERENCES `' .. 
-              fk.on .. '`(`' .. fk.references .. '`) ON DELETE ' .. fk.onDelete .. 
+        sql = sql .. ',\n  FOREIGN KEY (' .. q(fk.column) .. ') REFERENCES ' ..
+              q(fk.on) .. '(' .. q(fk.references) .. ') ON DELETE ' .. fk.onDelete ..
               ' ON UPDATE ' .. fk.onUpdate
     end
-    
-    sql = sql .. '\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;'
-    
-    return sql
+
+    sql = sql .. '\n)' .. dialect.tableOptions() .. ';'
+
+    local statements = { sql }
+    for _, stmt in ipairs(dialect.standaloneIndexStatements(self.tableName, self.indexes, q)) do
+        table.insert(statements, stmt)
+    end
+
+    return statements
 end
 
---- Helper to build column list for indexes
+--- Helper to build a quoted column list for indexes
 function Blueprint:buildColumnList(columns)
+    local dialect = Database.dialect
     local quoted = {}
     for _, col in ipairs(columns) do
-        table.insert(quoted, '`' .. col .. '`')
+        table.insert(quoted, dialect.quoteIdentifier(col))
     end
     return table.concat(quoted, ', ')
 end
@@ -372,67 +325,64 @@ end
 function Schema.create(tableName, callback)
     local blueprint = Blueprint.new(tableName)
     callback(blueprint)
-    local sql = blueprint:toSql()
-    
+    local statements = blueprint:toSql()
+
     print('[Schema] Creating table: ' .. tableName)
-    print('[Schema] SQL: ' .. sql)
-    local result = Database.querySync(sql, {})
+    local result
+    for _, sql in ipairs(statements) do
+        print('[Schema] SQL: ' .. sql)
+        result = Database.querySync(sql, {})
+    end
     print('[Schema] Result: ' .. json.encode(result))
     return result
 end
 
 --- Drop a table
 function Schema.drop(tableName)
-    local sql = 'DROP TABLE IF EXISTS `' .. tableName .. '`'
+    local sql = 'DROP TABLE IF EXISTS ' .. Database.dialect.quoteIdentifier(tableName)
     print('[Schema] Dropping table: ' .. tableName)
     return Database.querySync(sql, {})
 end
 
 --- Check if a table exists
 function Schema.hasTable(tableName)
-    local sql = [[SELECT COUNT(*) as count FROM information_schema.TABLES 
-                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?]]
+    local sql = 'SELECT COUNT(*) as count FROM information_schema.TABLES WHERE TABLE_SCHEMA = ' ..
+                Database.dialect.currentDatabaseExpr() .. ' AND TABLE_NAME = ?'
     local result = Database.querySync(sql, {tableName})
     return result and result[1] and result[1].count > 0
 end
 
 --- Modify an existing table
 function Schema.table(tableName, callback)
+    local dialect = Database.dialect
+    local q = dialect.quoteIdentifier
     local blueprint = Blueprint.new(tableName)
     blueprint.isAltering = true
     callback(blueprint)
-    
-    -- Build ALTER TABLE statements
+
     local statements = {}
-    
+
     for _, col in ipairs(blueprint.columns) do
-        local def = '`' .. col.name .. '` ' .. col.type
-        
+        local typeStr = dialect.columnType(col.kind, col.opts, col.autoIncrement)
+        local def = q(col.name) .. ' ' .. typeStr
+
         if not col.nullable then
             def = def .. ' NOT NULL'
         end
-        
+
         if col.default ~= nil then
-            if type(col.default) == 'string' and col.default:match('CURRENT_TIMESTAMP') then
-                def = def .. ' DEFAULT ' .. col.default
-            else
-                def = def .. ' DEFAULT \'' .. tostring(col.default) .. '\''
-            end
+            def = def .. ' DEFAULT ' .. dialect.formatDefault(col.kind, col.default)
         end
-        
-        table.insert(statements, 'ALTER TABLE `' .. tableName .. '` ADD COLUMN ' .. def .. ';')
+
+        table.insert(statements, 'ALTER TABLE ' .. q(tableName) .. ' ADD COLUMN ' .. def .. ';')
     end
-    
+
     for _, idx in ipairs(blueprint.indexes) do
-        if idx.unique then
-            table.insert(statements, 'ALTER TABLE `' .. tableName .. '` ADD UNIQUE INDEX `' .. 
-                        idx.name .. '` (' .. blueprint:buildColumnList(idx.columns) .. ');')
-        else
-            table.insert(statements, 'ALTER TABLE `' .. tableName .. '` ADD INDEX `' .. 
-                        idx.name .. '` (' .. blueprint:buildColumnList(idx.columns) .. ');')
+        for _, stmt in ipairs(dialect.alterAddIndexStatements(tableName, idx, q)) do
+            table.insert(statements, stmt)
         end
     end
-    
+
     for _, sql in ipairs(statements) do
         Database.querySync(sql, {})
     end
@@ -440,22 +390,22 @@ end
 
 --- Check if a column exists
 function Schema.hasColumn(tableName, columnName)
-    local sql = [[SELECT COUNT(*) as count FROM information_schema.COLUMNS 
-                  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?]]
+    local sql = 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ' ..
+                Database.dialect.currentDatabaseExpr() .. ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
     local result = Database.querySync(sql, {tableName, columnName})
     return result and result[1] and result[1].count > 0
 end
 
 --- Drop a column
 function Schema.dropColumn(tableName, columnName)
-    local sql = 'ALTER TABLE `' .. tableName .. '` DROP COLUMN `' .. columnName .. '`'
+    local q = Database.dialect.quoteIdentifier
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP COLUMN ' .. q(columnName)
     return Database.querySync(sql, {})
 end
 
 --- Rename a column
 function Schema.renameColumn(tableName, from, to)
-    -- Note: This is simplified, in production you'd need to get the column type first
-    local sql = 'ALTER TABLE `' .. tableName .. '` CHANGE `' .. from .. '` `' .. to .. '` VARCHAR(255)'
+    local sql = Database.dialect.renameColumnSQL(tableName, from, to)
     return Database.querySync(sql, {})
 end
 

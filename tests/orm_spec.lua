@@ -275,6 +275,23 @@ test('Schema.create: generates a CREATE TABLE statement', function()
     truthy(captured:find('ENGINE=InnoDB', 1, true), 'has InnoDB engine')
 end)
 
+test('Schema.create: updated_at has no ON UPDATE clause (app layer owns it)', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('players', function(t)
+        t:id()
+        t:timestamps()
+    end)
+
+    Database.querySync = original
+
+    truthy(captured:find('`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP', 1, true),
+        'updated_at defaults to CURRENT_TIMESTAMP')
+    truthy(not captured:find('ON UPDATE', 1, true), 'no ON UPDATE clause (BaseModel sets updated_at itself)')
+end)
+
 --------------------------------------------------------------------------------
 -- BaseModel timestamps (regression test for the DATETIME fix)
 --------------------------------------------------------------------------------
