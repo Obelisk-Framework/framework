@@ -525,6 +525,11 @@ test('Database.init: postgres driver with a mysql-only connector fails fast', fu
     _G.GetConvar = originalConvar
     _G.GetResourceState = function() return 'stopped' end
 
+    -- Reset global state (immediately, before any assertion can error) so later
+    -- tests (which assume the mysql default) aren't affected.
+    Database.config.driver = 'mysql'
+    Database.dialect = Dialects.resolve('mysql')
+
     truthy(not ok, 'init should fail: oxmysql cannot serve postgres')
     truthy(not Database.ready, 'Database.ready must stay false')
 end)
@@ -541,12 +546,14 @@ test('Database.init: postgres driver with oblsk_connector succeeds', function()
     _G.GetConvar = originalConvar
     _G.GetResourceState = function() return 'stopped' end
 
-    truthy(ok, 'init should succeed')
-    eq(Database.dialect.quoteIdentifier('x'), '"x"')
-
-    -- Reset global state so later tests (which assume the mysql default) aren't affected.
+    -- Reset global state (immediately, before any assertion can error) so later
+    -- tests (which assume the mysql default) aren't affected.
+    local dialectAtInit = Database.dialect
     Database.config.driver = 'mysql'
     Database.dialect = Dialects.resolve('mysql')
+
+    truthy(ok, 'init should succeed')
+    eq(dialectAtInit.quoteIdentifier('x'), '"x"')
 end)
 
 --------------------------------------------------------------------------------
