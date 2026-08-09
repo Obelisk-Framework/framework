@@ -33,7 +33,8 @@ for (const entry of [...coreGlobalElements, ...pluginGlobalElements]) {
     console.warn('[Obelisk] a global element entry is missing name/component, skipping', entry)
     continue
   }
-  registry.set(entry.name, { component: entry.component, visible: !!entry.defaultVisible })
+  const defaultVisible = !!entry.defaultVisible
+  registry.set(entry.name, { component: entry.component, defaultVisible, visible: defaultVisible })
 }
 
 onMounted(() => {
@@ -61,7 +62,7 @@ onMounted(() => {
   })
 
   Obelisk.on('core:client:webview-destroy', () => {
-    for (const entry of registry.values()) entry.visible = false
+    for (const entry of registry.values()) entry.visible = entry.defaultVisible
   })
 })
 </script>
