@@ -74,7 +74,7 @@ const dismiss = (id) => {
     
     // Notify client Lua
     if (window.invokeNative) {
-      fetch(`https://${GetParentResourceName()}/notification:dismissed`, {
+      fetch(`https://${GetParentResourceName()}/core:client:notification-dismissed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id })
@@ -88,7 +88,7 @@ onMounted(() => {
   window.addEventListener('message', (event) => {
     const data = event.data
     
-    if (data.type === 'notification:show') {
+    if (data.type === 'core:client:notification-show') {
       addNotification(data.notification)
     }
   })

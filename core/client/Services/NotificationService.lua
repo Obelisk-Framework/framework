@@ -3,8 +3,8 @@ NotificationService = {}
 NotificationService.queue = {}
 
 --- Receive notification from server
-RegisterNetEvent('obelisk:notification:show')
-AddEventHandler('obelisk:notification:show', function(notification)
+RegisterNetEvent('core:server:notification-show')
+AddEventHandler('core:server:notification-show', function(notification)
     NotificationService.show(notification)
 end)
 
@@ -19,7 +19,7 @@ function NotificationService.show(notification)
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'notification:show',
+        type = 'core:client:notification-show',
         notification = notification
     })
     
@@ -70,7 +70,7 @@ function NotificationService.info(title, description, duration)
 end
 
 --- NUI Callback: Notification dismissed
-RegisterNUICallback('notification:dismissed', function(data, cb)
+RegisterNUICallback('core:client:notification-dismissed', function(data, cb)
     -- Remove from queue
     for i, notif in ipairs(NotificationService.queue) do
         if notif.id == data.id then

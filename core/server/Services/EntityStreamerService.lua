@@ -86,7 +86,7 @@ function EntityStreamerService.register(entityType, entityData)
     print('[EntityStreamerService] Registered ' .. entityType .. ' #' .. entityId .. ' at chunk ' .. chunkKey)
     
     -- Broadcast to nearby players
-    EntityStreamerService.broadcastToChunk(chunkKey, 'obelisk:streamer:entityAdd', {
+    EntityStreamerService.broadcastToChunk(chunkKey, 'core:server:streamer-entityAdd', {
         entityId = entityId,
         entityType = entityType,
         data = EntityStreamerService.entities[entityType][entityId]
@@ -115,7 +115,7 @@ function EntityStreamerService.unregister(entityType, entityId)
     EntityStreamerService.entities[entityType][entityId] = nil
     
     -- Broadcast removal
-    EntityStreamerService.broadcastToChunk(chunkKey, 'obelisk:streamer:entityRemove', {
+    EntityStreamerService.broadcastToChunk(chunkKey, 'core:server:streamer-entityRemove', {
         entityId = entityId,
         entityType = entityType
     })
@@ -203,7 +203,7 @@ function EntityStreamerService.loadChunkForPlayer(source, chunkKey)
             local entityData = EntityStreamerService.entities[entityType][entityId]
             
             if entityData then
-                TriggerClientEvent('obelisk:streamer:entityAdd', source, {
+                TriggerClientEvent('core:server:streamer-entityAdd', source, {
                     entityId = entityId,
                     entityType = entityType,
                     data = entityData
@@ -224,7 +224,7 @@ function EntityStreamerService.unloadChunkForPlayer(source, chunkKey)
     -- Tell client to remove entities from this chunk
     for entityType, entities in pairs(chunk) do
         for entityId, _ in pairs(entities) do
-            TriggerClientEvent('obelisk:streamer:entityRemove', source, {
+            TriggerClientEvent('core:server:streamer-entityRemove', source, {
                 entityId = entityId,
                 entityType = entityType
             })
@@ -261,14 +261,14 @@ AddEventHandler('playerDropped', function()
 end)
 
 --- Net events
-RegisterNetEvent('obelisk:streamer:updatePosition')
-AddEventHandler('obelisk:streamer:updatePosition', function(x, y)
+RegisterNetEvent('core:client:streamer-updatePosition')
+AddEventHandler('core:client:streamer-updatePosition', function(x, y)
     local source = source
     EntityStreamerService.updatePlayerChunks(source, x, y)
 end)
 
-RegisterNetEvent('obelisk:streamer:requestChunk')
-AddEventHandler('obelisk:streamer:requestChunk', function(chunkKey)
+RegisterNetEvent('core:client:streamer-requestChunk')
+AddEventHandler('core:client:streamer-requestChunk', function(chunkKey)
     local source = source
     EntityStreamerService.loadChunkForPlayer(source, chunkKey)
 end)

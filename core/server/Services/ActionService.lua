@@ -63,7 +63,7 @@ function ActionService.execute(source, actionId, data)
 
     -- Enforce any policies attached to this action BEFORE running it. This is
     -- the authorization gate for client-triggered actions (the
-    -- obelisk:action:execute / obelisk:keybinds:pressed net events): without
+    -- core:client:action-execute / core:client:keybinds-pressed net events): without
     -- it, any client could invoke any registered action with arbitrary data.
     -- Actions with no attached policies are allowed by default.
     if PolicyService then
@@ -116,8 +116,8 @@ function ActionService.unregister(actionId)
 end
 
 --- Net event handler for client-triggered actions
-RegisterNetEvent('obelisk:action:execute')
-AddEventHandler('obelisk:action:execute', function(actionId, data)
+RegisterNetEvent('core:client:action-execute')
+AddEventHandler('core:client:action-execute', function(actionId, data)
     local source = source
     ActionService.execute(source, actionId, data)
 end)

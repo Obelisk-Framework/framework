@@ -19,7 +19,7 @@ onMounted(() => {
   window.addEventListener('message', (event) => {
     const data = event.data
     
-    if (data.type === 'navigate' && data.route) {
+    if (data.type === 'core:client:navigate' && data.route) {
     }
   })
 })

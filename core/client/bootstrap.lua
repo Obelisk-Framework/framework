@@ -17,17 +17,17 @@ Citizen.CreateThread(function()
     print('[Obelisk Client] NUI initialized')
     
     -- Request initial data from server
-    TriggerServerEvent('obelisk:client:ready')
+    TriggerServerEvent('core:client:ready')
     
     print('[Obelisk Client] Ready')
 end)
 
 -- NUI Message handler for route changes
-RegisterNUICallback('navigate', function(data, cb)
+RegisterNUICallback('core:client:navigate', function(data, cb)
     if data.route then
         -- Handle navigation
         SendNUIMessage({
-            type = 'navigate',
+            type = 'core:client:navigate',
             route = data.route
         })
     end
@@ -35,7 +35,7 @@ RegisterNUICallback('navigate', function(data, cb)
 end)
 
 -- NUI Close handler
-RegisterNUICallback('close', function(data, cb)
+RegisterNUICallback('core:client:close', function(data, cb)
     SetNuiFocus(false, false)
     cb('ok')
 end)
@@ -44,7 +44,7 @@ end)
 function OpenNUI(page)
     SetNuiFocus(true, true)
     SendNUIMessage({
-        type = 'open',
+        type = 'core:client:open',
         page = page or '/'
     })
 end
@@ -53,7 +53,7 @@ end
 function CloseNUI()
     SetNuiFocus(false, false)
     SendNUIMessage({
-        type = 'close'
+        type = 'core:client:close'
     })
 end
 
