@@ -8,9 +8,10 @@ class Obelisk {
 
   constructor() {
     window.addEventListener('message', (event) => {
-      const { eventname, args = [] } = event.data
+      const { eventname, args } = event.data || {}
+      const list = Array.isArray(args) ? args : []
       const cbs = this.events.get(eventname)
-      if (cbs) Promise.allSettled(cbs.map(cb => cb(...args)))
+      if (cbs) Promise.allSettled(cbs.map(cb => cb(...list)))
     })
   }
 

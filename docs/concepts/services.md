@@ -17,7 +17,7 @@ Because they're globals loaded in this fixed order, later services can call earl
 
 ## Event naming
 
-Every FiveM net event (`RegisterNetEvent`/`TriggerEvent`/`TriggerServerEvent`/`TriggerClientEvent`) and every NUI name (`SendNUIMessage`'s `type` field, `RegisterNUICallback`) follows one shape:
+Every FiveM net event (`RegisterNetEvent`/`TriggerEvent`/`TriggerServerEvent`/`TriggerClientEvent`) and every NUI name (`SendNUIMessage`'s `eventname` field, `RegisterNUICallback`) follows one shape:
 
 ```
 <plugin-or-module>:<server|client>:<action>
@@ -27,7 +27,7 @@ Every FiveM net event (`RegisterNetEvent`/`TriggerEvent`/`TriggerServerEvent`/`T
 - **`<server|client>`**: the side that *sends* the event, not the side that handles it. A server broadcast like `core:server:notification-show` is registered with `RegisterNetEvent` on the client but sent with `core` as the sender context, since that's where `TriggerClientEvent` is called. This also keeps a request and its matching push from colliding when they'd otherwise share a name: `core:server:keybinds-requestSync` (server telling clients to re-request) and `core:client:keybinds-requestSync` (a client's actual request) are two different, unambiguous strings, not one name overloaded for both directions.
 - **`<action>`**: a single hyphenated action name, e.g. `notification-show`, `progress-cancel`.
 
-NUI names get the same treatment, always with `client` as the middle segment, since NUI (the Vue webview) only ever talks to client-side Lua, never to the server directly: `core:client:progress-start` (a `SendNUIMessage` type), `core:client:notification-dismissed` (a `RegisterNUICallback` name).
+NUI names get the same treatment, always with `client` as the middle segment, since NUI (the Vue webview) only ever talks to client-side Lua, never to the server directly: `core:client:progress-start` (a `SendNUIMessage` payload's `eventname`, sent as `{eventname = 'core:client:progress-start', args = {...}}` and picked up by the `Obelisk` JS singleton), `core:client:notification-dismissed` (a `RegisterNUICallback` name).
 
 This is a naming convention only, not a validated/enforced one; nothing in the framework rejects an event name that doesn't match. `Hooks.registerHook`/`Hooks.runHook` names (`interaction:use`, `notification:sent`, etc.) are a separate, in-process pub/sub system, not FiveM net events, and don't follow this scheme.
 

@@ -16,7 +16,6 @@ end
 --- @param eventName string
 --- @param callback function
 function Obelisk.on(eventName, callback)
-    RegisterNetEvent(eventName)
     AddEventHandler(eventName, callback)
 end
 
