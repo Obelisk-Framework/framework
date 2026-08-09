@@ -38,6 +38,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import Obelisk from '../../obelisk.js'
 
 const progressBars = ref([])
 let updateInterval = null
@@ -72,15 +73,7 @@ const complete = (progressId) => {
   const index = progressBars.value.findIndex(p => p.id === progressId)
   if (index !== -1) {
     progressBars.value.splice(index, 1)
-    
-    // Notify Lua
-    if (window.invokeNative) {
-      fetch(`https://${GetParentResourceName()}/core:client:progress-completed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ progressId })
-      })
-    }
+    Obelisk.emit('core:client:progress-completed', { progressId })
   }
 }
 
@@ -89,15 +82,7 @@ const cancel = (progressId) => {
   const index = progressBars.value.findIndex(p => p.id === progressId)
   if (index !== -1) {
     progressBars.value.splice(index, 1)
-    
-    // Notify Lua
-    if (window.invokeNative) {
-      fetch(`https://${GetParentResourceName()}/core:client:progress-userCancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ progressId })
-      })
-    }
+    Obelisk.emit('core:client:progress-userCancel', { progressId })
   }
 }
 
@@ -107,43 +92,32 @@ const formatTime = (ms) => {
   return `${seconds}s`
 }
 
+const handleCancel = (progressId) => {
+  const index = progressBars.value.findIndex(p => p.id === progressId)
+  if (index !== -1) {
+    progressBars.value.splice(index, 1)
+  }
+}
+
 // Listen for messages from Lua
 onMounted(() => {
-  window.addEventListener('message', handleMessage)
-  
+  Obelisk.on('core:client:progress-start', addProgress)
+  Obelisk.on('core:client:progress-complete', complete)
+  Obelisk.on('core:client:progress-cancel', handleCancel)
+
   // Start update interval
   updateInterval = setInterval(updateProgress, 100)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('message', handleMessage)
-  
+  Obelisk.off('core:client:progress-start', addProgress)
+  Obelisk.off('core:client:progress-complete', complete)
+  Obelisk.off('core:client:progress-cancel', handleCancel)
+
   if (updateInterval) {
     clearInterval(updateInterval)
   }
 })
-
-const handleMessage = (event) => {
-  const data = event.data
-  
-  if (data.type === 'core:client:progress-start') {
-    addProgress(data.progress)
-  } else if (data.type === 'core:client:progress-complete') {
-    complete(data.progressId)
-  } else if (data.type === 'core:client:progress-cancel') {
-    const index = progressBars.value.findIndex(p => p.id === data.progressId)
-    if (index !== -1) {
-      progressBars.value.splice(index, 1)
-    }
-  }
-}
-
-// Helper to get resource name
-function GetParentResourceName() {
-  let currentUrl = window.location.href
-  let match = currentUrl.match(/https?:\/\/(.*?)\//)
-  return match ? match[1] : 'obelisk'
-}
 </script>
 
 <style scoped>

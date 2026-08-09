@@ -29,6 +29,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import Obelisk from '../../obelisk.js'
 
 const notifications = ref([])
 
@@ -71,35 +72,16 @@ const dismiss = (id) => {
   const index = notifications.value.findIndex(n => n.id === id)
   if (index !== -1) {
     notifications.value.splice(index, 1)
-    
-    // Notify client Lua
-    if (window.invokeNative) {
-      fetch(`https://${GetParentResourceName()}/core:client:notification-dismissed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      })
-    }
+    Obelisk.emit('core:client:notification-dismissed', { id })
   }
 }
 
 // Listen for messages from Lua
 onMounted(() => {
-  window.addEventListener('message', (event) => {
-    const data = event.data
-    
-    if (data.type === 'core:client:notification-show') {
-      addNotification(data.notification)
-    }
+  Obelisk.on('core:client:notification-show', (notification) => {
+    addNotification(notification)
   })
 })
-
-// Helper to get resource name
-function GetParentResourceName() {
-  let currentUrl = window.location.href
-  let match = currentUrl.match(/https?:\/\/(.*?)\//)
-  return match ? match[1] : 'obelisk'
-}
 </script>
 
 <style scoped>
