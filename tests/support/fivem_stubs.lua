@@ -19,6 +19,12 @@ _G.exports = _G.exports or setmetatable({}, {__index = function() return {} end}
 _G.GetResourceState = _G.GetResourceState or function() return 'stopped' end
 _G.GetConvar = _G.GetConvar or function(_, default) return default end
 _G.GetConvarInt = _G.GetConvarInt or function(_, default) return default end
+_G.IsDuplicityVersion = _G.IsDuplicityVersion or function() return true end
+_G.RegisterNetEvent = _G.RegisterNetEvent or function() end
+_G.AddEventHandler = _G.AddEventHandler or function() end
+_G.TriggerEvent = _G.TriggerEvent or function() end
+_G.TriggerServerEvent = _G.TriggerServerEvent or function() end
+_G.TriggerClientEvent = _G.TriggerClientEvent or function() end
 
 if not _G.json then
     _G.json = {

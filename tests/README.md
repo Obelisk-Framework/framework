@@ -31,6 +31,11 @@ The runner exits non-zero if any test fails, so it works in CI.
   aborts before commit, and the manual fallback wraps them in
   `START TRANSACTION` / `COMMIT` (or `ROLLBACK` on failure)
 
+`tests/obelisk_spec.lua` exercises `core/shared/Obelisk.lua`'s side-detection
+and error-throwing logic, ensuring it correctly routes events (emit/on/emitServer/
+emitClient/onServer/onClient) and throws appropriate errors when methods are
+called from the wrong side (client or server).
+
 `tests/support/fivem_stubs.lua` stubs the handful of CitizenFX globals these
 files reference (`Citizen`, `exports`, `GetResourceState`, `json`, …) so the
 source can be loaded under vanilla Lua.
