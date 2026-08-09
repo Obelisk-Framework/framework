@@ -3,8 +3,7 @@ ProgressService = {}
 ProgressService.activeProgress = {}
 
 --- Start a progress bar
-RegisterNetEvent('core:server:progress-start')
-AddEventHandler('core:server:progress-start', function(progressData)
+Obelisk.onClient('core:server:progress-start', function(progressData)
     ProgressService.activeProgress[progressData.id] = progressData
     
     -- Send to NUI
@@ -17,8 +16,7 @@ AddEventHandler('core:server:progress-start', function(progressData)
 end)
 
 --- Complete a progress bar
-RegisterNetEvent('core:server:progress-complete')
-AddEventHandler('core:server:progress-complete', function(progressId)
+Obelisk.onClient('core:server:progress-complete', function(progressId)
     ProgressService.activeProgress[progressId] = nil
     
     -- Send to NUI
@@ -31,8 +29,7 @@ AddEventHandler('core:server:progress-complete', function(progressId)
 end)
 
 --- Cancel a progress bar
-RegisterNetEvent('core:server:progress-cancel')
-AddEventHandler('core:server:progress-cancel', function(progressId)
+Obelisk.onClient('core:server:progress-cancel', function(progressId)
     ProgressService.activeProgress[progressId] = nil
     
     -- Send to NUI
@@ -50,7 +47,7 @@ RegisterNUICallback('core:client:progress-userCancel', function(data, cb)
     
     if ProgressService.activeProgress[progressId] then
         -- Notify server
-        TriggerServerEvent('core:client:progress-cancel', progressId)
+        Obelisk.emitServer('core:client:progress-cancel', progressId)
         
         -- Remove locally
         ProgressService.activeProgress[progressId] = nil
@@ -65,7 +62,7 @@ RegisterNUICallback('core:client:progress-completed', function(data, cb)
     
     if ProgressService.activeProgress[progressId] then
         -- Notify server
-        TriggerServerEvent('core:client:progress-complete', progressId)
+        Obelisk.emitServer('core:client:progress-complete', progressId)
         
         -- Remove locally
         ProgressService.activeProgress[progressId] = nil

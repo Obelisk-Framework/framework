@@ -26,7 +26,7 @@ function InteractionService.register(data)
     print('[InteractionService] Registered interaction #' .. id .. ' at ' .. data.x .. ',' .. data.y .. ',' .. data.z)
     
     -- Broadcast to clients for streaming
-    TriggerClientEvent('core:server:interaction-add', -1, InteractionService.registry[id])
+    Obelisk.emitClient('core:server:interaction-add', -1, InteractionService.registry[id])
     
     return id
 end
@@ -38,7 +38,7 @@ function InteractionService.unregister(interactionId)
         InteractionService.registry[interactionId] = nil
         print('[InteractionService] Unregistered interaction #' .. interactionId)
         
-        TriggerClientEvent('core:server:interaction-remove', -1, interactionId)
+        Obelisk.emitClient('core:server:interaction-remove', -1, interactionId)
     end
 end
 
@@ -93,7 +93,7 @@ function InteractionService.update(interactionId, data)
         interaction[key] = value
     end
     
-    TriggerClientEvent('core:server:interaction-update', -1, interaction)
+    Obelisk.emitClient('core:server:interaction-update', -1, interaction)
 end
 
 --- Enable/disable interaction
@@ -103,7 +103,7 @@ function InteractionService.setEnabled(interactionId, enabled)
     local interaction = InteractionService.registry[interactionId]
     if interaction then
         interaction.enabled = enabled
-        TriggerClientEvent('core:server:interaction-update', -1, interaction)
+        Obelisk.emitClient('core:server:interaction-update', -1, interaction)
     end
 end
 
@@ -159,17 +159,15 @@ function InteractionService.use(source, interactionId)
 end
 
 --- Net event handlers
-RegisterNetEvent('core:client:interaction-use')
-AddEventHandler('core:client:interaction-use', function(interactionId)
+Obelisk.onServer('core:client:interaction-use', function(interactionId)
     local source = source
     InteractionService.use(source, interactionId)
 end)
 
 --- Send all interactions to a player (on join)
-RegisterNetEvent('core:client:interaction-requestAll')
-AddEventHandler('core:client:interaction-requestAll', function()
+Obelisk.onServer('core:client:interaction-requestAll', function()
     local source = source
-    TriggerClientEvent('core:server:interaction-syncAll', source, InteractionService.registry)
+    Obelisk.emitClient('core:server:interaction-syncAll', source, InteractionService.registry)
 end)
 
 return InteractionService

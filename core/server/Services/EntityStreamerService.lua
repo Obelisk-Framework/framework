@@ -203,7 +203,7 @@ function EntityStreamerService.loadChunkForPlayer(source, chunkKey)
             local entityData = EntityStreamerService.entities[entityType][entityId]
             
             if entityData then
-                TriggerClientEvent('core:server:streamer-entityAdd', source, {
+                Obelisk.emitClient('core:server:streamer-entityAdd', source, {
                     entityId = entityId,
                     entityType = entityType,
                     data = entityData
@@ -224,7 +224,7 @@ function EntityStreamerService.unloadChunkForPlayer(source, chunkKey)
     -- Tell client to remove entities from this chunk
     for entityType, entities in pairs(chunk) do
         for entityId, _ in pairs(entities) do
-            TriggerClientEvent('core:server:streamer-entityRemove', source, {
+            Obelisk.emitClient('core:server:streamer-entityRemove', source, {
                 entityId = entityId,
                 entityType = entityType
             })
@@ -240,7 +240,7 @@ function EntityStreamerService.broadcastToChunk(chunkKey, eventName, data)
     for playerId, playerData in pairs(EntityStreamerService.playerChunks) do
         for _, activeChunk in ipairs(playerData.activeChunks) do
             if activeChunk == chunkKey then
-                TriggerClientEvent(eventName, playerId, data)
+                Obelisk.emitClient(eventName, playerId, data)
                 break
             end
         end
@@ -261,14 +261,12 @@ AddEventHandler('playerDropped', function()
 end)
 
 --- Net events
-RegisterNetEvent('core:client:streamer-updatePosition')
-AddEventHandler('core:client:streamer-updatePosition', function(x, y)
+Obelisk.onServer('core:client:streamer-updatePosition', function(x, y)
     local source = source
     EntityStreamerService.updatePlayerChunks(source, x, y)
 end)
 
-RegisterNetEvent('core:client:streamer-requestChunk')
-AddEventHandler('core:client:streamer-requestChunk', function(chunkKey)
+Obelisk.onServer('core:client:streamer-requestChunk', function(chunkKey)
     local source = source
     EntityStreamerService.loadChunkForPlayer(source, chunkKey)
 end)

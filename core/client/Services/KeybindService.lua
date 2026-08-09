@@ -4,8 +4,7 @@ KeybindService.keybinds = {}
 KeybindService.keyMap = {} -- Map key codes to keybind IDs
 
 --- Sync keybinds from server
-RegisterNetEvent('core:server:keybinds-sync')
-AddEventHandler('core:server:keybinds-sync', function(keybinds)
+Obelisk.onClient('core:server:keybinds-sync', function(keybinds)
     KeybindService.keybinds = keybinds
     KeybindService.keyMap = {}
     
@@ -22,7 +21,7 @@ end)
 
 --- Request keybinds from server
 function KeybindService.requestSync()
-    TriggerServerEvent('core:client:keybinds-requestSync')
+    Obelisk.emitServer('core:client:keybinds-requestSync')
 end
 
 --- Check if key is pressed and trigger associated actions
@@ -40,7 +39,7 @@ function KeybindService.checkKeyPress(keyCode)
             end
             
             -- Trigger action on server
-            TriggerServerEvent('core:client:keybinds-pressed', keybind.action_id, data or {})
+            Obelisk.emitServer('core:client:keybinds-pressed', keybind.action_id, data or {})
         end
     end
 end

@@ -7,7 +7,7 @@ return function(data)
     
     -- Trigger the closest interaction
     if InteractionService and InteractionService.closestInteraction then
-        TriggerServerEvent('core:client:interaction-use', InteractionService.closestInteraction.id)
+        Obelisk.emitServer('core:client:interaction-use', InteractionService.closestInteraction.id)
     else
         -- No interaction nearby
         print('[UseInteraction] No interaction in range')
