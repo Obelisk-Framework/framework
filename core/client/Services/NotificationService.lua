@@ -3,8 +3,7 @@ NotificationService = {}
 NotificationService.queue = {}
 
 --- Receive notification from server
-RegisterNetEvent('core:server:notification-show')
-AddEventHandler('core:server:notification-show', function(notification)
+Obelisk.onClient('core:server:notification-show', function(notification)
     NotificationService.show(notification)
 end)
 

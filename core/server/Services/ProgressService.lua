@@ -31,7 +31,7 @@ function ProgressService.start(target, data, onComplete, onCancel)
     ProgressService.activeProgress[target][progressId] = progress
     
     -- Send to client
-    TriggerClientEvent('core:server:progress-start', target, {
+    Obelisk.emitClient('core:server:progress-start', target, {
         id = progressId,
         label = progress.label,
         duration = progress.duration,
@@ -64,7 +64,7 @@ function ProgressService.complete(target, progressId)
     ProgressService.activeProgress[target][progressId] = nil
     
     -- Notify client
-    TriggerClientEvent('core:server:progress-complete', target, progressId)
+    Obelisk.emitClient('core:server:progress-complete', target, progressId)
     
     -- Call completion callback
     if progress.onComplete then
@@ -87,7 +87,7 @@ function ProgressService.cancel(target, progressId)
     ProgressService.activeProgress[target][progressId] = nil
     
     -- Notify client
-    TriggerClientEvent('core:server:progress-cancel', target, progressId)
+    Obelisk.emitClient('core:server:progress-cancel', target, progressId)
     
     -- Call cancellation callback
     if progress.onCancel then
@@ -115,15 +115,13 @@ function ProgressService.getActive(target)
 end
 
 --- Net event: Client reports progress completion
-RegisterNetEvent('core:client:progress-complete')
-AddEventHandler('core:client:progress-complete', function(progressId)
+Obelisk.onServer('core:client:progress-complete', function(progressId)
     local source = source
     ProgressService.complete(source, progressId)
 end)
 
 --- Net event: Client reports progress cancellation
-RegisterNetEvent('core:client:progress-cancel')
-AddEventHandler('core:client:progress-cancel', function(progressId)
+Obelisk.onServer('core:client:progress-cancel', function(progressId)
     local source = source
     ProgressService.cancel(source, progressId)
 end)

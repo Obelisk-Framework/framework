@@ -17,7 +17,7 @@ Citizen.CreateThread(function()
     print('[Obelisk Client] NUI initialized')
 
     -- Request initial data from server
-    TriggerServerEvent('core:client:ready')
+    Obelisk.emitServer('core:client:ready')
 
     print('[Obelisk Client] Ready')
 end)

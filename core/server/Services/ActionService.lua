@@ -116,8 +116,7 @@ function ActionService.unregister(actionId)
 end
 
 --- Net event handler for client-triggered actions
-RegisterNetEvent('core:client:action-execute')
-AddEventHandler('core:client:action-execute', function(actionId, data)
+Obelisk.onServer('core:client:action-execute', function(actionId, data)
     local source = source
     ActionService.execute(source, actionId, data)
 end)
