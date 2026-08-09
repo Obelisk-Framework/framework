@@ -31,6 +31,37 @@ NUI names get the same treatment, always with `client` as the middle segment, si
 
 This is a naming convention only, not a validated/enforced one; nothing in the framework rejects an event name that doesn't match. `Hooks.registerHook`/`Hooks.runHook` names (`interaction:use`, `notification:sent`, etc.) are a separate, in-process pub/sub system, not FiveM net events, and don't follow this scheme.
 
+## Obelisk
+
+A shared wrapper (`core/shared/Obelisk.lua`, loaded on both server and client) around FiveM's raw event natives. Every service in this file uses it instead of calling `RegisterNetEvent`/`TriggerServerEvent`/`TriggerClientEvent` directly. It always takes the full event name string (no auto-namespacing); the caller is responsible for following the naming convention above.
+
+- **`Obelisk.emit(eventName, ...)`** / **`Obelisk.on(eventName, callback)`**: local-only, same-side. `emit` is `TriggerEvent`; `on` is `AddEventHandler` only, deliberately without `RegisterNetEvent`, so a local-only event never becomes remotely triggerable by the other side just because you registered a handler for it. Both work on server or client.
+- **`Obelisk.emitClient(eventName, target, ...)`** (server only): `TriggerClientEvent`. `target` is a player server ID, or `-1` for everyone.
+- **`Obelisk.onServer(eventName, callback)`** (server only): the receiving half of a client's `emitServer`, registered via `RegisterNetEvent` + `AddEventHandler`.
+- **`Obelisk.emitServer(eventName, ...)`** (client only): `TriggerServerEvent`.
+- **`Obelisk.onClient(eventName, callback)`** (client only): the receiving half of a server's `emitClient`.
+
+Calling a wrong-side method (e.g. `Obelisk.emitClient` from client code) throws `'Obelisk.<name> can only be called from the <side>'` immediately, rather than silently misbehaving. `core/shared/Obelisk.lua` picks the right set of methods once at load time via `IsDuplicityVersion()`.
+
+```lua
+-- server
+Obelisk.emitClient('myplugin:client:open', source, { page = 'shop' })
+Obelisk.onServer('myplugin:server:buy', function(itemId)
+    local source = source
+    -- ...
+end)
+
+-- client
+Obelisk.onClient('myplugin:client:open', function(data)
+    WebView.openPage(data.page)
+end)
+Obelisk.emitServer('myplugin:server:buy', 'water')
+```
+
+## WebView
+
+`Obelisk.emit`/`emitClient`/`emitServer` cover networked events between server and client, but plugins also need to talk to the NUI (the Vue webview). That's what `WebView` is for. See [WebView & NUI](/concepts/webview) for the full API, the NUI message shape, the JS `Obelisk` singleton on the Vue side, and how to register a persistent overlay component.
+
 ## Hooks
 
 A minimal event-hook system (`core/server/Services/Hooks.lua`), loaded before every other service so they can all register and run hooks against each other's lifecycle events.

@@ -33,6 +33,7 @@ export default defineConfig({
           items: [
             { text: 'ORM', link: '/concepts/orm' },
             { text: 'Services', link: '/concepts/services' },
+            { text: 'WebView & NUI', link: '/concepts/webview' },
             { text: 'Modules & Plugins', link: '/concepts/modules-and-plugins' }
           ]
         }
