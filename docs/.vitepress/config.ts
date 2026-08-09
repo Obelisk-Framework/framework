@@ -6,7 +6,13 @@ export default defineConfig({
   base: '/core/',
   ignoreDeadLinks: false,
 
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/core/favicon.svg' }]
+  ],
+
   themeConfig: {
+    logo: { light: '/logo-light.svg', dark: '/logo-dark.svg' },
+
     nav: [
       { text: 'Guide', link: '/guide/introduction' },
       { text: 'Concepts', link: '/concepts/orm' },
