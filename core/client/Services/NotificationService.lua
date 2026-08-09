@@ -19,8 +19,8 @@ function NotificationService.show(notification)
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'core:client:notification-show',
-        notification = notification
+        eventname = 'core:client:notification-show',
+        args = { notification }
     })
     
     print('[NotificationService] Showing notification: ' .. notification.title)

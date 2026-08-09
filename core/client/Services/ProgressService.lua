@@ -9,8 +9,8 @@ AddEventHandler('core:server:progress-start', function(progressData)
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'core:client:progress-start',
-        progress = progressData
+        eventname = 'core:client:progress-start',
+        args = { progressData }
     })
     
     print('[ProgressService] Started progress: ' .. progressData.label)
@@ -23,8 +23,8 @@ AddEventHandler('core:server:progress-complete', function(progressId)
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'core:client:progress-complete',
-        progressId = progressId
+        eventname = 'core:client:progress-complete',
+        args = { progressId }
     })
     
     print('[ProgressService] Completed progress: ' .. progressId)
@@ -37,8 +37,8 @@ AddEventHandler('core:server:progress-cancel', function(progressId)
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'core:client:progress-cancel',
-        progressId = progressId
+        eventname = 'core:client:progress-cancel',
+        args = { progressId }
     })
     
     print('[ProgressService] Cancelled progress: ' .. progressId)
