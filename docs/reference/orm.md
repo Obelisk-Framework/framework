@@ -289,6 +289,9 @@ Constructor. Returns an instance with the given `attributes` (defaults to `{}`),
 **`:newQuery()`**
 Sync. Returns a `QueryBuilder.new(self.table, self.primaryKey)`, the query object every other model method builds on.
 
+**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**
+Proxies onto the same-named `QueryBuilder` method: each opens a fresh `newQuery()` and forwards straight to it, letting you skip the explicit `newQuery()` call, e.g. `Inventory:where('owner', id):getSync()`. Same parameters, same return value (a `QueryBuilder`, so the rest of the chain and its terminal `getSync`/`first`/etc. behave exactly as documented under [QueryBuilder](#querybuilder) above), and the same raw-rows result, not model instances.
+
 **`:find(id, callback)`** / **`:findSync(id)`**
 Async / sync. Looks up a row by primary key. Returns the wrapped model instance, or `nil` if not found.
 
