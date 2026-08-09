@@ -274,6 +274,94 @@ table:foreign('owner_id'):references('id'):on('users'):onDelete('CASCADE')
 **`:toSql()`**
 Sync. Returns a `string[]` of statements. The first is always the `CREATE TABLE IF NOT EXISTS` statement itself; any further entries are standalone `CREATE INDEX` statements for indexes a dialect can't express inline (Postgres, for plain indexes).
 
+## Migrations
+
+A migration is a `.lua` file under a module/plugin's (or core's own) `server/migrations/` directory, tracked by a sibling `migrations.json`. `obelisk make:migration` generates both; see [CLI: Command Reference](/cli/index) for the generator itself. This section documents the file's contract and every field a `Blueprint` column can carry, since those are what actually end up in a migration.
+
+### File naming and the `up`/`down` contract
+
+A migration file is named `<timestamp>_<description>.lua`, where `<timestamp>` is `YYYY_MM_DD_HHMMSS` (the moment it was generated, not run) and `<description>` is a snake_case name, e.g. `2024_10_04_000001_create_actions_table.lua`. The file itself returns a table with two functions:
+
+```lua
+--- Migration: Create actions table
+return {
+    up = function()
+        Schema.create('actions', function(table)
+            table:id()
+            table:string('action_id', 100):unique():notNullable()
+            table:string('label', 255)
+            table:text('description')
+            table:json('options')
+            table:boolean('enabled'):default(1)
+            table:timestamps()
+        end)
+
+        print('[Migration] Created actions table')
+    end,
+
+    down = function()
+        Schema.drop('actions')
+        print('[Migration] Dropped actions table')
+    end
+}
+```
+
+`up()` applies the migration; `down()` reverses it. Neither takes arguments and neither is expected to return anything. The migration runner (`core/server/bootstrap.lua`) only ever calls `up()` automatically, on server start, for any migration not already recorded in the `migrations` table; nothing in the framework calls `down()` automatically, it's there for you to call by hand if you need to roll a change back.
+
+### `migrations.json`
+
+The sibling file the runner actually reads, one per module/plugin/core, listing every migration filename (without the `.lua` extension) that belongs to it, in the order they should run:
+
+```json
+{
+  "migrations": [
+    "2024_10_04_000001_create_actions_table",
+    "2024_10_04_000002_create_interactions_table"
+  ]
+}
+```
+
+`make:migration` appends to this file automatically; if you hand-write a migration file, add its name here too, or the runner will never see it. Order in the array is execution order, not re-sorted by timestamp at runtime.
+
+### Column fields
+
+Every `Blueprint` column-adding method (`:id()`, `:string()`, etc.) inserts an entry into `self.columns` shaped like this, which is what `:toSql()` and `Schema.table()` actually read from:
+
+| Field | Set by | Meaning |
+|---|---|---|
+| `name` | every column method | the column name, as passed in |
+| `kind` | every column method | one of `integer`, `bigInteger`, `string`, `text`, `json`, `float`, `decimal`, `boolean`, `date`, `datetime`, `timestamp`, `enum` |
+| `opts` | every column method | a table of kind-specific options, see the type table below |
+| `nullable` | every column method (default varies), `:nullable()`, `:notNullable()` | whether the column allows `NULL`. `:id()` defaults to `false`; every other column method defaults to `true` |
+| `default` | `:boolean()` (defaults to `0`), `:timestamps()` (defaults to `'CURRENT_TIMESTAMP'`), `:default(value)` | the column's `DEFAULT` clause value, formatted per dialect via `formatDefault(kind, value)` |
+| `autoIncrement` | `:id()` only | marks the column as auto-incrementing (`AUTO_INCREMENT` on MySQL, `SERIAL`/`BIGSERIAL` on Postgres) |
+| `primary` | `:id()` only | marks the column as the table's primary key |
+
+`opts` fields, by `kind`:
+
+| `kind` | `opts` fields | MySQL type | Postgres type |
+|---|---|---|---|
+| `integer` | `unsigned` (bool, via `:unsigned()` or `:unsignedInteger()`) | `INT` / `INT UNSIGNED`, or plain `INT` if `autoIncrement` | `SERIAL` if `autoIncrement`, else `INTEGER` (no unsigned variant, `:unsigned()` is a no-op) |
+| `bigInteger` | `unsigned` (bool) | `BIGINT` / `BIGINT UNSIGNED` | `BIGSERIAL` if `autoIncrement`, else `BIGINT` (no unsigned variant) |
+| `string` | `length` (number, default `255`) | `VARCHAR(length)` | `VARCHAR(length)` |
+| `text` | none | `TEXT` | `TEXT` |
+| `json` | none | `JSON` | `JSONB` |
+| `float` | `precision`, `scale` (numbers, both optional) | `FLOAT`, or `FLOAT(precision[,scale])` if `precision` given | `DOUBLE PRECISION`; `FLOAT(precision)` if only `precision` given; `NUMERIC(precision,scale)` if both given (Postgres `FLOAT` takes no scale) |
+| `decimal` | `precision` (default `8`), `scale` (default `2`) | `DECIMAL(precision,scale)` | `NUMERIC(precision,scale)` |
+| `boolean` | none | `TINYINT(1)` | `BOOLEAN` |
+| `date` | none | `DATE` | `DATE` |
+| `datetime` | none | `DATETIME` | `TIMESTAMP` |
+| `timestamp` | none | `TIMESTAMP` | `TIMESTAMP` |
+| `enum` | `values` (list of strings, via `:enum(name, values)`) | `ENUM('v1','v2',...)` | `VARCHAR(255)`, not DB-enforced (Postgres has no inline enum type without a separate `CREATE TYPE`) |
+
+### Index fields
+
+`:index()`/`:unique()` insert an entry into `self.indexes`: `{ name, columns, unique }`, where `unique` is `true`/`false` and `columns` is always a list, even when called with a single column name.
+
+### Foreign key fields
+
+`:foreign(column):references(refColumn):on(refTable):onDelete(action)` (or `:onUpdate(action)`, or `.getBlueprint()`) builds an entry in `self.foreignKeys`: `{ column, references, on, onDelete, onUpdate }`. `onDelete`/`onUpdate` both default to `'RESTRICT'` if not set explicitly; the framework doesn't validate `action` against an allowlist, so any value your database accepts (`CASCADE`, `SET NULL`, `NO ACTION`, `RESTRICT`) works, but a typo reaches the database as-is rather than failing at build time.
+
 ## BaseModel
 
 The Active Record base class every model extends, either via `BaseModel:extend(tableName)` or the equivalent explicit `setmetatable(Model, { __index = BaseModel })` form. See [ORM: Models](/concepts/orm#models) for the class-level configuration fields (`primaryKey`, `timestamps`, `fillable`, `hidden`, `casts`).
