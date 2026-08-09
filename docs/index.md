@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: Obelisk Framework
-  text: A modern FiveM framework
-  tagline: Lua ORM with MySQL/PostgreSQL support, a module & plugin system, a Vue 3 NUI, and a CLI that scaffolds all of it.
+  text: A developer-first FiveM framework
+  tagline: Built for the developer writing the plugin, not just the server owner running it. A dual-dialect Lua ORM, a module and plugin system, a Vue 3 NUI, and one CLI that scaffolds all of it to the same conventions core itself follows.
   actions:
     - theme: brand
       text: Get Started
