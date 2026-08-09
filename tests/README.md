@@ -9,7 +9,7 @@ Requires a standalone Lua 5.4 interpreter:
 
 ```bash
 # Debian/Ubuntu:  sudo apt-get install lua5.4
-npm test          # -> lua5.4 tests/orm_spec.lua
+npm test          # -> runs tests/orm_spec.lua and tests/obelisk_spec.lua
 # or directly:
 lua5.4 tests/orm_spec.lua
 ```

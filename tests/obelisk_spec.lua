@@ -39,13 +39,11 @@ test('emit: TriggerEvent locally, works on either side', function()
     eq(captured[3], 2)
 end)
 
-test('on: RegisterNetEvent + AddEventHandler locally, works on either side', function()
-    local registered, handlerName
-    _G.RegisterNetEvent = function(name) registered = name end
+test('on: AddEventHandler locally, works on either side', function()
+    local handlerName
     _G.AddEventHandler = function(name, _) handlerName = name end
     local Obelisk = loadObeliskAs(false)
     Obelisk.on('foo:bar', function() end)
-    eq(registered, 'foo:bar')
     eq(handlerName, 'foo:bar')
 end)
 

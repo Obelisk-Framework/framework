@@ -80,7 +80,7 @@ set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem
 - **State**: Use `ref()` and `computed()` for reactivity
 - **Event Handling**: camelCase event names, use `@event` in templates
 - **Styling**: TailwindCSS utility classes; scoped `<style scoped>` blocks
-- **NUI**: Use `useNui()` composable for Lua ↔ Vue communication via fetch callbacks
+- **NUI**: Use the `Obelisk` singleton (`web/src/obelisk.js`) for Lua ↔ Vue communication: `Obelisk.on(eventName, cb)` for Lua→Vue messages, `Obelisk.emit(eventName, data)` for Vue→Lua NUI callbacks
 
 ### JavaScript/Node (CLI)
 - **Generators**: Use commander.js for CLI structure, inquirer.js for prompts
