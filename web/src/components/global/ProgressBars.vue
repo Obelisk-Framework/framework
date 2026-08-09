@@ -75,7 +75,7 @@ const complete = (progressId) => {
     
     // Notify Lua
     if (window.invokeNative) {
-      fetch(`https://${GetParentResourceName()}/progress:completed`, {
+      fetch(`https://${GetParentResourceName()}/core:client:progress-completed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ progressId })
@@ -92,7 +92,7 @@ const cancel = (progressId) => {
     
     // Notify Lua
     if (window.invokeNative) {
-      fetch(`https://${GetParentResourceName()}/progress:userCancel`, {
+      fetch(`https://${GetParentResourceName()}/core:client:progress-userCancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ progressId })
@@ -126,11 +126,11 @@ onUnmounted(() => {
 const handleMessage = (event) => {
   const data = event.data
   
-  if (data.type === 'progress:start') {
+  if (data.type === 'core:client:progress-start') {
     addProgress(data.progress)
-  } else if (data.type === 'progress:complete') {
+  } else if (data.type === 'core:client:progress-complete') {
     complete(data.progressId)
-  } else if (data.type === 'progress:cancel') {
+  } else if (data.type === 'core:client:progress-cancel') {
     const index = progressBars.value.findIndex(p => p.id === data.progressId)
     if (index !== -1) {
       progressBars.value.splice(index, 1)

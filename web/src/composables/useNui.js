@@ -55,7 +55,7 @@ export function useNui() {
    * @param {boolean} visible
    */
   const setVisible = (visible) => {
-    sendCallback('setVisible', { visible })
+    sendCallback('core:client:setVisible', { visible })
   }
   
   /**

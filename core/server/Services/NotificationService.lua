@@ -40,7 +40,7 @@ function NotificationService.notify(target, data)
     end
     
     -- Send to client(s)
-    TriggerClientEvent('obelisk:notification:show', target, notification)
+    TriggerClientEvent('core:server:notification-show', target, notification)
     
     -- Run hook for extensibility
     if target ~= -1 then
@@ -105,8 +105,8 @@ function NotificationService.info(target, title, description, duration)
 end
 
 --- Net event: Client requests to show notification (client-side triggered)
-RegisterNetEvent('obelisk:notification:clientShow')
-AddEventHandler('obelisk:notification:clientShow', function(data)
+RegisterNetEvent('core:client:notification-show')
+AddEventHandler('core:client:notification-show', function(data)
     local source = source
     -- Client is allowed to trigger notifications for themselves
     NotificationService.notify(source, data)

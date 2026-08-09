@@ -240,18 +240,18 @@ Citizen.CreateThread(function()
         local coords = GetEntityCoords(playerPed)
         
         -- Send position to server for chunk management
-        TriggerServerEvent('obelisk:streamer:updatePosition', coords.x, coords.y)
+        TriggerServerEvent('core:client:streamer-updatePosition', coords.x, coords.y)
     end
 end)
 
 --- Net event handlers
-RegisterNetEvent('obelisk:streamer:entityAdd')
-AddEventHandler('obelisk:streamer:entityAdd', function(data)
+RegisterNetEvent('core:server:streamer-entityAdd')
+AddEventHandler('core:server:streamer-entityAdd', function(data)
     EntityStreamerService.spawnEntity(data.entityId, data.entityType, data.data)
 end)
 
-RegisterNetEvent('obelisk:streamer:entityRemove')
-AddEventHandler('obelisk:streamer:entityRemove', function(data)
+RegisterNetEvent('core:server:streamer-entityRemove')
+AddEventHandler('core:server:streamer-entityRemove', function(data)
     EntityStreamerService.despawnEntity(data.entityId)
 end)
 

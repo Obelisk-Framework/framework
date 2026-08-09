@@ -5,29 +5,29 @@ InteractionService.nearbyInteractions = {}
 InteractionService.closestInteraction = nil
 
 --- Sync all interactions from server
-RegisterNetEvent('obelisk:interaction:syncAll')
-AddEventHandler('obelisk:interaction:syncAll', function(interactions)
+RegisterNetEvent('core:server:interaction-syncAll')
+AddEventHandler('core:server:interaction-syncAll', function(interactions)
     InteractionService.interactions = interactions
     print('[InteractionService] Synced ' .. table.count(interactions) .. ' interactions')
 end)
 
 --- Add a new interaction
-RegisterNetEvent('obelisk:interaction:add')
-AddEventHandler('obelisk:interaction:add', function(interaction)
+RegisterNetEvent('core:server:interaction-add')
+AddEventHandler('core:server:interaction-add', function(interaction)
     InteractionService.interactions[interaction.id] = interaction
     print('[InteractionService] Added interaction #' .. interaction.id)
 end)
 
 --- Remove an interaction
-RegisterNetEvent('obelisk:interaction:remove')
-AddEventHandler('obelisk:interaction:remove', function(interactionId)
+RegisterNetEvent('core:server:interaction-remove')
+AddEventHandler('core:server:interaction-remove', function(interactionId)
     InteractionService.interactions[interactionId] = nil
     print('[InteractionService] Removed interaction #' .. interactionId)
 end)
 
 --- Update an interaction
-RegisterNetEvent('obelisk:interaction:update')
-AddEventHandler('obelisk:interaction:update', function(interaction)
+RegisterNetEvent('core:server:interaction-update')
+AddEventHandler('core:server:interaction-update', function(interaction)
     InteractionService.interactions[interaction.id] = interaction
 end)
 
@@ -63,7 +63,7 @@ end
 --- Use the closest interaction
 function InteractionService.useClosest()
     if InteractionService.closestInteraction then
-        TriggerServerEvent('obelisk:interaction:use', InteractionService.closestInteraction.id)
+        TriggerServerEvent('core:client:interaction-use', InteractionService.closestInteraction.id)
     end
 end
 
@@ -120,7 +120,7 @@ end)
 --- Request all interactions on start
 Citizen.CreateThread(function()
     Wait(2000)
-    TriggerServerEvent('obelisk:interaction:requestAll')
+    TriggerServerEvent('core:client:interaction-requestAll')
 end)
 
 --- Helper: Count table entries

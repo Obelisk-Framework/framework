@@ -43,7 +43,7 @@ end
 --- @param source number Player server ID
 function KeybindService.syncToClient(source)
     KeybindService.loadPlayerKeybinds(source, function(keybinds)
-        TriggerClientEvent('obelisk:keybinds:sync', source, keybinds)
+        TriggerClientEvent('core:server:keybinds-sync', source, keybinds)
         print('[KeybindService] Synced ' .. #keybinds .. ' keybinds to player ' .. source)
     end)
 end
@@ -65,7 +65,7 @@ function KeybindService.registerGlobal(key, actionId, data)
     print('[KeybindService] Registered global keybind: ' .. key .. ' -> ' .. actionId)
     
     -- Sync to all connected clients
-    TriggerClientEvent('obelisk:keybinds:requestSync', -1)
+    TriggerClientEvent('core:server:keybinds-requestSync', -1)
     
     return keybindId
 end
@@ -112,7 +112,7 @@ function KeybindService.update(keybindId, data)
     QueryBuilder.new('keybinds'):where('id', keybindId):update(updates)
 
     -- Sync to all clients (global) or specific player
-    TriggerClientEvent('obelisk:keybinds:requestSync', -1)
+    TriggerClientEvent('core:server:keybinds-requestSync', -1)
 end
 
 --- Delete a keybind
@@ -124,7 +124,7 @@ function KeybindService.delete(keybindId)
     print('[KeybindService] Deleted keybind #' .. keybindId)
     
     -- Sync to all clients
-    TriggerClientEvent('obelisk:keybinds:requestSync', -1)
+    TriggerClientEvent('core:server:keybinds-requestSync', -1)
 end
 
 --- Handle keybind press from client
@@ -144,15 +144,15 @@ function KeybindService.handlePress(source, actionId, keybindData)
 end
 
 --- Net event: Client requests keybind sync
-RegisterNetEvent('obelisk:keybinds:requestSync')
-AddEventHandler('obelisk:keybinds:requestSync', function()
+RegisterNetEvent('core:client:keybinds-requestSync')
+AddEventHandler('core:client:keybinds-requestSync', function()
     local source = source
     KeybindService.syncToClient(source)
 end)
 
 --- Net event: Client pressed a keybind
-RegisterNetEvent('obelisk:keybinds:pressed')
-AddEventHandler('obelisk:keybinds:pressed', function(actionId, keybindData)
+RegisterNetEvent('core:client:keybinds-pressed')
+AddEventHandler('core:client:keybinds-pressed', function(actionId, keybindData)
     local source = source
     KeybindService.handlePress(source, actionId, keybindData)
 end)

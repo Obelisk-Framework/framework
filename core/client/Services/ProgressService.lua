@@ -3,13 +3,13 @@ ProgressService = {}
 ProgressService.activeProgress = {}
 
 --- Start a progress bar
-RegisterNetEvent('obelisk:progress:start')
-AddEventHandler('obelisk:progress:start', function(progressData)
+RegisterNetEvent('core:server:progress-start')
+AddEventHandler('core:server:progress-start', function(progressData)
     ProgressService.activeProgress[progressData.id] = progressData
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'progress:start',
+        type = 'core:client:progress-start',
         progress = progressData
     })
     
@@ -17,13 +17,13 @@ AddEventHandler('obelisk:progress:start', function(progressData)
 end)
 
 --- Complete a progress bar
-RegisterNetEvent('obelisk:progress:complete')
-AddEventHandler('obelisk:progress:complete', function(progressId)
+RegisterNetEvent('core:server:progress-complete')
+AddEventHandler('core:server:progress-complete', function(progressId)
     ProgressService.activeProgress[progressId] = nil
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'progress:complete',
+        type = 'core:client:progress-complete',
         progressId = progressId
     })
     
@@ -31,13 +31,13 @@ AddEventHandler('obelisk:progress:complete', function(progressId)
 end)
 
 --- Cancel a progress bar
-RegisterNetEvent('obelisk:progress:cancel')
-AddEventHandler('obelisk:progress:cancel', function(progressId)
+RegisterNetEvent('core:server:progress-cancel')
+AddEventHandler('core:server:progress-cancel', function(progressId)
     ProgressService.activeProgress[progressId] = nil
     
     -- Send to NUI
     SendNUIMessage({
-        type = 'progress:cancel',
+        type = 'core:client:progress-cancel',
         progressId = progressId
     })
     
@@ -45,12 +45,12 @@ AddEventHandler('obelisk:progress:cancel', function(progressId)
 end)
 
 --- NUI Callback: Progress cancelled by user
-RegisterNUICallback('progress:userCancel', function(data, cb)
+RegisterNUICallback('core:client:progress-userCancel', function(data, cb)
     local progressId = data.progressId
     
     if ProgressService.activeProgress[progressId] then
         -- Notify server
-        TriggerServerEvent('obelisk:progress:clientCancel', progressId)
+        TriggerServerEvent('core:client:progress-cancel', progressId)
         
         -- Remove locally
         ProgressService.activeProgress[progressId] = nil
@@ -60,12 +60,12 @@ RegisterNUICallback('progress:userCancel', function(data, cb)
 end)
 
 --- NUI Callback: Progress completed
-RegisterNUICallback('progress:completed', function(data, cb)
+RegisterNUICallback('core:client:progress-completed', function(data, cb)
     local progressId = data.progressId
     
     if ProgressService.activeProgress[progressId] then
         -- Notify server
-        TriggerServerEvent('obelisk:progress:clientComplete', progressId)
+        TriggerServerEvent('core:client:progress-complete', progressId)
         
         -- Remove locally
         ProgressService.activeProgress[progressId] = nil
