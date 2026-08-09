@@ -509,6 +509,31 @@ test('BaseModel.createSync: writes DATETIME-formatted timestamps', function()
     end)
 end)
 
+test('BaseModel query proxy: Model:where(...) starts a query directly', function()
+    withCapture(function(get)
+        local Player = setmetatable({}, {__index = BaseModel})
+        Player.table = 'players'
+        Player.primaryKey = 'id'
+
+        Player:where('level', '>=', 10):orderBy('name'):limit(5):getSync()
+
+        eq(get().query, 'SELECT * FROM `players` WHERE `level` >= ? ORDER BY `name` ASC LIMIT 5')
+        eqList(get().params, {10})
+    end)
+end)
+
+test('BaseModel query proxy: works on an extend()-based subclass too', function()
+    withCapture(function(get)
+        local Item = BaseModel:extend('items')
+        Item.primaryKey = 'id'
+
+        Item:whereIn('kind', {'weapon', 'armor'}):getSync()
+
+        eq(get().query, 'SELECT * FROM `items` WHERE `kind` IN (?, ?)')
+        eqList(get().params, {'weapon', 'armor'})
+    end)
+end)
+
 --------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------

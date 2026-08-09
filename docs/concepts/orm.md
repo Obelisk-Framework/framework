@@ -131,6 +131,14 @@ Available methods include:
 
 Every identifier (table/column name, operator, join type, sort direction) is validated against an allowlist before being interpolated into SQL, and every value is passed as a `?` parameter — this is what keeps `where`/`join`/`orderBy` safe from injection even though they build SQL by string concatenation internally.
 
+A model class proxies the same starter methods (`select`, `selectRaw`, `where`, `orWhere`, `whereIn`, `whereNull`, `whereNotNull`, `orderBy`, `limit`, `offset`, `join`, `leftJoin`, `groupBy`), so you can skip the explicit `newQuery()` call and start a query straight off the model:
+
+```lua
+Inventory:where('container', 'stash'):orderBy('created_at', 'DESC'):limit(10):getSync()
+```
+
+This is equivalent to `QueryBuilder.new('inventories'):where(...)` (each proxy just opens a fresh query and forwards to it) and returns the same raw rows, not model instances, since it's the same `QueryBuilder` underneath.
+
 ## Schema & Migrations
 
 `Schema.create(tableName, callback)` takes a callback that receives a `Blueprint` for defining columns:

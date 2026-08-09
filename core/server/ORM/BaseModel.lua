@@ -67,6 +67,22 @@ function BaseModel:newQuery()
     return QueryBuilder.new(self.table, self.primaryKey)
 end
 
+--- Proxy the chainable QueryBuilder starter methods onto the model itself, so
+--- `Inventory:where('owner', id):getSync()` works without an explicit
+--- `Inventory:newQuery():where(...)` call. Each just opens a new query and
+--- forwards to the same-named QueryBuilder method.
+local QUERY_PROXY_METHODS = {
+    'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
+    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy'
+}
+
+for _, methodName in ipairs(QUERY_PROXY_METHODS) do
+    BaseModel[methodName] = function(self, ...)
+        local query = self:newQuery()
+        return query[methodName](query, ...)
+    end
+end
+
 --- Find a model by primary key (async)
 --- @param id any
 --- @param callback function
