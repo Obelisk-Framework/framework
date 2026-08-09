@@ -24,6 +24,12 @@ function KeybindService.requestSync()
     Obelisk.emitServer('core:client:keybinds-requestSync')
 end
 
+--- Server told us a keybind changed (register/update/delete) elsewhere;
+--- re-request our own list so it reflects the change.
+Obelisk.onClient('core:server:keybinds-requestSync', function()
+    KeybindService.requestSync()
+end)
+
 --- Check if key is pressed and trigger associated actions
 function KeybindService.checkKeyPress(keyCode)
     local keybinds = KeybindService.keyMap[keyCode]
