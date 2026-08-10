@@ -135,6 +135,7 @@ end
 --- @param attributes table
 --- @return BaseModel
 function BaseModel:newFromQuery(attributes)
+    attributes = self:decodeJsonCasts(attributes)
     local instance = self.new(attributes)
     instance.exists = true
     instance.original = self:copyTable(attributes)
@@ -180,16 +181,18 @@ function BaseModel:save(callback)
         self.attributes.updated_at = Database.now()
     end
     
+    local writeAttributes = self:encodeJsonCasts(self.attributes)
+
     if self.exists then
         -- Update existing
         local pk = self.attributes[self.primaryKey]
-        self:newQuery():where(self.primaryKey, pk):update(self.attributes, function(affected)
+        self:newQuery():where(self.primaryKey, pk):update(writeAttributes, function(affected)
             self.original = self:copyTable(self.attributes)
             if callback then callback(self) end
         end)
     else
         -- Insert new
-        self:newQuery():insert(self.attributes, function(insertId)
+        self:newQuery():insert(writeAttributes, function(insertId)
             self.attributes[self.primaryKey] = insertId
             self.exists = true
             self.original = self:copyTable(self.attributes)
@@ -208,17 +211,19 @@ function BaseModel:saveSync()
         self.attributes.updated_at = Database.now()
     end
     
+    local writeAttributes = self:encodeJsonCasts(self.attributes)
+
     if self.exists then
         local pk = self.attributes[self.primaryKey]
-        self:newQuery():where(self.primaryKey, pk):update(self.attributes)
+        self:newQuery():where(self.primaryKey, pk):update(writeAttributes)
         self.original = self:copyTable(self.attributes)
     else
-        local insertId = self:newQuery():insert(self.attributes)
+        local insertId = self:newQuery():insert(writeAttributes)
         self.attributes[self.primaryKey] = insertId
         self.exists = true
         self.original = self:copyTable(self.attributes)
     end
-    
+
     return self
 end
 
@@ -533,6 +538,37 @@ function BaseModel:copyTable(t)
         end
     end
     return copy
+end
+
+--- Encode any `casts[key] == 'json'` table attributes to JSON strings for
+--- writing to the database. Returns a copy; never mutates `attributes`.
+--- @param attributes table
+--- @return table
+function BaseModel:encodeJsonCasts(attributes)
+    local encoded = self:copyTable(attributes)
+    for key, castType in pairs(self.casts or {}) do
+        if castType == 'json' and type(encoded[key]) == 'table' then
+            encoded[key] = json.encode(encoded[key])
+        end
+    end
+    return encoded
+end
+
+--- Decode any `casts[key] == 'json'` string attributes into tables after
+--- reading from the database. Mutates and returns `attributes`. A malformed
+--- JSON string decodes to an empty table rather than erroring, matching how
+--- the rest of the codebase tolerates unparseable JSON (see
+--- core/server/bootstrap.lua's migration runner).
+--- @param attributes table
+--- @return table
+function BaseModel:decodeJsonCasts(attributes)
+    for key, castType in pairs(self.casts or {}) do
+        if castType == 'json' and type(attributes[key]) == 'string' then
+            local ok, decoded = pcall(json.decode, attributes[key])
+            attributes[key] = (ok and decoded) or {}
+        end
+    end
+    return attributes
 end
 
 return BaseModel
