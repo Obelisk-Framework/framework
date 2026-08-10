@@ -20,6 +20,7 @@ const makeSeeder = require('./commands/make-seeder');
 const makeAction = require('./commands/make-action');
 const makeInteraction = require('./commands/make-interaction');
 const makePolicy = require('./commands/make-policy');
+const registryGenerate = require('./commands/registry-generate');
 
 // CLI Version
 const VERSION = '1.0.0';
@@ -90,6 +91,14 @@ program
   .description('Create a new policy')
   .action(async (name) => {
     await makePolicy(name);
+  });
+
+// Registry Generate Command
+program
+  .command('registry:generate')
+  .description('Scan modules/ and plugins/ and regenerate their registry.json files')
+  .action(async () => {
+    await registryGenerate();
   });
 
 // Parse arguments

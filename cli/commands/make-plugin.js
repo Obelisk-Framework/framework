@@ -2,7 +2,6 @@ const inquirer = require('inquirer');
 const fs = require('fs-extra');
 const path = require('path');
 const chalk = require('chalk');
-const { appendToRegistry } = require('../lib/registry');
 
 async function makePlugin(name) {
   console.log(chalk.blue('\n🔌 Obelisk Plugin Generator\n'));
@@ -131,52 +130,71 @@ Add usage instructions here.
   
   await fs.writeFile(path.join(pluginDir, 'README.md'), readmeContent);
 
-  await appendToRegistry(
-    path.join(process.cwd(), 'plugins', 'registry.json'),
-    pluginName,
-    'plugins'
-  );
-
   console.log(chalk.green(`\n✓ Plugin ${pluginName} created successfully!`));
   console.log(chalk.gray(`\n  Location: ${pluginDir}`));
-  
+
   if (details.features.includes('vue')) {
-    console.log(chalk.yellow(`\n  Note: Run 'npm install' in the web/ directory to set up Vue\n`));
-  } else {
-    console.log('');
+    console.log(chalk.yellow(`  Note: Run 'npm install' in the web/ directory to set up Vue`));
   }
+  console.log(chalk.yellow(`  Run \`obelisk registry:generate\` before starting the server so core picks it up.\n`));
+}
+
+function buildMigrationTimestamp() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${year}_${month}_${day}_${hours}${minutes}${seconds}`;
+}
+
+async function registerMigration(migrationsJsonPath, migrationName) {
+  let migrationsData = { migrations: [] };
+
+  if (await fs.pathExists(migrationsJsonPath)) {
+    migrationsData = await fs.readJson(migrationsJsonPath);
+  }
+
+  if (!migrationsData.migrations) {
+    migrationsData.migrations = [];
+  }
+
+  if (!migrationsData.migrations.includes(migrationName)) {
+    migrationsData.migrations.push(migrationName);
+  }
+
+  await fs.writeJson(migrationsJsonPath, migrationsData, { spaces: 2 });
 }
 
 async function generatePluginMigration(pluginDir, pluginName) {
-  await fs.ensureDir(path.join(pluginDir, 'server', 'migrations'));
-  
-  const timestamp = Date.now();
-  const migrationContent = `--- Migration: Create ${pluginName.toLowerCase()}_data table
+  const migrationsDir = path.join(pluginDir, 'server', 'migrations');
+  await fs.ensureDir(migrationsDir);
+
+  const tableName = `${pluginName.toLowerCase()}_data`;
+  const migrationName = `${buildMigrationTimestamp()}_create_${tableName}_table`;
+  const migrationContent = `--- Migration: Create ${tableName} table
 return {
     up = function()
-        Schema.create('${pluginName.toLowerCase()}_data', function(table)
+        Schema.create('${tableName}', function(table)
             table:id()
-            table:string('player_identifier', 100):notNullable()
             table:json('data')
             table:timestamps()
-            
-            table:index({'player_identifier'})
         end)
-        
-        print('[${pluginName}] Created ${pluginName.toLowerCase()}_data table')
+
+        print('[${pluginName}] Created ${tableName} table')
     end,
-    
+
     down = function()
-        Schema.drop('${pluginName.toLowerCase()}_data')
-        print('[${pluginName}] Dropped ${pluginName.toLowerCase()}_data table')
+        Schema.drop('${tableName}')
+        print('[${pluginName}] Dropped ${tableName} table')
     end
 }
 `;
-  
-  await fs.writeFile(
-    path.join(pluginDir, 'server', 'migrations', `${timestamp}_create_${pluginName.toLowerCase()}_table.lua`),
-    migrationContent
-  );
+
+  await fs.writeFile(path.join(migrationsDir, `${migrationName}.lua`), migrationContent);
+  await registerMigration(path.join(pluginDir, 'server', 'migrations.json'), migrationName);
   console.log(chalk.gray(`  ✓ Created migration`));
 }
 
@@ -270,8 +288,6 @@ print('[${pluginName}] Loading...')
 
 -- Initialize plugin
 Citizen.CreateThread(function()
-    ${features.includes('database') ? '-- Run migrations\n    -- Add migration runner here' : ''}
-    
     print('[${pluginName}] Loaded successfully!')
 end)
 

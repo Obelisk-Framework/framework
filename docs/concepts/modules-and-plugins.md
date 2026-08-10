@@ -25,11 +25,11 @@ dependencies {
 
 ### Module manifests
 
-Modules don't have their own `fxmanifest.lua`. `make:module` scaffolds a module's directory tree (`server/`, `client/`, `shared/`) and registers its name in `modules/registry.json`; its scripts load as part of `core`'s own resource via the `modules/*/...` globs in `core/fxmanifest.lua`.
+Modules don't have their own `fxmanifest.lua`. `make:module` scaffolds a module's directory tree (`server/`, `client/`, `shared/`); its scripts load as part of `core`'s own resource via the `modules/*/...` globs in `core/fxmanifest.lua`.
 
 ### Plugin manifests
 
-Plugins don't have their own `fxmanifest.lua` either. `make:plugin` scaffolds a plugin's directory tree (`server/`, `client/`, `shared/`, and for Vue-enabled plugins `web/`) and registers its name in `plugins/registry.json`; its scripts load as part of `core`'s own resource via the `plugins/*/...` globs in `core/fxmanifest.lua`, so `core`'s ORM and services (which every plugin depends on) are always loaded first, by construction, before this plugin's scripts run.
+Plugins don't have their own `fxmanifest.lua` either. `make:plugin` scaffolds a plugin's directory tree (`server/`, `client/`, `shared/`, and for Vue-enabled plugins `web/`); its scripts load as part of `core`'s own resource via the `plugins/*/...` globs in `core/fxmanifest.lua`, so `core`'s ORM and services (which every plugin depends on) are always loaded first, by construction, before this plugin's scripts run.
 
 ### Script globs
 
@@ -50,7 +50,7 @@ server_scripts {
 
 `shared_scripts` and `client_scripts` follow the same shape: core's own entries first, then `modules/*/...` and `plugins/*/...` globs. Core's own entries always come first so the ORM and services finish loading before any module or plugin script runs. Since modules and plugins have no `fxmanifest.lua` of their own, they have no glob patterns to declare either. It's purely a `core/fxmanifest.lua` concern.
 
-Migrations work differently: `core/server/bootstrap.lua` runs migrations for a module or plugin only if its name appears in `modules/registry.json` or `plugins/registry.json`. `make:module` and `make:plugin` add that entry for you automatically as part of scaffolding, so anything created through the CLI just works. A module or plugin added by other means, for example cloned in directly rather than scaffolded, like the framework's own pre-existing example plugins such as `oblsk_inventory` and `oblsk_character-selection`, is not in the registry and needs its name added to the relevant `registry.json` by hand before its migrations will run automatically. Its scripts still load either way, since that's governed by the glob patterns above, not by the registry.
+Migrations work differently: `core/server/bootstrap.lua` runs migrations for a module or plugin only if its name appears in `modules/registry.json` or `plugins/registry.json`. Those files aren't hand-maintained or committed to the repo (Lua has no way to list a directory at runtime, so something outside the FXServer sandbox has to produce them). Instead, `obelisk registry:generate` scans `modules/*/` and `plugins/*/` on disk and regenerates both files fresh from whatever is actually there. Run it on the host (not inside the Docker container, since `core/` is mounted read-only there) any time a module or plugin directory is added or removed, and before starting or restarting the server. Since it scans disk directly, anything present gets picked up automatically, whether it was scaffolded through the CLI or added by other means, for example cloned in directly like the framework's own pre-existing example plugins such as `oblsk_inventory` and `oblsk_character-selection`. Its scripts still load either way, since that's governed by the glob patterns above, not by the registry.
 
 ## The `web/*.vue` + `web/routes.js` convention
 
@@ -64,4 +64,4 @@ In practice this means: a plugin's Vue components and its `routes.js` route tabl
 
 ## Scaffolding with the CLI
 
-You don't hand-write any of the above — `obelisk make:module` and `obelisk make:plugin` generate the directory structure, the `README.md`, the registry entry, and optional feature files (models, migrations, seeders, actions, services, Vue UI, etc.) interactively. See [`/cli/index`](/cli/index) for the full command reference, including every prompt and generated file path.
+You don't hand-write any of the above — `obelisk make:module` and `obelisk make:plugin` generate the directory structure, the `README.md`, and optional feature files (models, migrations, seeders, actions, services, Vue UI, etc.) interactively. Run `obelisk registry:generate` afterward so `core` picks up the new directory. See [`/cli/index`](/cli/index) for the full command reference, including every prompt and generated file path.
