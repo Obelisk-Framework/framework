@@ -16,6 +16,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/introduction' },
       { text: 'Concepts', link: '/concepts/orm' },
+      { text: 'Modules', link: '/modules/items' },
       { text: 'CLI', link: '/cli/index' },
       { text: 'Examples', link: '/examples/building-a-plugin' },
       { text: 'Reference', link: '/reference/existing-plugins' },
@@ -41,6 +42,15 @@ export default defineConfig({
             { text: 'Services', link: '/concepts/services' },
             { text: 'WebView & NUI', link: '/concepts/webview' },
             { text: 'Modules & Plugins', link: '/concepts/modules-and-plugins' }
+          ]
+        }
+      ],
+      '/modules/': [
+        {
+          text: 'Modules',
+          items: [
+            { text: 'Items', link: '/modules/items' },
+            { text: 'Vehicles', link: '/modules/vehicles' }
           ]
         }
       ],
