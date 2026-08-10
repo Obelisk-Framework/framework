@@ -1,7 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import coreRoutes from './coreRoutes';
 
-const pluginRouteModules = import.meta.glob('../../../plugins/*/web/routes.js', { eager: true });
+const pluginRouteModules = import.meta.glob(
+  ['../../../modules/*/web/routes.js', '../../../plugins/*/web/routes.js'],
+  { eager: true }
+);
 
 let pluginRoutes = [];
 for (const mod of Object.values(pluginRouteModules)) {
