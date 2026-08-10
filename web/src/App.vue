@@ -11,31 +11,39 @@
 </template>
 
 <script setup>
-import { reactive, onMounted } from 'vue'
+import { reactive, onMounted, provide } from 'vue'
 import router from './router'
 import Obelisk from './obelisk.js'
 import coreGlobalElements from './globalElements.js'
 
-const pluginGlobalElementModules = import.meta.glob('../../plugins/*/web/globalElements.js', { eager: true })
+const contributedGlobalElementModules = import.meta.glob(
+  ['../../modules/*/web/globalElements.js', '../../plugins/*/web/globalElements.js'],
+  { eager: true }
+)
 
-const pluginGlobalElements = []
-for (const mod of Object.values(pluginGlobalElementModules)) {
+const contributedGlobalElements = []
+for (const mod of Object.values(contributedGlobalElementModules)) {
   if (Array.isArray(mod.default)) {
-    pluginGlobalElements.push(...mod.default)
+    contributedGlobalElements.push(...mod.default)
   } else {
-    console.warn('[Obelisk] a plugin globalElements.js did not export a default array, skipping')
+    console.warn('[Obelisk] a globalElements.js did not export a default array, skipping')
   }
 }
 
 const registry = reactive(new Map())
-for (const entry of [...coreGlobalElements, ...pluginGlobalElements]) {
+for (const entry of [...coreGlobalElements, ...contributedGlobalElements]) {
   if (!entry || !entry.name || !entry.component) {
     console.warn('[Obelisk] a global element entry is missing name/component, skipping', entry)
     continue
   }
+  if (registry.has(entry.name)) {
+    console.warn(`[Obelisk] duplicate global element name "${entry.name}", keeping the last one discovered`)
+  }
   const defaultVisible = !!entry.defaultVisible
   registry.set(entry.name, { component: entry.component, defaultVisible, visible: defaultVisible })
 }
+
+provide('obelisk:globalElementsRegistry', registry)
 
 onMounted(() => {
   Obelisk.on('core:client:navigate', (route) => {
