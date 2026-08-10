@@ -89,7 +89,13 @@ Citizen.CreateThread(function()
     end
 
     print('[Obelisk] Migrations complete')
-    
+
+    -- Flush any actions that were registered by modules/plugins during the
+    -- synchronous script-load pass, before Database.init() had run. Must
+    -- happen before seeders, since a seeder may need to resolve an action
+    -- string to its db id.
+    ActionService.flushPendingRegistrations()
+
     -- Run seeders
     print('[Obelisk] Running seeders...')
     

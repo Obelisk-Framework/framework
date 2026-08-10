@@ -23,13 +23,18 @@ return {
         }
         
         for _, keybind in ipairs(keybinds) do
-            Database.insertSync(
-                [[INSERT INTO keybinds (key_code, action_id, data, is_global, player_identifier, enabled, created_at, updated_at) 
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)]],
-                {keybind.key_code, keybind.action_id, keybind.data, keybind.is_global, keybind.player_identifier, keybind.enabled, os.time(), os.time()}
-            )
+            local actionRow = Database.querySync('SELECT id FROM actions WHERE action_id = ?', {keybind.action_id})
+            if actionRow and actionRow[1] then
+                Database.insertSync(
+                    [[INSERT INTO keybinds (key_code, action_id, data, is_global, player_identifier, enabled, created_at, updated_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)]],
+                    {keybind.key_code, actionRow[1].id, keybind.data, keybind.is_global, keybind.player_identifier, keybind.enabled, os.time(), os.time()}
+                )
+            else
+                print('[Seeder] WARNING: action "' .. keybind.action_id .. '" not found in actions table, skipping this default keybind')
+            end
         end
-        
-        print('[Seeder] Seeded ' .. #keybinds .. ' default keybinds')
+
+        print('[Seeder] Seeded default keybinds')
     end
 }

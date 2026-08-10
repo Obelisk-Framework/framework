@@ -54,13 +54,19 @@ end
 --- @param data table Optional default data
 --- @return number keybindId
 function KeybindService.registerGlobal(key, actionId, data)
+    local dbId = ActionService.getDbId(actionId)
+    if not dbId then
+        print('[KeybindService] Error: action "' .. actionId .. '" is not registered')
+        return nil
+    end
+
     local sql = [[
         INSERT INTO keybinds (key_code, action_id, data, is_global, player_identifier)
         VALUES (?, ?, ?, 1, NULL)
     ]]
-    
+
     local jsonData = data and json.encode(data) or nil
-    local keybindId = Database.insertSync(sql, {key, actionId, jsonData})
+    local keybindId = Database.insertSync(sql, {key, dbId, jsonData})
     
     print('[KeybindService] Registered global keybind: ' .. key .. ' -> ' .. actionId)
     
@@ -77,15 +83,21 @@ end
 --- @param data table Optional data
 --- @return number keybindId
 function KeybindService.registerPlayer(source, key, actionId, data)
+    local dbId = ActionService.getDbId(actionId)
+    if not dbId then
+        print('[KeybindService] Error: action "' .. actionId .. '" is not registered')
+        return nil
+    end
+
     local identifier = GetPlayerIdentifier(source, 0)
-    
+
     local sql = [[
         INSERT INTO keybinds (key_code, action_id, data, is_global, player_identifier)
         VALUES (?, ?, ?, 0, ?)
     ]]
-    
+
     local jsonData = data and json.encode(data) or nil
-    local keybindId = Database.insertSync(sql, {key, actionId, jsonData, identifier})
+    local keybindId = Database.insertSync(sql, {key, dbId, jsonData, identifier})
     
     print('[KeybindService] Registered player keybind for ' .. source .. ': ' .. key .. ' -> ' .. actionId)
     
@@ -128,19 +140,24 @@ function KeybindService.delete(keybindId)
 end
 
 --- Handle keybind press from client
---- Client sends the action ID to trigger
+--- Client sends the integer actions.id to trigger (resolved back to the
+--- string actionId here, since ActionService's registry is keyed by string)
 --- @param source number Player server ID
---- @param actionId string
+--- @param actionId number
 --- @param keybindData table
 function KeybindService.handlePress(source, actionId, keybindData)
-    -- Verify action exists
-    if not ActionService.exists(actionId) then
-        print('[KeybindService] Error: Action not found: ' .. actionId)
+    local resolvedActionId = ActionService.resolveDbId(actionId)
+    if not resolvedActionId then
+        print('[KeybindService] Error: no action registered for db id: ' .. tostring(actionId))
         return
     end
-    
-    -- Execute the action
-    ActionService.execute(source, actionId, keybindData)
+
+    if not ActionService.exists(resolvedActionId) then
+        print('[KeybindService] Error: Action not found: ' .. resolvedActionId)
+        return
+    end
+
+    ActionService.execute(source, resolvedActionId, keybindData)
 end
 
 --- Net event: Client requests keybind sync
