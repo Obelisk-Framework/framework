@@ -9,7 +9,7 @@ Requires a standalone Lua 5.4 interpreter:
 
 ```bash
 # Debian/Ubuntu:  sudo apt-get install lua5.4
-npm test          # -> runs tests/orm_spec.lua and tests/obelisk_spec.lua
+npm test          # -> runs tests/orm_spec.lua, tests/obelisk_spec.lua and tests/action_service_spec.lua
 # or directly:
 lua5.4 tests/orm_spec.lua
 ```
@@ -35,6 +35,11 @@ The runner exits non-zero if any test fails, so it works in CI.
 and error-throwing logic, ensuring it correctly routes events (emit/on/emitServer/
 emitClient/onServer/onClient) and throws appropriate errors when methods are
 called from the wrong side (client or server).
+
+`tests/action_service_spec.lua` exercises `ActionService.register`'s DB-backed
+upsert logic (SELECT-then-INSERT-or-UPDATE against the `actions` table, with
+a fake in-memory table stub) and the `getDbId`/`resolveDbId` lookups it
+maintains.
 
 `tests/support/fivem_stubs.lua` stubs the handful of CitizenFX globals these
 files reference (`Citizen`, `exports`, `GetResourceState`, `json`, …) so the
