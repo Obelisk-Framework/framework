@@ -535,6 +535,73 @@ test('BaseModel query proxy: works on an extend()-based subclass too', function(
 end)
 
 --------------------------------------------------------------------------------
+-- BaseModel JSON casts
+--------------------------------------------------------------------------------
+test('BaseModel casts: json cast field decodes from a JSON string on find', function()
+    local original = Database.executeQuery
+    Database.executeQuery = function(query, params)
+        return {{ id = 1, name = 'Test', meta = '{"a":1}' }}
+    end
+
+    local Widget = setmetatable({}, {__index = BaseModel})
+    Widget.table = 'widgets'
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+    Widget.casts = { meta = 'json' }
+
+    local widget = Widget:findSync(1)
+    Database.executeQuery = original
+
+    truthy(type(widget.attributes.meta) == 'table', 'meta decoded into a table')
+    eq(widget.attributes.meta.a, 1)
+end)
+
+test('BaseModel casts: json cast field is JSON-encoded for the write, stays a table in memory', function()
+    withCapture(function(get)
+        local Widget = setmetatable({}, {__index = BaseModel})
+        Widget.table = 'widgets'
+        Widget.primaryKey = 'id'
+        Widget.timestamps = false
+        Widget.casts = { meta = 'json' }
+
+        local widget = Widget.new({ meta = { a = 1 } })
+        -- BaseModel.new() (unlike Widget:create()/newFromQuery()) doesn't
+        -- copy class config onto the instance, so mirror that copy step here.
+        widget.table = Widget.table
+        widget.primaryKey = Widget.primaryKey
+        widget.timestamps = Widget.timestamps
+        widget.casts = Widget.casts
+        widget:saveSync()
+
+        truthy(type(widget.attributes.meta) == 'table', 'in-memory meta stays a table after save')
+
+        local metaParam
+        for _, p in ipairs(get().params) do
+            if type(p) == 'string' and p:find('"a"', 1, true) then
+                metaParam = p
+            end
+        end
+        truthy(metaParam ~= nil, 'meta was JSON-encoded in the write params')
+    end)
+end)
+
+test('BaseModel casts: malformed json cast field decodes to an empty table, no error', function()
+    local original = Database.executeQuery
+    Database.executeQuery = function() return {{ id = 1, meta = 'not-json{' }} end
+
+    local Widget = setmetatable({}, {__index = BaseModel})
+    Widget.table = 'widgets'
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+    Widget.casts = { meta = 'json' }
+
+    local widget = Widget:findSync(1)
+    Database.executeQuery = original
+
+    eqList(widget.attributes.meta, {})
+end)
+
+--------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------
 test('detectConnector: nil when none is started', function()

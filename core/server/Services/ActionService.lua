@@ -3,23 +3,79 @@
 --- (keybinds, interactions, UI, etc.)
 ActionService = {}
 ActionService.registry = {}
+ActionService.idToActionId = {}
+ActionService.pendingRegistrations = {}
 
 --- Register a new action
 --- @param actionId string Unique identifier for the action
 --- @param handler function Function to execute: function(source, data)
 --- @param options table Optional metadata (description, etc.)
 function ActionService.register(actionId, handler, options)
+    options = options or {}
     if ActionService.registry[actionId] then
         print('[ActionService] Warning: Overwriting existing action: ' .. actionId)
     end
-    
-    ActionService.registry[actionId] = {
-        id = actionId,
-        handler = handler,
-        options = options or {}
-    }
-    
-    print('[ActionService] Registered action: ' .. actionId)
+
+    ActionService.registry[actionId] = { id = actionId, dbId = ActionService.registry[actionId] and ActionService.registry[actionId].dbId or nil, handler = handler, options = options }
+    table.insert(ActionService.pendingRegistrations, actionId)
+
+    if Database.isReady() then
+        ActionService.flushPendingRegistrations()
+    end
+end
+
+--- Persists every queued registration into the `actions` table. Safe to
+--- call multiple times; already-persisted entries (entry.dbId already set)
+--- are skipped. Called automatically by `register` once Database.isReady()
+--- is true, and explicitly by bootstrap.lua right after migrations run, to
+--- flush anything that was registered earlier (before the DB existed).
+function ActionService.flushPendingRegistrations()
+    local stillPending = {}
+    for _, actionId in ipairs(ActionService.pendingRegistrations) do
+        local entry = ActionService.registry[actionId]
+        if entry and not entry.dbId then
+            local options = entry.options
+            local existing = QueryBuilder.new('actions'):where('action_id', actionId):firstSync()
+            local dbId
+            if existing then
+                dbId = existing.id
+                QueryBuilder.new('actions'):where('id', dbId):update({
+                    label = options.label,
+                    description = options.description,
+                    options = json.encode(options)
+                })
+            else
+                dbId = QueryBuilder.new('actions'):insert({
+                    action_id = actionId,
+                    label = options.label,
+                    description = options.description,
+                    options = json.encode(options)
+                })
+            end
+            if dbId then
+                entry.dbId = dbId
+                ActionService.idToActionId[dbId] = actionId
+                print('[ActionService] Registered action: ' .. actionId .. ' (db id ' .. dbId .. ')')
+            else
+                print('[ActionService] ERROR: failed to persist action "' .. actionId .. '" to the actions table')
+                table.insert(stillPending, actionId)
+            end
+        end
+    end
+    ActionService.pendingRegistrations = stillPending
+end
+
+--- @param actionId string
+--- @return number|nil
+function ActionService.getDbId(actionId)
+    local entry = ActionService.registry[actionId]
+    return entry and entry.dbId
+end
+
+--- @param dbId number
+--- @return string|nil
+function ActionService.resolveDbId(dbId)
+    return ActionService.idToActionId[dbId]
 end
 
 --- Execute an action
