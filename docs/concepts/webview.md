@@ -67,7 +67,7 @@ This replaced the old `useNui.js` composable, which no longer exists.
 
 ## Global elements
 
-Plugins can add persistent overlay UI (the same category as core's own `Notifications`/`ProgressBars`) without editing `App.vue`, by exporting a `globalElements.js` from their `web/` directory, picked up the same way `web/src/router/index.js` already globs plugin `routes.js` files:
+Plugins and modules can add persistent overlay UI without editing `App.vue`, by exporting a `globalElements.js` from their `web/` directory, picked up the same way `web/src/router/index.js` already globs plugin/module `routes.js` files, via `['../../modules/*/web/globalElements.js', '../../plugins/*/web/globalElements.js']`:
 
 ```js
 // plugins/myplugin/web/globalElements.js
@@ -78,6 +78,6 @@ export default [
 ]
 ```
 
-`App.vue` merges every plugin's list with core's own (`web/src/globalElements.js`, currently `notifications` and `progressBars`) into a reactive registry keyed by `name`, each entry's `visible` flag starting at its own `defaultVisible`. An entry missing `name`/`component`, or a plugin module whose default export isn't an array, is skipped with a `console.warn` rather than breaking the whole app.
+`App.vue` merges every module's and plugin's list with core's own (`web/src/globalElements.js`, now an empty array, core ships zero HUD elements itself, every one lives in its own plugin, e.g. `oblsk_notifications`/`oblsk_progressbar`) into a reactive registry keyed by `name`, each entry's `visible` flag starting at its own `defaultVisible`. An entry missing `name`/`component`, or a module/plugin whose default export isn't an array, is skipped with a `console.warn` rather than breaking the whole app.
 
-`WebView.showGlobalElement(name)`/`hideGlobalElement(name)`/`toggleGlobalElement(name)` (either side) flip an entry's `visible` flag by name; a name that isn't registered is silently ignored, not an error. `WebView.destroy()` resets every entry back to its own `defaultVisible`, not to hidden, so elements that default to visible (`notifications`, `progressBars`) come back after a destroy instead of staying hidden for the rest of the session.
+`WebView.showGlobalElement(name)`/`hideGlobalElement(name)`/`toggleGlobalElement(name)` (either side) flip an entry's `visible` flag by name; a name that isn't registered is silently ignored, not an error. `WebView.destroy()` resets every entry back to its own `defaultVisible`, not to hidden, so an element that defaults to visible comes back after a destroy instead of staying hidden for the rest of the session.
