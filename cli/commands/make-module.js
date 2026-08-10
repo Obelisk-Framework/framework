@@ -2,7 +2,6 @@ const inquirer = require('inquirer');
 const fs = require('fs-extra');
 const path = require('path');
 const chalk = require('chalk');
-const { appendToRegistry } = require('../lib/registry');
 
 async function makeModule(name) {
   console.log(chalk.blue('\n🔨 Obelisk Module Generator\n'));
@@ -77,12 +76,6 @@ Add usage instructions here.
   
   await fs.writeFile(path.join(moduleDir, 'README.md'), readmeContent);
 
-  await appendToRegistry(
-    path.join(process.cwd(), 'modules', 'registry.json'),
-    moduleName,
-    'modules'
-  );
-
   // Generate selected features
   if (features.features.includes('model')) {
     await generateModel(moduleDir, moduleName);
@@ -113,7 +106,8 @@ Add usage instructions here.
   }
   
   console.log(chalk.green(`\n✓ Module ${moduleName} created successfully!`));
-  console.log(chalk.gray(`\n  Location: ${moduleDir}\n`));
+  console.log(chalk.gray(`\n  Location: ${moduleDir}`));
+  console.log(chalk.yellow(`  Run \`obelisk registry:generate\` before starting the server so core picks it up.\n`));
 }
 
 async function generateModel(moduleDir, moduleName) {
@@ -124,8 +118,9 @@ ${moduleName} = BaseModel:new()
 ${moduleName}.table = '${moduleName.toLowerCase()}s'
 ${moduleName}.primaryKey = 'id'
 ${moduleName}.timestamps = true
-${moduleName}.fillable = {'name', 'description'}
+${moduleName}.fillable = {'data'}
 ${moduleName}.hidden = {}
+${moduleName}.casts = {data = 'json'}
 
 --- Define relationships here
 -- Example: function ${moduleName}:user()
@@ -139,37 +134,62 @@ return ${moduleName}
   console.log(chalk.gray(`  ✓ Created model: ${moduleName}.lua`));
 }
 
+function buildMigrationTimestamp() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${year}_${month}_${day}_${hours}${minutes}${seconds}`;
+}
+
+async function registerMigration(migrationsJsonPath, migrationName) {
+  let migrationsData = { migrations: [] };
+
+  if (await fs.pathExists(migrationsJsonPath)) {
+    migrationsData = await fs.readJson(migrationsJsonPath);
+  }
+
+  if (!migrationsData.migrations) {
+    migrationsData.migrations = [];
+  }
+
+  if (!migrationsData.migrations.includes(migrationName)) {
+    migrationsData.migrations.push(migrationName);
+  }
+
+  await fs.writeJson(migrationsJsonPath, migrationsData, { spaces: 2 });
+}
+
 async function generateMigration(moduleDir, moduleName) {
-  await fs.ensureDir(path.join(moduleDir, 'server', 'migrations'));
-  
-  const timestamp = Date.now();
-  const migrationContent = `--- Migration: Create ${moduleName.toLowerCase()}s table
+  const migrationsDir = path.join(moduleDir, 'server', 'migrations');
+  await fs.ensureDir(migrationsDir);
+
+  const tableName = `${moduleName.toLowerCase()}s`;
+  const migrationName = `${buildMigrationTimestamp()}_create_${tableName}_table`;
+  const migrationContent = `--- Migration: Create ${tableName} table
 return {
     up = function()
-        Schema.create('${moduleName.toLowerCase()}s', function(table)
+        Schema.create('${tableName}', function(table)
             table:id()
-            table:string('name', 255):notNullable()
-            table:text('description')
-            table:boolean('active'):default(1)
+            table:json('data')
             table:timestamps()
-            
-            table:index({'name'})
         end)
-        
-        print('[Migration] Created ${moduleName.toLowerCase()}s table')
+
+        print('[Migration] Created ${tableName} table')
     end,
-    
+
     down = function()
-        Schema.drop('${moduleName.toLowerCase()}s')
-        print('[Migration] Dropped ${moduleName.toLowerCase()}s table')
+        Schema.drop('${tableName}')
+        print('[Migration] Dropped ${tableName} table')
     end
 }
 `;
-  
-  await fs.writeFile(
-    path.join(moduleDir, 'server', 'migrations', `${timestamp}_create_${moduleName.toLowerCase()}s_table.lua`),
-    migrationContent
-  );
+
+  await fs.writeFile(path.join(migrationsDir, `${migrationName}.lua`), migrationContent);
+  await registerMigration(path.join(moduleDir, 'server', 'migrations.json'), migrationName);
   console.log(chalk.gray(`  ✓ Created migration for ${moduleName}`));
 }
 
@@ -183,14 +203,14 @@ return {
         
         -- Example seed data
         local items = {
-            {name = 'Example 1', description = 'First example', active = 1},
-            {name = 'Example 2', description = 'Second example', active = 1}
+            {data = json.encode({example = 1})},
+            {data = json.encode({example = 2})}
         }
-        
+
         for _, item in ipairs(items) do
             Database.insertSync(
-                'INSERT INTO ${moduleName.toLowerCase()}s (name, description, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-                {item.name, item.description, item.active, os.time(), os.time()}
+                'INSERT INTO ${moduleName.toLowerCase()}s (data, created_at, updated_at) VALUES (?, ?, ?)',
+                {item.data, os.time(), os.time()}
             )
         end
         

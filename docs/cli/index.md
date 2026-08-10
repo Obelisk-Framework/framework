@@ -30,6 +30,7 @@ The full command list, in the order `core/cli/index.js` registers them:
 | `make:action [name]` | Create a new action handler |
 | `make:interaction [name]` | Create a new interaction |
 | `make:policy [name]` | Create a new policy |
+| `registry:generate` | Scan `modules/` and `plugins/` and regenerate their `registry.json` files |
 
 ## `make:module`
 
@@ -51,7 +52,7 @@ as a checkbox list — `Database Model` (checked), `Database Migration` (checked
 
 **What it generates**, under `modules/<ModuleName>/` (the name with only its first letter capitalized, e.g. `myModule` → `MyModule`):
 
-- No `fxmanifest.lua` of its own: the module's scripts load as part of `core`'s own resource, via the `modules/*/...` globs in the root `fxmanifest.lua`. Its name is appended to `modules/registry.json` instead (used by `core/server/bootstrap.lua` to run its migrations alongside core's).
+- No `fxmanifest.lua` of its own: the module's scripts load as part of `core`'s own resource, via the `modules/*/...` globs in the root `fxmanifest.lua`. Run `obelisk registry:generate` afterward so it's added to `modules/registry.json` (used by `core/server/bootstrap.lua` to run its migrations alongside core's).
 - `README.md`
 - `server/`, `client/`, `shared/` directories (always created)
 - if `Database Model` selected: `server/models/<ModuleName>.lua`
@@ -115,7 +116,7 @@ checkbox — `Database Tables` (checked), `Actions` (checked), `Interactions`, `
 
 **What it generates**, under `plugins/<PluginName>/`:
 
-- No `fxmanifest.lua` of its own: the plugin's scripts load as part of `core`'s own resource, via the `plugins/*/...` globs in the root `fxmanifest.lua`. Its name is appended to `plugins/registry.json` instead (used by `core/server/bootstrap.lua` to run its migrations alongside core's).
+- No `fxmanifest.lua` of its own: the plugin's scripts load as part of `core`'s own resource, via the `plugins/*/...` globs in the root `fxmanifest.lua`. Run `obelisk registry:generate` afterward so it's added to `plugins/registry.json` (used by `core/server/bootstrap.lua` to run its migrations alongside core's).
 - `shared/config.lua`
 - `README.md`
 - `server/main.lua` and `client/main.lua` (always created)
@@ -407,4 +408,25 @@ obelisk make:policy OwnsVehicle
 
 ```
 modules/Garage/server/policies/OwnsVehiclePolicy.lua
+```
+
+## `registry:generate`
+
+**Usage:** `obelisk registry:generate`
+
+No prompts. Scans `modules/*/` and `plugins/*/` on disk and rewrites `modules/registry.json` and `plugins/registry.json` from what it finds, replacing whatever was there before.
+
+`modules/registry.json` and `plugins/registry.json` aren't committed to the repo. Lua has no way to list a directory's contents at runtime, so `core/server/bootstrap.lua` needs these files to know which modules and plugins to run migrations for; scanning disk on demand is what keeps them accurate without anyone having to hand-maintain a list.
+
+Run this on the host, not inside the Docker container: `docker-compose.yml` mounts `./core` read-only, so a write from inside the container fails. Run it any time a module or plugin directory is added or removed, and before starting or restarting the server.
+
+**Example:**
+
+```bash
+obelisk registry:generate
+```
+
+```
+modules/registry.json: [oblsk_items, oblsk_vehicles]
+plugins/registry.json: [oblsk_banking, oblsk_character-selection, oblsk_garage, oblsk_inventory]
 ```

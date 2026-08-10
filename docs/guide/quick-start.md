@@ -67,9 +67,10 @@ modules/MyFeature/
 
 ## 4. Load the module
 
-`MyFeature` loads as part of `core`'s own resource (its scripts are picked up by `core/fxmanifest.lua`'s `modules/*/...` globs). There's nothing to `ensure` separately: restart `core` (or the whole server), and the module's scripts load alongside the rest of the framework.
+`MyFeature` loads as part of `core`'s own resource (its scripts are picked up by `core/fxmanifest.lua`'s `modules/*/...` globs). There's nothing to `ensure` separately, but `core/server/bootstrap.lua` only runs a module's migrations if its name appears in `modules/registry.json`, and that file isn't hand-maintained: run `obelisk registry:generate` from `core/` on the host to regenerate it from what's actually on disk (the Docker container mounts `core/` read-only, so this step can't run inside it). Then restart `core` (or the whole server), and the module's scripts and migrations load alongside the rest of the framework.
 
 ```bash
+obelisk registry:generate
 docker compose restart fxserver
 ```
 
