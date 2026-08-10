@@ -3,23 +3,53 @@
 --- (keybinds, interactions, UI, etc.)
 ActionService = {}
 ActionService.registry = {}
+ActionService.idToActionId = {}
 
 --- Register a new action
 --- @param actionId string Unique identifier for the action
 --- @param handler function Function to execute: function(source, data)
 --- @param options table Optional metadata (description, etc.)
 function ActionService.register(actionId, handler, options)
+    options = options or {}
     if ActionService.registry[actionId] then
         print('[ActionService] Warning: Overwriting existing action: ' .. actionId)
     end
-    
-    ActionService.registry[actionId] = {
-        id = actionId,
-        handler = handler,
-        options = options or {}
-    }
-    
-    print('[ActionService] Registered action: ' .. actionId)
+
+    local existing = QueryBuilder.new('actions'):where('action_id', actionId):firstSync()
+    local dbId
+    if existing then
+        dbId = existing.id
+        QueryBuilder.new('actions'):where('id', dbId):update({
+            label = options.label,
+            description = options.description,
+            options = json.encode(options)
+        })
+    else
+        dbId = QueryBuilder.new('actions'):insert({
+            action_id = actionId,
+            label = options.label,
+            description = options.description,
+            options = json.encode(options)
+        })
+    end
+
+    ActionService.registry[actionId] = { id = actionId, dbId = dbId, handler = handler, options = options }
+    ActionService.idToActionId[dbId] = actionId
+
+    print('[ActionService] Registered action: ' .. actionId .. ' (db id ' .. tostring(dbId) .. ')')
+end
+
+--- @param actionId string
+--- @return number|nil
+function ActionService.getDbId(actionId)
+    local entry = ActionService.registry[actionId]
+    return entry and entry.dbId
+end
+
+--- @param dbId number
+--- @return string|nil
+function ActionService.resolveDbId(dbId)
+    return ActionService.idToActionId[dbId]
 end
 
 --- Execute an action
