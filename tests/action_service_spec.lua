@@ -18,6 +18,14 @@ _G.Obelisk = _G.Obelisk or {onServer = function() end}
 
 dofile(ROOT .. '/core/server/Services/ActionService.lua')
 
+-- ActionService.register now defers its DB write until Database.isReady()
+-- returns true (it queues into ActionService.pendingRegistrations otherwise).
+-- These tests fake Database.executeQuery to model a live database, so mark
+-- the database ready here too, otherwise register() would just queue and
+-- none of the assertions below (which check the fake `actions` table
+-- immediately after calling register) would see a row.
+Database.ready = true
+
 local tests, failures, passed = {}, {}, 0
 local function test(name, fn) tests[#tests + 1] = {name = name, fn = fn} end
 
@@ -35,10 +43,25 @@ end
 --- Fakes the `actions` table as an in-memory list, so ActionService.register's
 --- upsert logic (SELECT-then-INSERT-or-UPDATE) can be tested without a real
 --- database. Resets between tests.
+---
+--- Also resets ActionService's own registry/pendingRegistrations/idToActionId
+--- for the duration of the test. ActionService.register now caches entry.dbId
+--- once an actionId has been persisted, and skips talking to the DB again for
+--- that actionId (see flushPendingRegistrations). Since these tables are
+--- module-level globals shared across every test in this file, leaving them
+--- in place would let a dbId cached by an earlier test hide the DB calls a
+--- later test expects to observe against its own fresh fake table.
 local function withFakeActionsTable(fn)
     local rows = {}
     local nextId = 1
     local inserts, updates = 0, 0
+
+    local savedRegistry = ActionService.registry
+    local savedIdToActionId = ActionService.idToActionId
+    local savedPending = ActionService.pendingRegistrations
+    ActionService.registry = {}
+    ActionService.idToActionId = {}
+    ActionService.pendingRegistrations = {}
 
     local original = Database.executeQuery
     Database.executeQuery = function(query, params)
@@ -75,6 +98,9 @@ local function withFakeActionsTable(fn)
 
     local ok, err = pcall(fn, function() return {rows = rows, inserts = inserts, updates = updates} end)
     Database.executeQuery = original
+    ActionService.registry = savedRegistry
+    ActionService.idToActionId = savedIdToActionId
+    ActionService.pendingRegistrations = savedPending
     if not ok then error(err, 2) end
 end
 

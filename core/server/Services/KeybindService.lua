@@ -140,19 +140,24 @@ function KeybindService.delete(keybindId)
 end
 
 --- Handle keybind press from client
---- Client sends the action ID to trigger
+--- Client sends the integer actions.id to trigger (resolved back to the
+--- string actionId here, since ActionService's registry is keyed by string)
 --- @param source number Player server ID
---- @param actionId string
+--- @param actionId number
 --- @param keybindData table
 function KeybindService.handlePress(source, actionId, keybindData)
-    -- Verify action exists
-    if not ActionService.exists(actionId) then
-        print('[KeybindService] Error: Action not found: ' .. actionId)
+    local resolvedActionId = ActionService.resolveDbId(actionId)
+    if not resolvedActionId then
+        print('[KeybindService] Error: no action registered for db id: ' .. tostring(actionId))
         return
     end
-    
-    -- Execute the action
-    ActionService.execute(source, actionId, keybindData)
+
+    if not ActionService.exists(resolvedActionId) then
+        print('[KeybindService] Error: Action not found: ' .. resolvedActionId)
+        return
+    end
+
+    ActionService.execute(source, resolvedActionId, keybindData)
 end
 
 --- Net event: Client requests keybind sync
