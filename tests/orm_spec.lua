@@ -307,6 +307,62 @@ test('Schema.create: updated_at has no ON UPDATE clause (app layer owns it)', fu
     truthy(not captured:find('ON UPDATE', 1, true), 'no ON UPDATE clause (BaseModel sets updated_at itself)')
 end)
 
+test('Blueprint:foreignId/:constrained: guesses the referenced table and defaults to RESTRICT', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('vehicles', function(t)
+        t:id()
+        t:foreignId('garage_id'):constrained()
+    end)
+
+    Database.querySync = original
+
+    truthy(captured:find('FOREIGN KEY (`garage_id`) REFERENCES `garages`(`id`)', 1, true),
+        'guesses garages from garage_id')
+    truthy(captured:find('ON DELETE RESTRICT ON UPDATE RESTRICT', 1, true), 'defaults to RESTRICT/RESTRICT')
+end)
+
+test('Blueprint:constrained/:onDelete: overrides the ON DELETE action', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('vehicles', function(t)
+        t:id()
+        t:foreignId('garage_id'):constrained():onDelete('CASCADE')
+    end)
+
+    Database.querySync = original
+
+    truthy(captured:find('ON DELETE CASCADE ON UPDATE RESTRICT', 1, true), 'CASCADE applied, UPDATE still RESTRICT')
+end)
+
+test('Schema.table: ALTER TABLE emits the foreign key constraint too', function()
+    local captured = {}
+    local original = Database.querySync
+    Database.querySync = function(query) table.insert(captured, query) return {} end
+
+    Schema.table('vehicles', function(t)
+        t:foreignId('garage_id'):constrained():onDelete('SET NULL')
+    end)
+
+    Database.querySync = original
+
+    local addColumn, addConstraint
+    for _, sql in ipairs(captured) do
+        if sql:find('ADD COLUMN', 1, true) then addColumn = sql end
+        if sql:find('ADD CONSTRAINT', 1, true) then addConstraint = sql end
+    end
+
+    truthy(addColumn, 'emitted ADD COLUMN')
+    truthy(addConstraint, 'emitted ADD CONSTRAINT (this used to be silently dropped)')
+    truthy(addConstraint:find('FOREIGN KEY (`garage_id`) REFERENCES `garages`(`id`)', 1, true),
+        'constraint references the guessed table')
+    truthy(addConstraint:find('ON DELETE SET NULL', 1, true), 'ON DELETE action carried through')
+end)
+
 --------------------------------------------------------------------------------
 -- Postgres dialect
 --------------------------------------------------------------------------------

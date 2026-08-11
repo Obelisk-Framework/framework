@@ -249,6 +249,67 @@ function Blueprint:foreign(column)
     }
 end
 
+--- Guess the referenced table name from a foreign key column by Laravel
+--- convention: strip a trailing `_id`, then pluralize (`garage_id` ->
+--- `garages`, `base_vehicle_id` -> `base_vehicles`).
+local function guessForeignTable(column)
+    local base = column:gsub('_id$', '')
+    if base:match('[^aeiou]y$') then
+        return base:sub(1, -2) .. 'ies'
+    elseif base:match('s$') or base:match('x$') or base:match('ch$') or base:match('sh$') then
+        return base .. 'es'
+    end
+    return base .. 's'
+end
+
+--- Add an unsigned big-integer foreign key column. Pair with `:constrained()`
+--- to also add the FK constraint: `t:foreignId('garage_id'):constrained()`.
+function Blueprint:foreignId(name)
+    table.insert(self.columns, {
+        name = name, kind = 'bigInteger', opts = { unsigned = true }, nullable = true
+    })
+    self._lastForeignIdColumn = name
+    return self
+end
+
+--- Add a foreign key constraint for the column just added by `:foreignId()`.
+--- @param refTable string|nil defaults to the pluralized column (minus `_id`)
+--- @param refColumn string|nil defaults to `'id'`
+function Blueprint:constrained(refTable, refColumn)
+    local column = self._lastForeignIdColumn
+    if not column then
+        error('constrained() must immediately follow foreignId()')
+    end
+
+    local fk = {
+        column = column,
+        references = refColumn or 'id',
+        on = refTable or guessForeignTable(column),
+        onDelete = 'RESTRICT',
+        onUpdate = 'RESTRICT'
+    }
+    table.insert(self.foreignKeys, fk)
+    self._lastForeignKey = fk
+    return self
+end
+
+--- Set the ON DELETE action of the foreign key just added by `:constrained()`
+--- (or `:foreign():references():on()`, which already defaults to RESTRICT).
+function Blueprint:onDelete(action)
+    if self._lastForeignKey then
+        self._lastForeignKey.onDelete = action
+    end
+    return self
+end
+
+--- Set the ON UPDATE action of the foreign key just added by `:constrained()`.
+function Blueprint:onUpdate(action)
+    if self._lastForeignKey then
+        self._lastForeignKey.onUpdate = action
+    end
+    return self
+end
+
 --- Build the CREATE TABLE statement(s). Returns a list because Postgres
 --- can't express non-unique indexes inline (see Dialects/Postgres.lua) — the
 --- first element is always the CREATE TABLE itself; any further elements are
@@ -381,6 +442,14 @@ function Schema.table(tableName, callback)
         for _, stmt in ipairs(dialect.alterAddIndexStatements(tableName, idx, q)) do
             table.insert(statements, stmt)
         end
+    end
+
+    for _, fk in ipairs(blueprint.foreignKeys) do
+        local constraintName = tableName .. '_' .. fk.column .. '_foreign'
+        table.insert(statements,
+            'ALTER TABLE ' .. q(tableName) .. ' ADD CONSTRAINT ' .. q(constraintName) ..
+            ' FOREIGN KEY (' .. q(fk.column) .. ') REFERENCES ' .. q(fk.on) .. '(' .. q(fk.references) .. ')' ..
+            ' ON DELETE ' .. fk.onDelete .. ' ON UPDATE ' .. fk.onUpdate .. ';')
     end
 
     for _, sql in ipairs(statements) do
