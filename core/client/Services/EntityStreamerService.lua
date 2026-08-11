@@ -231,16 +231,39 @@ Citizen.CreateThread(function()
     end
 end)
 
---- Update player position to server
+--- Track the last heading value actually sent, so small camera jitter
+--- doesn't recompute/resend the facing chunk every tick.
+EntityStreamerService.lastSentHeading = 0.0
+
+--- Normalize a heading to the 0-360 range.
+--- @param heading number
+--- @return number
+local function normalizeHeading(heading)
+    heading = heading % 360.0
+    if heading < 0 then heading = heading + 360.0 end
+    return heading
+end
+
+--- Update player position (and facing heading) to server
 Citizen.CreateThread(function()
     while true do
         Wait(EntityStreamerService.updateInterval)
-        
+
         local playerPed = PlayerPedId()
         local coords = GetEntityCoords(playerPed)
-        
-        -- Send position to server for chunk management
-        Obelisk.emitServer('core:client:streamer-updatePosition', coords.x, coords.y)
+
+        local heading = normalizeHeading(GetEntityHeading(playerPed) + GetGameplayCamRelativeHeading())
+
+        local delta = math.abs(heading - EntityStreamerService.lastSentHeading)
+        if delta > 180.0 then delta = 360.0 - delta end
+        if delta > 20.0 then
+            EntityStreamerService.lastSentHeading = heading
+        end
+
+        -- Send position + the last-committed facing heading to the server
+        -- for chunk management (heading only updates when it moved > 20°,
+        -- position is sent every tick regardless).
+        Obelisk.emitServer('core:client:streamer-updatePosition', coords.x, coords.y, EntityStreamerService.lastSentHeading)
     end
 end)
 
