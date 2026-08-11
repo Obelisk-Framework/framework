@@ -7,6 +7,7 @@
     "2024_10_04_000005_create_policy_attachments_table",
     "2024_10_04_000006_create_action_policy_table",
     "2024_10_04_000007_create_interaction_policy_table",
-    "2026_08_10_041318_fix_keybinds_action_id_type"
+    "2026_08_10_041318_fix_keybinds_action_id_type",
+    "2026_08_11_070000_create_permissions_table"
   ]
 }
