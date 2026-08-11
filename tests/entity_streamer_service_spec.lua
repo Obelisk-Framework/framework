@@ -47,14 +47,11 @@ test('init() loads enabled entities from the Entity model and registers each one
 
     Streamer.init()
 
-    -- register() mints its own runtime entityId (entityType_timestamp_rand),
-    -- not the DB row id, so look up the registered ped by its coordinates
-    -- rather than assuming the id round-trips.
-    local foundPed = false
-    for _, entity in pairs(Streamer.entities.ped) do
-        if entity.x == 10.0 and entity.y == 20.0 then foundPed = true end
-    end
-    eq(foundPed, true, 'ped from row #1 registered')
+    -- The runtime entityId is keyed off the DB row id, so it round-trips.
+    eq(Streamer.entities.ped['ped_1'] ~= nil, true, 'ped from row #1 registered under its row id')
+    eq(Streamer.entities.ped['ped_1'].x, 10.0)
+    eq(Streamer.entities.ped['ped_1'].model, 'a_m_y_business_01', 'model is flat on the record')
+    eq(Streamer.entities.object['object_2'] ~= nil, true, 'object from row #2 registered under its row id')
     local chunk1 = Streamer.getChunkKey(10.0, 20.0)
     local chunk2 = Streamer.getChunkKey(110.0, 20.0)
     eq(Streamer.chunks[chunk1] ~= nil and Streamer.chunks[chunk1].ped ~= nil, true, 'chunk1 has a ped')
@@ -249,6 +246,49 @@ test('getChunkEntityRecords resolves a chunk index into full entity records', fu
     eq(records[1].entityId, id)
     eq(records[1].entityType, 'object')
     eq(records[1].data.x, 10)
+    -- The client reads entity.data.model straight off this payload (both for
+    -- precache's RequestModel and for the real spawnObject path), so `model`
+    -- has to be flat on the record rather than nested one level deeper.
+    eq(records[1].data.model, 'prop_box', 'model resolves at data.model, not data.data.model')
+end)
+
+test('register flattens ped fields (heading/scenario) onto the entity record', function()
+    local Streamer = freshService({ entities = {} })
+    local id = Streamer.register('ped', {
+        x = 10, y = 10, z = 0, model = 'a_m_y_business_01',
+        heading = 90.0, data = { scenario = 'WORLD_HUMAN_CLIPBOARD', freeze = true },
+    })
+
+    local entity = Streamer.entities.ped[id]
+    eq(entity.model, 'a_m_y_business_01')
+    eq(entity.heading, 90.0)
+    -- scenario/freeze live in the DB's json `data` column; they must be spread
+    -- onto the same record so the client's spawnPed(data) reads them directly.
+    eq(entity.scenario, 'WORLD_HUMAN_CLIPBOARD')
+    eq(entity.freeze, true)
+
+    local records = Streamer.getChunkEntityRecords(Streamer.getChunkKey(10, 10))
+    eq(records[1].data.heading, 90.0)
+    eq(records[1].data.scenario, 'WORLD_HUMAN_CLIPBOARD')
+end)
+
+test('init() gives two DB rows registered in the same tick distinct entity ids', function()
+    local tables = {
+        entities = {
+            { id = 41, entity_type = 'ped', model = 'a_m_y_business_01', x = 10.0, y = 20.0, z = 30.0,
+              heading = 0.0, networked = false, enabled = true },
+            { id = 42, entity_type = 'ped', model = 'a_m_y_business_02', x = 11.0, y = 21.0, z = 30.0,
+              heading = 0.0, networked = false, enabled = true },
+        }
+    }
+    local Streamer = freshService(tables)
+    Streamer.init()
+
+    local count = 0
+    for _ in pairs(Streamer.entities.ped) do count = count + 1 end
+    eq(count, 2, 'two rows registered in one tick produce two records, never a collision')
+    eq(Streamer.entities.ped['ped_41'].model, 'a_m_y_business_01')
+    eq(Streamer.entities.ped['ped_42'].model, 'a_m_y_business_02')
 end)
 
 test('getOffsetChunk never returns its own input chunk key, across a spread of headings', function()
@@ -327,6 +367,71 @@ test('a disconnecting owner frees the networked entity for a future owner', func
     Streamer.loadChunkForPlayer(2, chunkKey)
     eq(Streamer.networkedOwners[id], 2, 'a new player can become owner after the old one drops')
     _G.Obelisk = savedObelisk
+end)
+
+test('unloading a chunk frees the networked entity for whoever loads it next', function()
+    local Streamer = freshService({ entities = {} })
+    local savedObelisk = _G.Obelisk
+    local sentTo = {}
+    Obelisk = { emitClient = function(eventName, source, data)
+        if eventName == 'core:server:streamer-entityAdd' then table.insert(sentTo, source) end
+    end }
+    local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
+    local chunkKey = Streamer.getChunkKey(10, 10)
+
+    Streamer.loadChunkForPlayer(1, chunkKey)
+    eq(Streamer.networkedOwners[id], 1, 'player 1 owns it after loading')
+
+    -- An ordinary chunk-boundary unload (not a disconnect): player 1's client
+    -- deletes the entity, so the ownership claim must be released too.
+    Streamer.unloadChunkForPlayer(1, chunkKey)
+    eq(Streamer.networkedOwners[id], nil, 'ownership released on ordinary unload')
+
+    Streamer.loadChunkForPlayer(2, chunkKey)
+    eq(Streamer.networkedOwners[id], 2, 'player 2 becomes the new owner')
+    eq(sentTo[#sentTo], 2, 'player 2 was told to spawn it')
+    _G.Obelisk = savedObelisk
+end)
+
+test('unloading a chunk does not steal ownership held by a different player', function()
+    local Streamer = freshService({ entities = {} })
+    local savedObelisk = _G.Obelisk
+    Obelisk = { emitClient = function() end }
+    local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
+    local chunkKey = Streamer.getChunkKey(10, 10)
+
+    Streamer.loadChunkForPlayer(1, chunkKey)
+    Streamer.unloadChunkForPlayer(2, chunkKey)
+    eq(Streamer.networkedOwners[id], 1, 'a non-owner unloading leaves the owner intact')
+    _G.Obelisk = savedObelisk
+end)
+
+test('handlePlayerDropped releases the chunk refs and budget the player held', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 100000
+    -- put budget-countable entities in a few of the 9 tier-1 chunks
+    Streamer.chunks['0_0'] = { ped = { a = true, b = true } }
+    Streamer.chunks['1_0'] = { object = { c = true } }
+    Streamer.chunks['-1_-1'] = { pickup = { d = true } }
+
+    Streamer.updatePlayerChunks(1, 50.0, 50.0, '1_0')
+    local activeChunks = Streamer.playerChunks[1].activeChunks
+    eq(#activeChunks, 9, 'player reached tier 1')
+    eq(Streamer.globalSpawnedCount, 4, '2 peds + 1 object + 1 pickup counted')
+    for _, chunkKey in ipairs(activeChunks) do
+        eq(Streamer.chunkPlayerRefs[chunkKey], 1, 'ref held for ' .. chunkKey)
+    end
+
+    local held = {}
+    for _, chunkKey in ipairs(activeChunks) do table.insert(held, chunkKey) end
+
+    source = 1
+    Streamer.handlePlayerDropped()
+
+    eq(Streamer.globalSpawnedCount, 0, 'budget fully returned on disconnect')
+    for _, chunkKey in ipairs(held) do
+        eq(Streamer.chunkPlayerRefs[chunkKey] or 0, 0, 'ref released for ' .. chunkKey)
+    end
 end)
 
 if #failures > 0 then

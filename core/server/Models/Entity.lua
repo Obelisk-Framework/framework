@@ -11,4 +11,9 @@ Entity.fillable = {
 }
 Entity.hidden = {}
 
+--- `data` holds the type-specific fields (scenario/sprite/markerType/...) that
+--- EntityStreamerService.register flattens onto the runtime entity record, so
+--- it has to arrive as a table rather than a raw JSON string.
+Entity.casts = { data = 'json' }
+
 return Entity
