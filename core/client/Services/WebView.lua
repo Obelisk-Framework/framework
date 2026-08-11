@@ -63,6 +63,20 @@ function WebView.emit(eventName, data)
     SendNUIMessage({ eventname = eventName, args = { data } })
 end
 
+--- Registers an incoming NUI callback without the caller needing to touch
+--- RegisterNUICallback directly or remember to call cb('ok') itself: the
+--- handler receives just `data`, WebView acks the NUI call right after it
+--- returns. Every plugin's client/main.lua should register its own NUI
+--- callbacks through this, not RegisterNUICallback directly.
+--- @param eventName string
+--- @param handler function(data)
+function WebView.on(eventName, handler)
+    RegisterNUICallback(eventName, function(data, cb)
+        handler(data)
+        cb('ok')
+    end)
+end
+
 --- Convenience alias for Obelisk.emitServer, so a RegisterNUICallback handler
 --- that needs to relay straight to the server doesn't separately require Obelisk.
 function WebView.emitServer(eventName, ...)
@@ -79,16 +93,14 @@ end
 
 --- NUI callback: the webview asked to navigate; echo it back as a message so
 --- the Vue router can act on it (see web/src/App.vue's Obelisk.on handler).
-RegisterNUICallback('core:client:navigate', function(data, cb)
+WebView.on('core:client:navigate', function(data)
     if data.route then
         WebView.emit('core:client:navigate', data.route)
     end
-    cb('ok')
 end)
 
-RegisterNUICallback('core:client:close', function(data, cb)
+WebView.on('core:client:close', function()
     WebView.hide()
-    cb('ok')
 end)
 
 --- ESC closes the webview when it currently has focus.
