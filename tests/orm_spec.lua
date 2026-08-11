@@ -392,6 +392,68 @@ test('Blueprint: every column builder except id() defaults to NOT NULL', functio
     end
 end)
 
+test('Blueprint: change() marks only the most-recently-defined column', function()
+    local blueprint = Schema.Blueprint.new('widgets')
+    blueprint:string('a', 50)
+    blueprint:string('b', 50):nullable(false):change()
+
+    eq(blueprint.columns[1].change, nil, 'first column untouched')
+    eq(blueprint.columns[2].change, true, 'second column marked for change')
+end)
+
+test('Schema.table: a :change()-marked column calls the dialect introspect+alter path, not ADD COLUMN', function()
+    local introspectCalledWith, alterCalledWith
+    local fakeDialect = {
+        quoteIdentifier = Database.dialect.quoteIdentifier,
+        columnType = Database.dialect.columnType,
+        formatDefault = Database.dialect.formatDefault,
+        alterAddIndexStatements = Database.dialect.alterAddIndexStatements,
+        introspectColumn = function(tableName, columnName)
+            introspectCalledWith = {tableName, columnName}
+            return {type = 'varchar', length = 50, nullable = true, default = nil}
+        end,
+        alterModifyColumnStatements = function(tableName, col, currentInfo, q)
+            alterCalledWith = {tableName, col, currentInfo}
+            return {'-- fake alter statement --'}
+        end,
+    }
+
+    local original = Database.dialect
+    Database.dialect = fakeDialect
+
+    local executed = {}
+    local originalQuery = Database.querySync
+    Database.querySync = function(query) table.insert(executed, query) return {} end
+
+    Schema.table('widgets', function(t)
+        t:string('name', 50):nullable(false):change()
+    end)
+
+    Database.querySync = originalQuery
+    Database.dialect = original
+
+    truthy(introspectCalledWith ~= nil, 'introspectColumn was called')
+    eq(introspectCalledWith[1], 'widgets')
+    eq(introspectCalledWith[2], 'name')
+    truthy(alterCalledWith ~= nil, 'alterModifyColumnStatements was called')
+    eq(#executed, 1, 'exactly one statement executed')
+    eq(executed[1], '-- fake alter statement --')
+end)
+
+test('Schema.table: an unmarked column still uses ADD COLUMN (existing behavior)', function()
+    local captured = {}
+    local original = Database.querySync
+    Database.querySync = function(query) table.insert(captured, query) return {} end
+
+    Schema.table('widgets', function(t)
+        t:string('bio', 255)
+    end)
+
+    Database.querySync = original
+
+    truthy(captured[1]:find('ADD COLUMN', 1, true), 'unmarked column still adds')
+end)
+
 test('Blueprint:foreignId/:constrained: guesses the referenced table and defaults to RESTRICT', function()
     local captured
     local original = Database.querySync
