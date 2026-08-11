@@ -61,6 +61,28 @@ function EntityStreamerService.getSurroundingChunks(chunkKey, radius)
     return chunks
 end
 
+--- Axis-aligned bounds of a chunk.
+--- @param chunkKey string
+--- @return number minX, number minY, number maxX, number maxY
+function EntityStreamerService.getChunkBounds(chunkKey)
+    local chunkX, chunkY = chunkKey:match('(-?%d+)_(-?%d+)')
+    chunkX, chunkY = tonumber(chunkX), tonumber(chunkY)
+    local size = EntityStreamerService.chunkSize
+    return chunkX * size, chunkY * size, (chunkX + 1) * size, (chunkY + 1) * size
+end
+
+--- How far (x, y) is outside chunkKey's bounds. 0 if still inside.
+--- @param x number
+--- @param y number
+--- @param chunkKey string
+--- @return number
+function EntityStreamerService.distancePastBoundary(x, y, chunkKey)
+    local minX, minY, maxX, maxY = EntityStreamerService.getChunkBounds(chunkKey)
+    local dx = math.max(minX - x, 0, x - maxX)
+    local dy = math.max(minY - y, 0, y - maxY)
+    return math.max(dx, dy)
+end
+
 --- Count only budget-relevant entities (ped/object/pickup) in a chunk.
 --- Markers and blips never consume an entity handle, so they're free.
 --- @param chunkKey string
@@ -190,70 +212,117 @@ function EntityStreamerService.unregister(entityType, entityId)
     print('[EntityStreamerService] Unregistered ' .. entityType .. ' #' .. entityId)
 end
 
---- Update player's active chunks
+--- Update player's active chunks, applying tier selection, boundary
+--- hysteresis, and tier hysteresis.
 --- @param source number Player server ID
---- @param x number Player X coordinate
---- @param y number Player Y coordinate
-function EntityStreamerService.updatePlayerChunks(source, x, y)
+--- @param x number
+--- @param y number
+--- @param facingChunk string the chunk key the player is currently facing
+function EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
     local currentChunk = EntityStreamerService.getChunkKey(x, y)
-    local newActiveChunks = EntityStreamerService.getSurroundingChunks(currentChunk, 1)
-    
-    -- Initialize player data if needed
+
+    -- facingChunk is nil until Task 4 wires the real caller (which computes
+    -- it from heading); fall back to the current chunk so tier 2's candidate
+    -- set is still a safe, well-formed chunk pair rather than a nil key.
+    facingChunk = facingChunk or currentChunk
+
     if not EntityStreamerService.playerChunks[source] then
         EntityStreamerService.playerChunks[source] = {
             currentChunk = currentChunk,
-            activeChunks = {}
+            activeChunks = {},
+            pendingTier = nil,
+            pendingTierTicks = 0,
         }
     end
-    
     local playerData = EntityStreamerService.playerChunks[source]
+
+    local candidateChunks, candidateTier = EntityStreamerService.selectTier(currentChunk, facingChunk)
+
+    -- Tier hysteresis: only commit a tier change after 2 consecutive ticks agree.
+    if playerData.pendingTier == candidateTier then
+        playerData.pendingTierTicks = playerData.pendingTierTicks + 1
+    else
+        playerData.pendingTier = candidateTier
+        playerData.pendingTierTicks = 1
+    end
+
+    local committedTier = playerData.committedTier
+    if committedTier == nil or playerData.pendingTierTicks >= 2 then
+        committedTier = candidateTier
+        playerData.committedTier = candidateTier
+    end
+    local newActiveChunks = committedTier == candidateTier and candidateChunks
+        or select(1, EntityStreamerService.selectTierChunksForTier(currentChunk, facingChunk, committedTier))
+
     local oldActiveChunks = playerData.activeChunks
-    
-    -- Find chunks to load (new chunks)
+
+    -- Chunks to load: in the new set, not already active.
     local chunksToLoad = {}
     for _, chunk in ipairs(newActiveChunks) do
         local alreadyActive = false
         for _, oldChunk in ipairs(oldActiveChunks) do
-            if oldChunk == chunk then
-                alreadyActive = true
-                break
-            end
+            if oldChunk == chunk then alreadyActive = true break end
         end
-        
-        if not alreadyActive then
-            table.insert(chunksToLoad, chunk)
-        end
+        if not alreadyActive then table.insert(chunksToLoad, chunk) end
     end
-    
-    -- Find chunks to unload (chunks no longer active)
+
+    -- Chunks to unload: in the old set, not in the new set, AND the player
+    -- is more than 15 units past that chunk's boundary (boundary hysteresis).
     local chunksToUnload = {}
     for _, oldChunk in ipairs(oldActiveChunks) do
         local stillActive = false
         for _, chunk in ipairs(newActiveChunks) do
-            if chunk == oldChunk then
-                stillActive = true
-                break
-            end
+            if chunk == oldChunk then stillActive = true break end
         end
-        
-        if not stillActive then
+        if not stillActive and EntityStreamerService.distancePastBoundary(x, y, oldChunk) > 15 then
             table.insert(chunksToUnload, oldChunk)
         end
     end
-    
-    -- Load new chunks
+
     for _, chunk in ipairs(chunksToLoad) do
+        EntityStreamerService.chunkPlayerRefs[chunk] = (EntityStreamerService.chunkPlayerRefs[chunk] or 0) + 1
+        if EntityStreamerService.chunkPlayerRefs[chunk] == 1 then
+            EntityStreamerService.globalSpawnedCount = EntityStreamerService.globalSpawnedCount +
+                EntityStreamerService.countBudgetEntitiesInChunk(chunk)
+        end
         EntityStreamerService.loadChunkForPlayer(source, chunk)
     end
-    
-    -- Unload old chunks
+
     for _, chunk in ipairs(chunksToUnload) do
+        EntityStreamerService.chunkPlayerRefs[chunk] = math.max((EntityStreamerService.chunkPlayerRefs[chunk] or 1) - 1, 0)
+        if EntityStreamerService.chunkPlayerRefs[chunk] == 0 then
+            EntityStreamerService.globalSpawnedCount = math.max(EntityStreamerService.globalSpawnedCount -
+                EntityStreamerService.countBudgetEntitiesInChunk(chunk), 0)
+        end
         EntityStreamerService.unloadChunkForPlayer(source, chunk)
     end
-    
-    -- Update player data
+
+    -- Rebuild the active set: kept-old (not unloaded) + newly loaded.
+    local rebuiltActive = {}
+    for _, oldChunk in ipairs(oldActiveChunks) do
+        local wasUnloaded = false
+        for _, unloaded in ipairs(chunksToUnload) do
+            if unloaded == oldChunk then wasUnloaded = true break end
+        end
+        if not wasUnloaded then table.insert(rebuiltActive, oldChunk) end
+    end
+    for _, chunk in ipairs(chunksToLoad) do table.insert(rebuiltActive, chunk) end
+
     playerData.currentChunk = currentChunk
-    playerData.activeChunks = newActiveChunks
+    playerData.activeChunks = rebuiltActive
+end
+
+--- Re-derive the chunk list for an already-committed tier, without
+--- re-running budget projection (used only when the committed tier
+--- differs from this tick's freshly-selected candidate tier).
+--- @param currentChunk string
+--- @param facingChunk string
+--- @param tier number
+--- @return string[]
+function EntityStreamerService.selectTierChunksForTier(currentChunk, facingChunk, tier)
+    if tier == 1 then return EntityStreamerService.getSurroundingChunks(currentChunk, 1) end
+    if tier == 2 then return { currentChunk, facingChunk } end
+    return { currentChunk }
 end
 
 --- Load a chunk for a player
