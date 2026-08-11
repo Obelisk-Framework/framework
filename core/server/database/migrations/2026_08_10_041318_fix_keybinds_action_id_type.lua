@@ -6,7 +6,7 @@
 return {
     up = function()
         Schema.table('keybinds', function(table)
-            table:integer('action_id_int')
+            table:integer('action_id_int'):nullable()
         end)
 
         local rows = Database.querySync('SELECT id, action_id FROM keybinds', {})
