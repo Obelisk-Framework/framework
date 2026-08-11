@@ -89,7 +89,9 @@ function FakeQueryBuilder:update(data)
     local affected = 0
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
-            for k, v in pairs(data) do row[k] = v end
+            for k, v in pairs(data) do
+                if v == Database.NULL then row[k] = nil else row[k] = v end
+            end
             affected = affected + 1
         end
     end

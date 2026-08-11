@@ -187,6 +187,21 @@ test('update: SET values precede WHERE params', function()
     end)
 end)
 
+test('update: Database.NULL sets a literal NULL with no placeholder/bound value', function()
+    withCapture(function(get)
+        QueryBuilder.new('users'):where('id', 42):update({ name = 'bob', rank_id = Database.NULL })
+        local query, params = get().query, get().params
+
+        truthy(query:find('`rank_id` = NULL', 1, true), 'rank_id set to literal NULL')
+        truthy(not query:find('`rank_id` = ?', 1, true), 'rank_id has no placeholder')
+        truthy(query:find('`name` = ?', 1, true), 'name still uses a placeholder')
+
+        -- Only name's value and the WHERE id value should be bound; NULL never
+        -- appears as a positional param (a real Lua nil must never be bound).
+        eqList(params, {'bob', 42})
+    end)
+end)
+
 test('delete: builds DELETE with where params', function()
     withCapture(function(get)
         QueryBuilder.new('users'):where('id', 42):delete()

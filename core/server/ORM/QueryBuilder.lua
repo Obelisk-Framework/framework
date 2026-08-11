@@ -484,8 +484,12 @@ function QueryBuilder:update(data, callback)
     local values = {}
     
     for column, value in pairs(data) do
-        table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = ?')
-        table.insert(values, value)
+        if value == Database.NULL then
+            table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = NULL')
+        else
+            table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = ?')
+            table.insert(values, value)
+        end
     end
 
     local sql = 'UPDATE ' .. QueryBuilder.quoteIdentifier(self.tableName) .. ' SET ' .. table.concat(setClauses, ', ')
