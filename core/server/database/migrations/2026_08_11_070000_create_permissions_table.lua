@@ -6,9 +6,9 @@ return {
     up = function()
         Schema.create('permissions', function(table)
             table:id()
-            table:string('owner_type', 50):notNullable()
-            table:integer('owner_id'):notNullable()
-            table:string('permission_key', 150):notNullable()
+            table:string('owner_type', 50)
+            table:integer('owner_id')
+            table:string('permission_key', 150)
             table:timestamps()
 
             table:unique({'owner_type', 'owner_id', 'permission_key'})

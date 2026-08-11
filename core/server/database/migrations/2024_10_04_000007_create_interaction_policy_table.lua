@@ -3,9 +3,9 @@ return {
     up = function()
         Schema.create('interaction_policy', function(table)
             table:id()
-            table:integer('interaction_id'):notNullable()
-            table:string('policy_id', 100):notNullable()
-            table:json('data')
+            table:integer('interaction_id')
+            table:string('policy_id', 100)
+            table:json('data'):nullable()
             table:timestamps()
             
             table:index({'interaction_id'})
