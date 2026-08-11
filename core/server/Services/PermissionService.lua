@@ -86,4 +86,36 @@ function PermissionService.list(ownerType, ownerId)
     return keys
 end
 
+--- Registers a resolver that extends what "can <typeName> #id do X" means,
+--- on behalf of a DIFFERENT module than the one owning typeName. Multiple
+--- delegates for the same typeName may be registered; all run. Does not
+--- validate typeName against registeredTypes, a delegate may be added
+--- before or after its target type is registered.
+--- @param typeName string
+--- @param resolverFn function(ownerId) -> table[] of { type = string, id = number }
+function PermissionService.addDelegate(typeName, resolverFn)
+    PermissionService.delegates[typeName] = PermissionService.delegates[typeName] or {}
+    table.insert(PermissionService.delegates[typeName], resolverFn)
+end
+
+--- @param ownerType string
+--- @param ownerId number
+--- @param key string
+--- @return boolean true if directly granted, or granted to any ref any delegate resolves to
+function PermissionService.can(ownerType, ownerId, key)
+    if PermissionService.has(ownerType, ownerId, key) then
+        return true
+    end
+
+    for _, resolver in ipairs(PermissionService.delegates[ownerType] or {}) do
+        for _, ref in ipairs(resolver(ownerId) or {}) do
+            if PermissionService.has(ref.type, ref.id, key) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 return PermissionService
