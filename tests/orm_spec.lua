@@ -353,6 +353,22 @@ test('Blueprint: nullable(false) makes the last column required, same as the new
     truthy(captured:find('`count` INT NOT NULL', 1, true), 'nullable(false) is NOT NULL')
 end)
 
+test('Blueprint: index() with no args uses the last-defined column', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('widgets', function(t)
+        t:id()
+        t:string('name', 50):index()
+    end)
+
+    Database.querySync = original
+
+    truthy(captured:find('KEY `widgets_name_index` (`name`)', 1, true),
+        'index() with no args builds a non-unique index on the last column')
+end)
+
 test('Blueprint: calling the removed notNullable() raises an error', function()
     throws(function()
         Schema.create('widgets', function(t)
