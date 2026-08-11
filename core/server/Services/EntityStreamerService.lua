@@ -6,6 +6,10 @@ EntityStreamerService.entities = {} -- {entityType: {entityId: entityData}}
 EntityStreamerService.chunks = {} -- {chunkKey: {entityType: {entityId}}}
 EntityStreamerService.playerChunks = {} -- {playerId: {currentChunk, activeChunks[]}}
 EntityStreamerService.entityTypes = {'ped', 'marker', 'object', 'pickup', 'blip'}
+EntityStreamerService.entityBudget = 300 -- global cap on peds/objects/pickups spawned across all players
+EntityStreamerService.chunkPlayerRefs = {} -- {chunkKey: number of players with this chunk active}
+EntityStreamerService.globalSpawnedCount = 0 -- sum of budget-countable entities across referenced chunks
+EntityStreamerService.budgetCountableTypes = { ped = true, object = true, pickup = true }
 
 --- Initialize the streamer: reset in-memory state, then load every
 --- currently-enabled entity from the database and register it.
@@ -55,6 +59,59 @@ function EntityStreamerService.getSurroundingChunks(chunkKey, radius)
     end
     
     return chunks
+end
+
+--- Count only budget-relevant entities (ped/object/pickup) in a chunk.
+--- Markers and blips never consume an entity handle, so they're free.
+--- @param chunkKey string
+--- @return number
+function EntityStreamerService.countBudgetEntitiesInChunk(chunkKey)
+    local chunk = EntityStreamerService.chunks[chunkKey]
+    if not chunk then return 0 end
+
+    local count = 0
+    for entityType, isCountable in pairs(EntityStreamerService.budgetCountableTypes) do
+        if isCountable and chunk[entityType] then
+            for _ in pairs(chunk[entityType]) do
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+--- Project how much a candidate chunk set would add to the global budget,
+--- counting only chunks no other player already has referenced (a chunk
+--- shared by two nearby players is one real cost, not two).
+--- @param chunkList string[]
+--- @return number
+local function projectedAddition(chunkList)
+    local addition = 0
+    for _, chunkKey in ipairs(chunkList) do
+        if (EntityStreamerService.chunkPlayerRefs[chunkKey] or 0) == 0 then
+            addition = addition + EntityStreamerService.countBudgetEntitiesInChunk(chunkKey)
+        end
+    end
+    return addition
+end
+
+--- Pick the highest tier (widest chunk set) that fits within the global
+--- entity budget. Tier 3 (current chunk only) always succeeds.
+--- @param currentChunk string
+--- @param facingChunk string
+--- @return string[] chunkList, number tier
+function EntityStreamerService.selectTier(currentChunk, facingChunk)
+    local tier1 = EntityStreamerService.getSurroundingChunks(currentChunk, 1)
+    if EntityStreamerService.globalSpawnedCount + projectedAddition(tier1) <= EntityStreamerService.entityBudget then
+        return tier1, 1
+    end
+
+    local tier2 = { currentChunk, facingChunk }
+    if EntityStreamerService.globalSpawnedCount + projectedAddition(tier2) <= EntityStreamerService.entityBudget then
+        return tier2, 2
+    end
+
+    return { currentChunk }, 3
 end
 
 --- Register an entity

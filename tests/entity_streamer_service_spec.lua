@@ -64,6 +64,80 @@ test('init() loads enabled entities from the Entity model and registers each one
     eq(Streamer.chunks[disabledChunk], nil, 'disabled entity #3 never registered')
 end)
 
+test('countBudgetEntitiesInChunk sums ped/object/pickup but ignores marker/blip', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.chunks['0_0'] = {
+        ped = { a = true, b = true },
+        object = { c = true },
+        marker = { d = true, e = true, f = true },
+        blip = { g = true },
+    }
+    eq(Streamer.countBudgetEntitiesInChunk('0_0'), 3, 'only 2 peds + 1 object counted')
+end)
+
+test('selectTier returns tier 1 (9 chunks) when the budget comfortably fits', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 300
+    Streamer.chunks['0_0'] = { ped = { a = true } }
+    local chunks, tier = Streamer.selectTier('0_0', '1_0')
+    eq(tier, 1)
+    eq(#chunks, 9)
+end)
+
+test('selectTier degrades to tier 2 (current+facing) when tier 1 would exceed budget', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 5
+    -- 9 surrounding chunks, one of them (a neighbor, not current/facing) has 10 peds
+    Streamer.chunks['0_0'] = { ped = { a = true } }
+    Streamer.chunks['1_0'] = { ped = { a = true } }
+    Streamer.chunks['1_1'] = {}
+    for i = 1, 10 do Streamer.chunks['1_1'].ped = Streamer.chunks['1_1'].ped or {} end
+    local heavy = {}
+    for i = 1, 10 do heavy['p' .. i] = true end
+    Streamer.chunks['1_1'].ped = heavy
+    local chunks, tier = Streamer.selectTier('0_0', '1_0')
+    eq(tier, 2)
+    eq(#chunks, 2)
+end)
+
+test('selectTier falls back to tier 3 (current chunk only) when even tier 2 exceeds budget', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 1
+    Streamer.chunks['0_0'] = { ped = { a = true } }
+    local heavy = {}
+    for i = 1, 10 do heavy['p' .. i] = true end
+    Streamer.chunks['1_0'] = { ped = heavy }
+    local chunks, tier = Streamer.selectTier('0_0', '1_0')
+    eq(tier, 3)
+    eq(#chunks, 1)
+    eq(chunks[1], '0_0')
+end)
+
+test('selectTier never rejects tier 3 even at zero budget', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 0
+    local heavy = {}
+    for i = 1, 5 do heavy['p' .. i] = true end
+    Streamer.chunks['0_0'] = { ped = heavy }
+    local chunks, tier = Streamer.selectTier('0_0', '1_0')
+    eq(tier, 3)
+end)
+
+test('selectTier does not double-count a chunk already referenced by another player', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 12
+    local heavy = {}
+    for i = 1, 10 do heavy['p' .. i] = true end
+    Streamer.chunks['1_1'] = { ped = heavy }
+    -- another player already has this chunk loaded, so it must not count
+    -- again toward THIS player's projected budget check
+    Streamer.chunkPlayerRefs['1_1'] = 1
+    Streamer.globalSpawnedCount = 10
+    Streamer.chunks['0_0'] = { ped = { a = true } }
+    local chunks, tier = Streamer.selectTier('0_0', '1_0')
+    eq(tier, 1, 'tier 1 fits because 1_1 is already loaded, not counted again')
+end)
+
 if #failures > 0 then
     for _, f in ipairs(failures) do print('FAIL: ' .. f) end
     os.exit(1)
