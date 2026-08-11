@@ -51,7 +51,10 @@ server_scripts {
     
     -- Policies
     'core/server/Policies/**/*.lua',
-    
+
+    -- Traits
+    'core/server/Traits/**/*.lua',
+
     -- Bootstrap
     'core/server/bootstrap.lua',
     'modules/*/server/**/*.lua',
