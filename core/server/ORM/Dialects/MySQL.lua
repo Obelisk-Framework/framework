@@ -121,19 +121,65 @@ function MySQLDialect.insertReturningClause(_primaryKey)
     return ''
 end
 
---- Introspect an existing column's current type/nullability/default so
---- Schema.table()'s :change() path can diff against it. Implemented in a
---- later task; calling it before then is a programming error, not a
---- reachable runtime state (nothing wires :change() into a real dialect
---- call yet).
-function MySQLDialect.introspectColumn(_tableName, _columnName)
-    error('MySQLDialect.introspectColumn: not implemented', 2)
+--- Read the live definition of one column from information_schema. Returns
+--- nil if the column doesn't exist (caller decides how to handle that).
+--- @param tableName string
+--- @param columnName string
+--- @return table|nil { type, length, nullable, default }
+function MySQLDialect.introspectColumn(tableName, columnName)
+    local sql = 'SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_DEFAULT ' ..
+                'FROM information_schema.COLUMNS WHERE ' ..
+                MySQLDialect.tableExistsPredicate() ..
+                ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
+    local rows = Database.querySync(sql, {tableName, columnName})
+    if not rows or not rows[1] then return nil end
+
+    local row = rows[1]
+    return {
+        type = row.DATA_TYPE,
+        length = row.CHARACTER_MAXIMUM_LENGTH and tonumber(row.CHARACTER_MAXIMUM_LENGTH) or nil,
+        nullable = row.IS_NULLABLE == 'YES',
+        default = row.COLUMN_DEFAULT,
+    }
 end
 
---- Build the ALTER TABLE ... MODIFY COLUMN statement(s) for a :change()-marked
---- column. Implemented in a later task.
-function MySQLDialect.alterModifyColumnStatements(_tableName, _col, _currentInfo, _q)
-    error('MySQLDialect.alterModifyColumnStatements: not implemented', 2)
+--- Build a single MODIFY COLUMN statement that restates the column's FULL
+--- definition — MySQL redefines the entire column in one MODIFY COLUMN, so
+--- any attribute not restated here would silently revert to no default /
+--- the new type's implicit default. Anything the migration's own column
+--- builder explicitly set (kind/opts/default) wins; anything it left at the
+--- builder's bare default is filled in from currentInfo (the live column),
+--- so a migration that only calls :nullable(false):change() doesn't
+--- accidentally drop the column's existing type/default.
+--- @param tableName string
+--- @param col table the Blueprint column entry, with .change == true
+--- @param currentInfo table introspectColumn()'s return for this column
+--- @param q function quoteIdentifier
+--- @return string[]
+function MySQLDialect.alterModifyColumnStatements(tableName, col, currentInfo, q)
+    local typeStr
+    if col._explicitType then
+        typeStr = MySQLDialect.columnType(col.kind, col.opts, col.autoIncrement)
+    else
+        typeStr = currentInfo.length and (currentInfo.type:upper() .. '(' .. currentInfo.length .. ')')
+                  or currentInfo.type:upper()
+    end
+
+    local nullable = col.nullable
+    if nullable == nil then nullable = currentInfo.nullable end
+
+    local default = col.default
+    if not col._explicitDefault then default = currentInfo.default end
+
+    local def = q(col.name) .. ' ' .. typeStr
+    if not nullable then
+        def = def .. ' NOT NULL'
+    end
+    if default ~= nil then
+        def = def .. ' DEFAULT ' .. MySQLDialect.formatDefault(col.kind, default)
+    end
+
+    return { 'ALTER TABLE ' .. q(tableName) .. ' MODIFY COLUMN ' .. def .. ';' }
 end
 
 Dialects.register('mysql', MySQLDialect)

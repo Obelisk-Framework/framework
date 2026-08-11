@@ -1144,6 +1144,68 @@ test('commitTransactionFallback: rolls back and stops on a failing statement', f
     })
 end)
 
+test('MySQLDialect.introspectColumn: queries information_schema and parses the row', function()
+    local MySQLDialect = Dialects.resolve('mysql')
+    local capturedSql, capturedParams
+    local original = Database.querySync
+    Database.querySync = function(sql, params)
+        capturedSql, capturedParams = sql, params
+        return {{DATA_TYPE = 'varchar', CHARACTER_MAXIMUM_LENGTH = 100, IS_NULLABLE = 'YES', COLUMN_DEFAULT = nil}}
+    end
+
+    local info = MySQLDialect.introspectColumn('widgets', 'name')
+
+    Database.querySync = original
+
+    truthy(capturedSql:find('information_schema.COLUMNS', 1, true), 'queries information_schema.COLUMNS')
+    eqList(capturedParams, {'widgets', 'name'})
+    eq(info.type, 'varchar')
+    eq(info.length, 100)
+    eq(info.nullable, true)
+    eq(info.default, nil)
+end)
+
+test('MySQLDialect.introspectColumn: returns nil when the column does not exist', function()
+    local MySQLDialect = Dialects.resolve('mysql')
+    local original = Database.querySync
+    Database.querySync = function() return {} end
+
+    local info = MySQLDialect.introspectColumn('widgets', 'ghost')
+
+    Database.querySync = original
+
+    eq(info, nil)
+end)
+
+test('MySQLDialect.alterModifyColumnStatements: restates the full column, merging unstated attributes from introspection', function()
+    local MySQLDialect = Dialects.resolve('mysql')
+    local q = MySQLDialect.quoteIdentifier
+    -- The migration only changes nullability; type/length/default are NOT
+    -- restated by the caller, and must come from currentInfo instead.
+    local col = {name = 'name', kind = 'string', opts = {}, nullable = false}
+    local currentInfo = {type = 'varchar', length = 100, nullable = true, default = 'unknown'}
+
+    local statements = MySQLDialect.alterModifyColumnStatements('widgets', col, currentInfo, q)
+
+    eq(#statements, 1)
+    truthy(statements[1]:find('MODIFY COLUMN', 1, true), 'uses MODIFY COLUMN')
+    truthy(statements[1]:find('VARCHAR(100)', 1, true), 'restates the original length even though the migration did not specify it')
+    truthy(statements[1]:find('NOT NULL', 1, true), 'applies the new nullability')
+    truthy(statements[1]:find("DEFAULT 'unknown'", 1, true), 'restates the original default so it is not silently dropped')
+end)
+
+test('MySQLDialect.alterModifyColumnStatements: an explicit new type/default on the migration overrides introspection', function()
+    local MySQLDialect = Dialects.resolve('mysql')
+    local q = MySQLDialect.quoteIdentifier
+    local col = {name = 'name', kind = 'string', opts = {length = 150}, nullable = true, default = 'fallback', _explicitType = true, _explicitDefault = true}
+    local currentInfo = {type = 'varchar', length = 100, nullable = false, default = nil}
+
+    local statements = MySQLDialect.alterModifyColumnStatements('widgets', col, currentInfo, q)
+
+    truthy(statements[1]:find('VARCHAR(150)', 1, true), "uses the migration's new length, not the introspected one")
+    truthy(statements[1]:find("DEFAULT 'fallback'", 1, true), "uses the migration's new default")
+end)
+
 --------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
