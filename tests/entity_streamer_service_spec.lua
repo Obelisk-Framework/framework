@@ -268,6 +268,67 @@ test('getOffsetChunk never returns its own input chunk key, across a spread of h
     end
 end)
 
+test('register stores the networked flag, defaulting to false', function()
+    local Streamer = freshService({ entities = {} })
+    local id1 = Streamer.register('object', { x = 10, y = 10, z = 0 })
+    local id2 = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
+    eq(Streamer.entities.object[id1].networked, false)
+    eq(Streamer.entities.object[id2].networked, true)
+end)
+
+test('loadChunkForPlayer sends a networked entity to only the first player who loads its chunk', function()
+    local Streamer = freshService({ entities = {} })
+    local savedObelisk = _G.Obelisk
+    local sentTo = {}
+    Obelisk = { emitClient = function(eventName, source, data) table.insert(sentTo, source) end }
+    local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
+    local chunkKey = Streamer.getChunkKey(10, 10)
+
+    Streamer.loadChunkForPlayer(1, chunkKey)
+    Streamer.loadChunkForPlayer(2, chunkKey)
+
+    eq(#sentTo, 1, 'only one player was told to spawn the networked entity')
+    eq(sentTo[1], 1, 'the first loader became the owner')
+    eq(Streamer.networkedOwners[id], 1)
+    _G.Obelisk = savedObelisk
+end)
+
+test('loadChunkForPlayer still sends a local-only entity to every loader', function()
+    local Streamer = freshService({ entities = {} })
+    local savedObelisk = _G.Obelisk
+    local sentTo = {}
+    Obelisk = { emitClient = function(eventName, source, data) table.insert(sentTo, source) end }
+    Streamer.register('object', { x = 10, y = 10, z = 0, networked = false })
+    local chunkKey = Streamer.getChunkKey(10, 10)
+
+    Streamer.loadChunkForPlayer(1, chunkKey)
+    Streamer.loadChunkForPlayer(2, chunkKey)
+
+    eq(#sentTo, 2, 'both players spawn their own local copy')
+    _G.Obelisk = savedObelisk
+end)
+
+test('a disconnecting owner frees the networked entity for a future owner', function()
+    local Streamer = freshService({ entities = {} })
+    local savedObelisk = _G.Obelisk
+    local sentTo = {}
+    Obelisk = { emitClient = function(eventName, source, data) table.insert(sentTo, source) end }
+    local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
+    local chunkKey = Streamer.getChunkKey(10, 10)
+    Streamer.playerChunks[1] = { currentChunk = chunkKey, activeChunks = {} }
+
+    Streamer.loadChunkForPlayer(1, chunkKey)
+    eq(Streamer.networkedOwners[id], 1)
+
+    source = 1
+    Streamer.handlePlayerDropped()
+    eq(Streamer.networkedOwners[id], nil, 'owner cleared on disconnect')
+
+    Streamer.loadChunkForPlayer(2, chunkKey)
+    eq(Streamer.networkedOwners[id], 2, 'a new player can become owner after the old one drops')
+    _G.Obelisk = savedObelisk
+end)
+
 if #failures > 0 then
     for _, f in ipairs(failures) do print('FAIL: ' .. f) end
     os.exit(1)

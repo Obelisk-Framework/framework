@@ -10,6 +10,7 @@ EntityStreamerService.entityBudget = 300 -- global cap on peds/objects/pickups s
 EntityStreamerService.chunkPlayerRefs = {} -- {chunkKey: number of players with this chunk active}
 EntityStreamerService.globalSpawnedCount = 0 -- sum of budget-countable entities across referenced chunks
 EntityStreamerService.budgetCountableTypes = { ped = true, object = true, pickup = true }
+EntityStreamerService.networkedOwners = {} -- {entityId: source}, who owns a networked entity
 
 --- Initialize the streamer: reset in-memory state, then load every
 --- currently-enabled entity from the database and register it.
@@ -187,9 +188,10 @@ function EntityStreamerService.register(entityType, entityData)
         x = entityData.x,
         y = entityData.y,
         z = entityData.z,
+        networked = entityData.networked or false,
         data = entityData
     }
-    
+
     -- Add to chunk
     local chunkKey = EntityStreamerService.getChunkKey(entityData.x, entityData.y)
     
@@ -356,25 +358,39 @@ function EntityStreamerService.selectTierChunksForTier(currentChunk, facingChunk
     return { currentChunk }
 end
 
---- Load a chunk for a player
+--- Load a chunk for a player. Local-only entities are sent to every
+--- player who loads the chunk; networked entities are sent only to
+--- whichever player becomes their owner (first loader), relying on
+--- OneSync to replicate the resulting networked game entity to everyone
+--- else nearby.
 --- @param source number
 --- @param chunkKey string
 function EntityStreamerService.loadChunkForPlayer(source, chunkKey)
     local chunk = EntityStreamerService.chunks[chunkKey]
-    
+
     if not chunk then return end
-    
-    -- Send all entities in this chunk to the player
+
     for entityType, entities in pairs(chunk) do
         for entityId, _ in pairs(entities) do
             local entityData = EntityStreamerService.entities[entityType][entityId]
-            
+
             if entityData then
-                Obelisk.emitClient('core:server:streamer-entityAdd', source, {
-                    entityId = entityId,
-                    entityType = entityType,
-                    data = entityData
-                })
+                local shouldSend = true
+                if entityData.networked then
+                    if EntityStreamerService.networkedOwners[entityId] then
+                        shouldSend = false
+                    else
+                        EntityStreamerService.networkedOwners[entityId] = source
+                    end
+                end
+
+                if shouldSend then
+                    Obelisk.emitClient('core:server:streamer-entityAdd', source, {
+                        entityId = entityId,
+                        entityType = entityType,
+                        data = entityData
+                    })
+                end
             end
         end
     end
@@ -439,11 +455,20 @@ function EntityStreamerService.getChunkEntityRecords(chunkKey)
     return records
 end
 
---- Clean up player data on disconnect
-AddEventHandler('playerDropped', function()
+--- Clean up player data on disconnect: their chunk tracking, and release
+--- ownership of any networked entities they were responsible for.
+function EntityStreamerService.handlePlayerDropped()
     local source = source
     EntityStreamerService.playerChunks[source] = nil
-end)
+
+    for entityId, ownerSource in pairs(EntityStreamerService.networkedOwners) do
+        if ownerSource == source then
+            EntityStreamerService.networkedOwners[entityId] = nil
+        end
+    end
+end
+
+AddEventHandler('playerDropped', EntityStreamerService.handlePlayerDropped)
 
 --- Net events
 Obelisk.onServer('core:client:streamer-updatePosition', function(x, y, heading)
