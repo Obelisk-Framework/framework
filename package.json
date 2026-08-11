@@ -7,7 +7,7 @@
     "obelisk": "./cli/index.js"
   },
   "scripts": {
-    "test": "lua5.4 tests/orm_spec.lua && lua5.4 tests/obelisk_spec.lua && lua5.4 tests/action_service_spec.lua && lua5.4 tests/migration_audit_spec.lua",
+    "test": "lua5.4 tests/orm_spec.lua && lua5.4 tests/obelisk_spec.lua && lua5.4 tests/action_service_spec.lua && lua5.4 tests/migration_audit_spec.lua && lua5.4 tests/entity_streamer_service_spec.lua",
     "cli": "node cli/index.js",
     "make:module": "node cli/index.js make:module",
     "make:plugin": "node cli/index.js make:plugin",
