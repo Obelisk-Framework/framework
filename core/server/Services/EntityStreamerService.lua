@@ -22,7 +22,11 @@ function EntityStreamerService.init()
 
     local rows = Entity:where('enabled', true):getSync()
     for _, row in ipairs(rows) do
+        -- `id = row.id` keys the runtime entity id off the real DB primary key
+        -- rather than a timestamp+random pair, which collided in practice when
+        -- a whole table's worth of rows registered inside one second.
         EntityStreamerService.register(row.entity_type, {
+            id = row.id,
             x = row.x, y = row.y, z = row.z, heading = row.heading,
             model = row.model, networked = row.networked, data = row.data,
         })
@@ -168,29 +172,56 @@ function EntityStreamerService.selectTier(currentChunk, facingChunk)
     return { currentChunk }, 3
 end
 
---- Register an entity
+--- Register an entity.
+---
+--- The stored record is FLAT: `id`/`type`/`x`/`y`/`z`/`networked` are named
+--- fields, and every other key of `entityData` (plus every key of its nested
+--- `data` json blob, which is where type-specific fields like `scenario`,
+--- `sprite` or `markerType` live per the schema) is shallow-copied onto the
+--- SAME table. The record is what gets sent to the client as the `data` field
+--- of an entityAdd/precache payload, so the client's `data.model` accessor
+--- resolves directly -- no extra nesting layer in between.
+---
 --- @param entityType string Type of entity (ped, marker, object, pickup, blip)
---- @param entityData table Entity data including x, y, z coordinates
+--- @param entityData table Entity data including x, y, z coordinates. An
+---        optional `id` (the DB row's primary key) makes the runtime entity id
+---        stable and collision-free; without one a timestamp+random id is minted.
 --- @return string entityId
 function EntityStreamerService.register(entityType, entityData)
     if not EntityStreamerService.entities[entityType] then
         print('[EntityStreamerService] Error: Invalid entity type: ' .. entityType)
         return nil
     end
-    
-    -- Generate unique ID
-    local entityId = entityType .. '_' .. os.time() .. '_' .. math.random(1000, 9999)
-    
-    -- Store entity data
-    EntityStreamerService.entities[entityType][entityId] = {
-        id = entityId,
-        type = entityType,
-        x = entityData.x,
-        y = entityData.y,
-        z = entityData.z,
-        networked = entityData.networked or false,
-        data = entityData
-    }
+
+    -- Prefer a caller-supplied (database) id: unique per type by construction.
+    -- The time+random fallback only covers entities registered without one.
+    local entityId
+    if entityData.id ~= nil then
+        entityId = entityType .. '_' .. tostring(entityData.id)
+    else
+        entityId = entityType .. '_' .. os.time() .. '_' .. math.random(1000, 9999)
+    end
+
+    -- Store entity data, flattened.
+    local record = {}
+    for key, value in pairs(entityData) do
+        -- `data` (the json column) is spread rather than nested, so its
+        -- type-specific fields are readable at the same level as `model`.
+        if key ~= 'data' and key ~= 'id' then record[key] = value end
+    end
+    if type(entityData.data) == 'table' then
+        for key, value in pairs(entityData.data) do
+            if key ~= 'id' then record[key] = value end
+        end
+    end
+    record.id = entityId
+    record.type = entityType
+    record.x = entityData.x
+    record.y = entityData.y
+    record.z = entityData.z
+    record.networked = entityData.networked or false
+
+    EntityStreamerService.entities[entityType][entityId] = record
 
     -- Add to chunk
     local chunkKey = EntityStreamerService.getChunkKey(entityData.x, entityData.y)
@@ -207,7 +238,10 @@ function EntityStreamerService.register(entityType, entityData)
     
     print('[EntityStreamerService] Registered ' .. entityType .. ' #' .. entityId .. ' at chunk ' .. chunkKey)
     
-    -- Broadcast to nearby players
+    -- Broadcast to nearby players. Note: this is unreachable today -- register()'s
+    -- only caller is init(), which runs at boot before any player has connected,
+    -- so playerChunks is always empty here. A future runtime caller would also
+    -- need the budget/ref accounting that updatePlayerChunks owns.
     EntityStreamerService.broadcastToChunk(chunkKey, 'core:server:streamer-entityAdd', {
         entityId = entityId,
         entityType = entityType,
@@ -243,6 +277,19 @@ function EntityStreamerService.unregister(entityType, entityId)
     })
     
     print('[EntityStreamerService] Unregistered ' .. entityType .. ' #' .. entityId)
+end
+
+--- Drop one player's reference to a chunk, and once nobody references it,
+--- give its entities' budget cost back to the global pool. Shared by the
+--- ordinary unload path (updatePlayerChunks) and the disconnect path
+--- (handlePlayerDropped) so the two can't drift apart.
+--- @param chunkKey string
+function EntityStreamerService.releaseChunkRef(chunkKey)
+    EntityStreamerService.chunkPlayerRefs[chunkKey] = math.max((EntityStreamerService.chunkPlayerRefs[chunkKey] or 1) - 1, 0)
+    if EntityStreamerService.chunkPlayerRefs[chunkKey] == 0 then
+        EntityStreamerService.globalSpawnedCount = math.max(EntityStreamerService.globalSpawnedCount -
+            EntityStreamerService.countBudgetEntitiesInChunk(chunkKey), 0)
+    end
 end
 
 --- Update player's active chunks, applying tier selection, boundary
@@ -322,11 +369,7 @@ function EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
     end
 
     for _, chunk in ipairs(chunksToUnload) do
-        EntityStreamerService.chunkPlayerRefs[chunk] = math.max((EntityStreamerService.chunkPlayerRefs[chunk] or 1) - 1, 0)
-        if EntityStreamerService.chunkPlayerRefs[chunk] == 0 then
-            EntityStreamerService.globalSpawnedCount = math.max(EntityStreamerService.globalSpawnedCount -
-                EntityStreamerService.countBudgetEntitiesInChunk(chunk), 0)
-        end
+        EntityStreamerService.releaseChunkRef(chunk)
         EntityStreamerService.unloadChunkForPlayer(source, chunk)
     end
 
@@ -396,17 +439,25 @@ function EntityStreamerService.loadChunkForPlayer(source, chunkKey)
     end
 end
 
---- Unload a chunk for a player
+--- Unload a chunk for a player. The client deletes each entity it was told
+--- to spawn -- including networked ones it owned, which OneSync destroys for
+--- everyone -- so ownership must be released here too, otherwise the
+--- spawn-once gate in loadChunkForPlayer would keep pointing at a player who
+--- no longer has the entity and nobody could ever respawn it.
 --- @param source number
 --- @param chunkKey string
 function EntityStreamerService.unloadChunkForPlayer(source, chunkKey)
     local chunk = EntityStreamerService.chunks[chunkKey]
-    
+
     if not chunk then return end
-    
+
     -- Tell client to remove entities from this chunk
     for entityType, entities in pairs(chunk) do
         for entityId, _ in pairs(entities) do
+            if EntityStreamerService.networkedOwners[entityId] == source then
+                EntityStreamerService.networkedOwners[entityId] = nil
+            end
+
             Obelisk.emitClient('core:server:streamer-entityRemove', source, {
                 entityId = entityId,
                 entityType = entityType
@@ -455,10 +506,19 @@ function EntityStreamerService.getChunkEntityRecords(chunkKey)
     return records
 end
 
---- Clean up player data on disconnect: their chunk tracking, and release
---- ownership of any networked entities they were responsible for.
+--- Clean up player data on disconnect: release their chunk references (and
+--- the budget those chunks were holding), drop their chunk tracking, and
+--- release ownership of any networked entities they were responsible for.
 function EntityStreamerService.handlePlayerDropped()
     local source = source
+
+    local playerData = EntityStreamerService.playerChunks[source]
+    if playerData then
+        for _, chunkKey in ipairs(playerData.activeChunks or {}) do
+            EntityStreamerService.releaseChunkRef(chunkKey)
+        end
+    end
+
     EntityStreamerService.playerChunks[source] = nil
 
     for entityId, ownerSource in pairs(EntityStreamerService.networkedOwners) do
@@ -484,10 +544,12 @@ Obelisk.onServer('core:client:streamer-updatePosition', function(x, y, heading)
     })
 end)
 
-Obelisk.onServer('core:client:streamer-requestChunk', function(chunkKey)
-    local source = source
-    EntityStreamerService.loadChunkForPlayer(source, chunkKey)
-end)
+-- NOTE: a 'core:client:streamer-requestChunk' handler used to live here. It
+-- called loadChunkForPlayer with a client-supplied chunk key, bypassing the
+-- tier/budget/ref-count accounting in updatePlayerChunks entirely and letting
+-- a client claim networked-entity ownership for free. Nothing in the codebase
+-- ever emitted it, so it was removed rather than retrofitted. Any future
+-- client-driven chunk request must go through updatePlayerChunks.
 
 -- Initialize on resource start
 Citizen.CreateThread(function()
