@@ -209,8 +209,17 @@ function Blueprint:unique(columns, name)
     return self
 end
 
---- Add a foreign key
+--- Add a foreign key.
+---
+--- Returns a chainable builder used as
+--- `t:foreign('a_id'):references('id'):on('as'):onDelete('CASCADE')`. Every
+--- link is defined with method (`:`) syntax because every call site in the
+--- codebase chains with `:` — defining them as plain closures taking one
+--- argument silently bound the chain table itself as the argument (a colon
+--- call passes the receiver first), so `references`/`on` ended up holding a
+--- table instead of a name and the emitted SQL was unusable.
 function Blueprint:foreign(column)
+    local blueprint = self
     local fk = {
         column = column,
         references = nil,
@@ -218,35 +227,54 @@ function Blueprint:foreign(column)
         onDelete = 'RESTRICT',
         onUpdate = 'RESTRICT'
     }
-    
-    -- Return a chainable foreign key builder
-    return {
-        references = function(refColumn)
-            fk.references = refColumn
-            return {
-                on = function(refTable)
-                    fk.on = refTable
-                    
-                    return {
-                        onDelete = function(action)
-                            fk.onDelete = action
-                            table.insert(self.foreignKeys, fk)
-                            return self
-                        end,
-                        onUpdate = function(action)
-                            fk.onUpdate = action
-                            table.insert(self.foreignKeys, fk)
-                            return self
-                        end,
-                        getBlueprint = function()
-                            table.insert(self.foreignKeys, fk)
-                            return self
-                        end
-                    }
-                end
-            }
+
+    local registered = false
+    --- Add the key to the blueprint exactly once, however many terminal
+    --- methods the caller chains. Also makes it the target of the
+    --- Blueprint-level `:onDelete()`/`:onUpdate()` setters, so
+    --- `...:onDelete('CASCADE'):onUpdate('CASCADE')` works (the first call
+    --- returns the blueprint, not this builder).
+    local function register()
+        if not registered then
+            registered = true
+            table.insert(blueprint.foreignKeys, fk)
         end
-    }
+        blueprint._lastForeignKey = fk
+        return blueprint
+    end
+
+    local terminal = {}
+
+    --- Register the key with the default RESTRICT actions. Only needed when
+    --- neither `:onDelete()` nor `:onUpdate()` is called, since those
+    --- register it themselves.
+    function terminal:getBlueprint()
+        return register()
+    end
+
+    function terminal:onDelete(action)
+        fk.onDelete = action
+        return register()
+    end
+
+    function terminal:onUpdate(action)
+        fk.onUpdate = action
+        return register()
+    end
+
+    local onStep = {}
+    function onStep:on(refTable)
+        fk.on = refTable
+        return terminal
+    end
+
+    local referencesStep = {}
+    function referencesStep:references(refColumn)
+        fk.references = refColumn
+        return onStep
+    end
+
+    return referencesStep
 end
 
 --- Guess the referenced table name from a foreign key column by Laravel

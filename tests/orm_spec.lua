@@ -324,6 +324,45 @@ test('Blueprint:foreignId/:constrained: guesses the referenced table and default
     truthy(captured:find('ON DELETE RESTRICT ON UPDATE RESTRICT', 1, true), 'defaults to RESTRICT/RESTRICT')
 end)
 
+test('Blueprint:foreign: the :references():on():onDelete() chain resolves real names', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('items', function(t)
+        t:id()
+        t:integer('base_item_id')
+        t:foreign('base_item_id'):references('id'):on('base_items'):onDelete('RESTRICT')
+    end)
+
+    Database.querySync = original
+
+    -- Every call site in the codebase chains this with `:`, which passes the
+    -- chain table as the first argument - the links must be real methods or
+    -- `references`/`on` capture that table instead of the name.
+    truthy(captured:find('FOREIGN KEY (`base_item_id`) REFERENCES `base_items`(`id`)', 1, true),
+        'chain captured the column and table names, not the chain tables')
+    truthy(captured:find('ON DELETE RESTRICT ON UPDATE RESTRICT', 1, true), 'actions applied')
+end)
+
+test('Blueprint:foreign: chaining onDelete then onUpdate registers exactly one key', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('items', function(t)
+        t:id()
+        t:integer('base_item_id')
+        t:foreign('base_item_id'):references('id'):on('base_items'):onDelete('CASCADE'):onUpdate('CASCADE')
+    end)
+
+    Database.querySync = original
+
+    local _, count = captured:gsub('FOREIGN KEY', '')
+    eq(count, 1, 'the key is emitted once, not once per terminal call')
+    truthy(captured:find('ON DELETE CASCADE ON UPDATE CASCADE', 1, true), 'both actions applied')
+end)
+
 test('Blueprint:foreignId: emits exactly the same column type as :id() (InnoDB FK requirement)', function()
     local captured
     local original = Database.querySync
