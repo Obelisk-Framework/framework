@@ -7,13 +7,23 @@ EntityStreamerService.chunks = {} -- {chunkKey: {entityType: {entityId}}}
 EntityStreamerService.playerChunks = {} -- {playerId: {currentChunk, activeChunks[]}}
 EntityStreamerService.entityTypes = {'ped', 'marker', 'object', 'pickup', 'blip'}
 
---- Initialize the streamer
+--- Initialize the streamer: reset in-memory state, then load every
+--- currently-enabled entity from the database and register it.
 function EntityStreamerService.init()
     for _, entityType in ipairs(EntityStreamerService.entityTypes) do
         EntityStreamerService.entities[entityType] = {}
     end
-    
-    print('[EntityStreamerService] Initialized')
+    EntityStreamerService.chunks = {}
+
+    local rows = Entity:where('enabled', true):getSync()
+    for _, row in ipairs(rows) do
+        EntityStreamerService.register(row.entity_type, {
+            x = row.x, y = row.y, z = row.z, heading = row.heading,
+            model = row.model, networked = row.networked, data = row.data,
+        })
+    end
+
+    print('[EntityStreamerService] Initialized, loaded ' .. #rows .. ' entities')
 end
 
 --- Get chunk key from coordinates
