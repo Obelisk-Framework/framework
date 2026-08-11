@@ -144,6 +144,20 @@ test('can: true via a delegate that resolves to a ref holding the grant', functi
     end)
 end)
 
+test('revokeAll: removes every grant for that owner, leaves other owners untouched', function()
+    withFakeDb(function()
+        PermissionService.registerType('character', {})
+        PermissionService.grant('character', 1, 'manage_bank')
+        PermissionService.grant('character', 1, 'manage_fleet')
+        PermissionService.grant('character', 2, 'manage_bank')
+
+        PermissionService.revokeAll('character', 1)
+
+        eq(#PermissionService.list('character', 1), 0)
+        eq(#PermissionService.list('character', 2), 1)
+    end)
+end)
+
 test('can: checks every registered delegate for the type, not just the first', function()
     withFakeDb(function()
         PermissionService.registerType('character', {})

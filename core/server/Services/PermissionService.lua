@@ -59,6 +59,19 @@ function PermissionService.revoke(ownerType, ownerId, key)
         :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):delete()
 end
 
+--- Deletes every grant for this owner, regardless of key. Intended for
+--- cleanup when the owning entity itself is deleted (e.g. a rank or
+--- department row is removed), so its permission grants don't become
+--- orphaned rows that could later be silently inherited by a new entity
+--- reusing the same id. No unregistered-type check, mirroring revoke's
+--- assumption that callers only invoke this for owners that existed.
+--- @param ownerType string
+--- @param ownerId number
+function PermissionService.revokeAll(ownerType, ownerId)
+    QueryBuilder.new('permissions')
+        :where('owner_type', ownerType):where('owner_id', ownerId):delete()
+end
+
 --- Direct grant lookup only. No unregistered-type check: a lookup for an
 --- owner type nobody ever registered is simply always false, same as one
 --- that was registered but never granted anything.
