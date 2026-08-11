@@ -136,19 +136,61 @@ function PostgresDialect.insertReturningClause(primaryKey)
     return ' RETURNING ' .. PostgresDialect.quoteIdentifier(primaryKey)
 end
 
---- Introspect an existing column's current type/nullability/default so
---- Schema.table()'s :change() path can diff against it. Implemented in a
---- later task; calling it before then is a programming error, not a
---- reachable runtime state (nothing wires :change() into a real dialect
---- call yet).
-function PostgresDialect.introspectColumn(_tableName, _columnName)
-    error('PostgresDialect.introspectColumn: not implemented', 2)
+--- Read the live definition of one column from information_schema. Returns
+--- nil if the column doesn't exist.
+--- @param tableName string
+--- @param columnName string
+--- @return table|nil { type, length, nullable, default }
+function PostgresDialect.introspectColumn(tableName, columnName)
+    local sql = 'SELECT data_type, character_maximum_length, is_nullable, column_default ' ..
+                'FROM information_schema.columns WHERE ' ..
+                PostgresDialect.tableExistsPredicate() ..
+                ' AND table_name = $1 AND column_name = $2'
+    local rows = Database.querySync(sql, {tableName, columnName})
+    if not rows or not rows[1] then return nil end
+
+    local row = rows[1]
+    return {
+        type = row.data_type,
+        length = row.character_maximum_length and tonumber(row.character_maximum_length) or nil,
+        nullable = row.is_nullable == 'YES',
+        default = row.column_default,
+    }
 end
 
---- Build the ALTER TABLE ... TYPE/SET NOT NULL/SET DEFAULT statement(s) for a
---- :change()-marked column. Implemented in a later task.
-function PostgresDialect.alterModifyColumnStatements(_tableName, _col, _currentInfo, _q)
-    error('PostgresDialect.alterModifyColumnStatements: not implemented', 2)
+--- Build one ALTER TABLE statement containing one ALTER COLUMN clause per
+--- attribute that actually changed. Unlike MySQL, Postgres's ALTER COLUMN
+--- clauses are independent — nothing needs to be restated, so this only
+--- touches what the migration actually changed.
+--- @param tableName string
+--- @param col table the Blueprint column entry, with .change == true
+--- @param currentInfo table introspectColumn()'s return for this column
+--- @param q function quoteIdentifier
+--- @return string[]
+function PostgresDialect.alterModifyColumnStatements(tableName, col, currentInfo, q)
+    local clauses = {}
+    local prefix = 'ALTER TABLE ' .. q(tableName) .. ' ALTER COLUMN ' .. q(col.name) .. ' '
+
+    if col._explicitType then
+        local typeStr = PostgresDialect.columnType(col.kind, col.opts, col.autoIncrement)
+        table.insert(clauses, prefix .. 'TYPE ' .. typeStr .. ';')
+    end
+
+    local nullable = col.nullable
+    if nullable == nil then nullable = currentInfo.nullable end
+    if nullable ~= currentInfo.nullable then
+        table.insert(clauses, prefix .. (nullable and 'DROP NOT NULL' or 'SET NOT NULL') .. ';')
+    end
+
+    if col._explicitDefault then
+        if col.default == nil then
+            table.insert(clauses, prefix .. 'DROP DEFAULT;')
+        else
+            table.insert(clauses, prefix .. 'SET DEFAULT ' .. PostgresDialect.formatDefault(col.kind, col.default) .. ';')
+        end
+    end
+
+    return clauses
 end
 
 Dialects.register('postgres', PostgresDialect)

@@ -1232,6 +1232,70 @@ test('MySQLDialect.alterModifyColumnStatements: an explicit new type/default on 
     truthy(statements[1]:find("DEFAULT 'fallback'", 1, true), "uses the migration's new default")
 end)
 
+test('PostgresDialect.introspectColumn: queries information_schema.columns and parses the row', function()
+    withDialect('postgres', function()
+        local PostgresDialect = Dialects.resolve('postgres')
+        local capturedSql, capturedParams
+        local original = Database.querySync
+        Database.querySync = function(sql, params)
+            capturedSql, capturedParams = sql, params
+            return {{data_type = 'character varying', character_maximum_length = 100, is_nullable = 'YES', column_default = nil}}
+        end
+
+        local info = PostgresDialect.introspectColumn('widgets', 'name')
+
+        Database.querySync = original
+
+        truthy(capturedSql:find('information_schema.columns', 1, true), 'queries information_schema.columns')
+        eqList(capturedParams, {'widgets', 'name'})
+        eq(info.type, 'character varying')
+        eq(info.length, 100)
+        eq(info.nullable, true)
+    end)
+end)
+
+test('PostgresDialect.introspectColumn: returns nil when the column does not exist', function()
+    withDialect('postgres', function()
+        local PostgresDialect = Dialects.resolve('postgres')
+        local original = Database.querySync
+        Database.querySync = function() return {} end
+
+        local info = PostgresDialect.introspectColumn('widgets', 'ghost')
+
+        Database.querySync = original
+
+        eq(info, nil)
+    end)
+end)
+
+test('PostgresDialect.alterModifyColumnStatements: emits one independent clause per changed attribute', function()
+    withDialect('postgres', function()
+        local PostgresDialect = Dialects.resolve('postgres')
+        local q = PostgresDialect.quoteIdentifier
+        local col = {name = 'name', kind = 'string', opts = {}, nullable = false}
+        local currentInfo = {type = 'character varying', length = 100, nullable = true, default = nil}
+
+        local statements = PostgresDialect.alterModifyColumnStatements('widgets', col, currentInfo, q)
+
+        eq(#statements, 1, 'only nullability changed, so only one clause')
+        truthy(statements[1]:find('ALTER COLUMN "name" SET NOT NULL', 1, true), 'sets NOT NULL')
+        truthy(not statements[1]:find('TYPE', 1, true), 'does not restate the unchanged type')
+    end)
+end)
+
+test('PostgresDialect.alterModifyColumnStatements: reverting to nullable emits DROP NOT NULL', function()
+    withDialect('postgres', function()
+        local PostgresDialect = Dialects.resolve('postgres')
+        local q = PostgresDialect.quoteIdentifier
+        local col = {name = 'name', kind = 'string', opts = {}, nullable = true}
+        local currentInfo = {type = 'character varying', length = 100, nullable = false, default = nil}
+
+        local statements = PostgresDialect.alterModifyColumnStatements('widgets', col, currentInfo, q)
+
+        truthy(statements[1]:find('DROP NOT NULL', 1, true), 'drops NOT NULL')
+    end)
+end)
+
 --------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
