@@ -164,7 +164,8 @@ end)
 - **`id(name)`** — auto-incrementing integer primary key (defaults to `id`).
 - **`string(name, length)`**, **`text(name)`**, **`json(name)`**, **`integer(name)`**, **`bigInteger(name)`**, **`unsignedInteger(name)`**, **`float(name, precision, scale)`**, **`decimal(name, precision, scale)`**, **`boolean(name)`**, **`date(name)`**, **`datetime(name)`**, **`timestamp(name)`**, **`enum(name, values)`**.
 - **`timestamps()`** — adds `created_at`/`updated_at`, both defaulting to `CURRENT_TIMESTAMP` at the DB level (not auto-refreshed by the DB — `BaseModel` sets `updated_at` itself on every save).
-- **`nullable()`** / **`notNullable()`** / **`default(value)`** / **`unsigned()`** — modify the most recently added column.
+- **`nullable(value)`** / **`default(value)`** / **`unsigned()`** — modify the most recently added column. Every column is `NOT NULL` by default; `nullable()` (or `nullable(true)`) makes the last column optional, and `nullable(false)` states the default explicitly.
+- **`change()`** — marks the last-defined column as an alteration of an existing column, for use inside `Schema.table(...)`. Today this is wired end-to-end for nullability changes only.
 - **`index(columns, [name])`** / **`unique(columns, [name])`** — add an index/unique constraint; `unique()` with no columns uses the last-defined column.
 - **`foreign(column)`** — chainable: `:references(col):on(table):onDelete(action)`.
 

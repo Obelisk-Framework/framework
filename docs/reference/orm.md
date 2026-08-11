@@ -191,7 +191,7 @@ Table creation and migration helpers. All functions below are static, called as 
 Sync. Returns `table` (the result of the last statement run). `callback(blueprint)` populates a `Blueprint`; every statement `blueprint:toSql()` produces (the `CREATE TABLE` plus any standalone `CREATE INDEX` statements a dialect needs) runs in order via `Database.querySync`.
 
 **`Schema.table(tableName, callback)`**
-Sync. No meaningful return. Same `callback(blueprint)` pattern as `create`, but every new column becomes an `ALTER TABLE ... ADD COLUMN ...` statement and every index becomes the dialect's `ALTER`-time index statement, for adding columns/indexes to an existing table.
+Sync. No meaningful return. Same `callback(blueprint)` pattern as `create`, but every new column becomes an `ALTER TABLE ... ADD COLUMN ...` statement and every index becomes the dialect's `ALTER`-time index statement, for adding columns/indexes to an existing table. A column marked with `:change()` is altered instead of added — see [Altering an existing column](#altering-an-existing-column).
 
 **`Schema.drop(tableName)`**
 Sync. Returns `table`. Runs `DROP TABLE IF EXISTS <table>`.
@@ -215,38 +215,43 @@ The object passed into `Schema.create`/`Schema.table`'s callback as `table` (or 
 ### Columns
 
 **`:id(name)`**
-Auto-incrementing integer primary key. `name` defaults to `'id'`. Not nullable.
+Auto-incrementing integer primary key. `name` defaults to `'id'`. Always `NOT NULL`.
+
+Every column below is `NOT NULL` unless you chain `:nullable()` onto it.
 
 **`:string(name, length)`**
-VARCHAR-like column. `length` defaults to `255`. Nullable by default.
+VARCHAR-like column. `length` defaults to `255`.
 
 **`:text(name)`** / **`:json(name)`**
-TEXT / JSON column. Nullable by default.
+TEXT / JSON column.
 
 **`:integer(name)`** / **`:bigInteger(name)`** / **`:unsignedInteger(name)`**
-INT / BIGINT / unsigned INT column. Nullable by default.
+INT / BIGINT / unsigned INT column.
 
 **`:float(name, precision, scale)`** / **`:decimal(name, precision, scale)`**
-FLOAT / DECIMAL column. `decimal`'s `precision` defaults to `8`, `scale` to `2`. Nullable by default.
+FLOAT / DECIMAL column. `decimal`'s `precision` defaults to `8`, `scale` to `2`.
 
 **`:boolean(name)`**
-BOOLEAN column. Nullable, defaults to `0`.
+BOOLEAN column. Defaults to `0`.
 
 **`:date(name)`** / **`:datetime(name)`** / **`:timestamp(name)`**
-DATE / DATETIME / TIMESTAMP column. Nullable by default.
+DATE / DATETIME / TIMESTAMP column.
 
 **`:timestamps()`**
 Adds both `created_at` and `updated_at` as TIMESTAMP columns defaulting to `CURRENT_TIMESTAMP` at the database level. Note that `updated_at` isn't auto-refreshed by the database (there's no portable Postgres equivalent of MySQL's `ON UPDATE CURRENT_TIMESTAMP`); `BaseModel:save`/`saveSync` set it explicitly via `Database.now()` on every save instead.
 
 **`:enum(name, values)`**
-ENUM column restricted to `values` (a list of strings). Nullable by default.
+ENUM column restricted to `values` (a list of strings).
 
 ### Modifiers
 
 These mutate the most recently added column, so call them immediately after the column method they apply to.
 
-**`:nullable()`** / **`:notNullable()`**
-Marks the last column nullable / not nullable.
+**`:nullable(value)`**
+Sets the last column's nullability. `value` defaults to `true`, so `:nullable()` reads as "this column is optional". `:nullable(false)` marks it required — the same as the default, just stated explicitly. Since every column is `NOT NULL` unless made nullable, you only need this for optional columns.
+
+**`:change()`**
+Marks the last-defined column as an alteration of an existing column rather than a new one. Only meaningful inside `Schema.table(...)`; `Schema.create()` ignores it. See [Altering an existing column](#altering-an-existing-column).
 
 **`:default(value)`**
 Sets the last column's default value.
@@ -274,6 +279,33 @@ table:foreign('owner_id'):references('id'):on('users'):onDelete('CASCADE')
 **`:toSql()`**
 Sync. Returns a `string[]` of statements. The first is always the `CREATE TABLE IF NOT EXISTS` statement itself; any further entries are standalone `CREATE INDEX` statements for indexes a dialect can't express inline (Postgres, for plain indexes).
 
+### Altering an existing column
+
+Inside a `Schema.table(...)` block, chaining `:change()` onto a column marks it as an alteration of the column that already exists, instead of a new `ADD COLUMN`. The dialect introspects the live column (`information_schema`) and emits the alter statement it needs — `MODIFY COLUMN` on MySQL/MariaDB (which restates the whole definition, so the existing type and default are carried over verbatim), one independent `ALTER COLUMN ... SET/DROP NOT NULL` clause on Postgres.
+
+```lua
+--- Migration: make nickname optional
+return {
+    up = function()
+        Schema.table('users', function(table)
+            table:string('nickname', 255):nullable():change()
+        end)
+    end,
+
+    down = function()
+        Schema.table('users', function(table)
+            table:string('nickname', 255):nullable(false):change()
+        end)
+    end
+}
+```
+
+If the named column doesn't exist on the table, `Schema.table` raises an error rather than silently adding it.
+
+::: warning Nullability changes only, today
+`:change()` is wired end-to-end for **nullability** changes only. The dialect layer (`alterModifyColumnStatements`) can also change a column's type or default, but it reads internal `_explicitType` / `_explicitDefault` flags that no `Blueprint` method currently sets — a future addition, not a current capability. A `:change()` column's type and default are always restated from the live column as introspected, so calling `:string('nickname', 500)` or `:default('x')` alongside `:change()` will **not** change the type or default. Use `:change()` for `:nullable(...)` only.
+:::
+
 ## Migrations
 
 A migration is a `.lua` file under a module/plugin's (or core's own) `server/migrations/` directory, tracked by a sibling `migrations.json`. `obelisk make:migration` generates both; see [CLI: Command Reference](/cli/index) for the generator itself. This section documents the file's contract and every field a `Blueprint` column can carry, since those are what actually end up in a migration.
@@ -288,7 +320,7 @@ return {
     up = function()
         Schema.create('actions', function(table)
             table:id()
-            table:string('action_id', 100):unique():notNullable()
+            table:string('action_id', 100):unique()
             table:string('label', 255)
             table:text('description')
             table:json('options')
@@ -332,7 +364,7 @@ Every `Blueprint` column-adding method (`:id()`, `:string()`, etc.) inserts an e
 | `name` | every column method | the column name, as passed in |
 | `kind` | every column method | one of `integer`, `bigInteger`, `string`, `text`, `json`, `float`, `decimal`, `boolean`, `date`, `datetime`, `timestamp`, `enum` |
 | `opts` | every column method | a table of kind-specific options, see the type table below |
-| `nullable` | every column method (default varies), `:nullable()`, `:notNullable()` | whether the column allows `NULL`. `:id()` defaults to `false`; every other column method defaults to `true` |
+| `nullable` | every column method (always `false`), `:nullable(value)` | whether the column allows `NULL`. Every column method sets it to `false`, so columns are `NOT NULL` unless a `:nullable()` call flips it |
 | `default` | `:boolean()` (defaults to `0`), `:timestamps()` (defaults to `'CURRENT_TIMESTAMP'`), `:default(value)` | the column's `DEFAULT` clause value, formatted per dialect via `formatDefault(kind, value)` |
 | `autoIncrement` | `:id()` only | marks the column as auto-incrementing (`AUTO_INCREMENT` on MySQL, `SERIAL`/`BIGSERIAL` on Postgres) |
 | `primary` | `:id()` only | marks the column as the table's primary key |

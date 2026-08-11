@@ -177,8 +177,9 @@ return {
     up = function()
         Schema.create('town_halls', function(table)
             table:id()
-            -- Add your columns here
-            table:string('name', 255):notNullable()
+            -- Add your columns here (columns are NOT NULL by default;
+            -- chain :nullable() to make one optional)
+            table:string('name', 255)
             table:timestamps()
         end)
 
@@ -200,8 +201,8 @@ return {
     up = function()
         Schema.create('town_halls', function(table)
             table:id()
-            table:string('name', 255):notNullable()
-            table:string('mayor', 255)
+            table:string('name', 255)
+            table:string('mayor', 255):nullable()
             table:timestamps()
         end)
 
