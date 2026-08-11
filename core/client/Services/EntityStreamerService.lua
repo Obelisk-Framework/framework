@@ -276,6 +276,26 @@ Obelisk.onClient('core:server:streamer-entityRemove', function(data)
     EntityStreamerService.despawnEntity(data.entityId)
 end)
 
+--- Precache: pre-request models for entities in the look-ahead chunk
+--- (one step past the facing chunk) without spawning them, so when the
+--- player's real chunk membership later includes it, spawning is just
+--- CreatePed/CreateObject against an already-loaded model instead of
+--- waiting on RequestModel's up-to-5-second stream-in.
+EntityStreamerService.precachedModels = {} -- {modelHash: true}, avoids redundant RequestModel calls
+
+Obelisk.onClient('core:server:streamer-precache', function(data)
+    for _, entity in ipairs(data.entities or {}) do
+        local entityData = entity.data
+        if entityData and entityData.model then
+            local modelHash = GetHashKey(entityData.model)
+            if not EntityStreamerService.precachedModels[modelHash] then
+                EntityStreamerService.precachedModels[modelHash] = true
+                RequestModel(modelHash)
+            end
+        end
+    end
+end)
+
 --- Initialize on resource start
 Citizen.CreateThread(function()
     EntityStreamerService.init()
