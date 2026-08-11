@@ -125,9 +125,9 @@ end
 --- nil if the column doesn't exist (caller decides how to handle that).
 --- @param tableName string
 --- @param columnName string
---- @return table|nil { type, length, nullable, default }
+--- @return table|nil { type, length, columnType, nullable, default }
 function MySQLDialect.introspectColumn(tableName, columnName)
-    local sql = 'SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_DEFAULT ' ..
+    local sql = 'SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT ' ..
                 'FROM information_schema.COLUMNS WHERE ' ..
                 MySQLDialect.tableExistsPredicate() ..
                 ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
@@ -138,6 +138,7 @@ function MySQLDialect.introspectColumn(tableName, columnName)
     return {
         type = row.DATA_TYPE,
         length = row.CHARACTER_MAXIMUM_LENGTH and tonumber(row.CHARACTER_MAXIMUM_LENGTH) or nil,
+        columnType = row.COLUMN_TYPE,
         nullable = row.IS_NULLABLE == 'YES',
         default = row.COLUMN_DEFAULT,
     }
@@ -161,8 +162,11 @@ function MySQLDialect.alterModifyColumnStatements(tableName, col, currentInfo, q
     if col._explicitType then
         typeStr = MySQLDialect.columnType(col.kind, col.opts, col.autoIncrement)
     else
-        typeStr = currentInfo.length and (currentInfo.type:upper() .. '(' .. currentInfo.length .. ')')
-                  or currentInfo.type:upper()
+        -- COLUMN_TYPE is MySQL's full type spec as it would appear in SHOW
+        -- COLUMNS (e.g. "decimal(10,2)", "enum('a','b')", "int(10) unsigned"),
+        -- complete for every column kind — not just strings. Use it verbatim;
+        -- MySQL type keywords are case-insensitive so no case transform needed.
+        typeStr = currentInfo.columnType
     end
 
     local nullable = col.nullable
