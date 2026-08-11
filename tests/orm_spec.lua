@@ -1150,7 +1150,7 @@ test('MySQLDialect.introspectColumn: queries information_schema and parses the r
     local original = Database.querySync
     Database.querySync = function(sql, params)
         capturedSql, capturedParams = sql, params
-        return {{DATA_TYPE = 'varchar', CHARACTER_MAXIMUM_LENGTH = 100, IS_NULLABLE = 'YES', COLUMN_DEFAULT = nil}}
+        return {{DATA_TYPE = 'varchar', CHARACTER_MAXIMUM_LENGTH = 100, COLUMN_TYPE = 'varchar(100)', IS_NULLABLE = 'YES', COLUMN_DEFAULT = nil}}
     end
 
     local info = MySQLDialect.introspectColumn('widgets', 'name')
@@ -1158,9 +1158,11 @@ test('MySQLDialect.introspectColumn: queries information_schema and parses the r
     Database.querySync = original
 
     truthy(capturedSql:find('information_schema.COLUMNS', 1, true), 'queries information_schema.COLUMNS')
+    truthy(capturedSql:find('COLUMN_TYPE', 1, true), 'selects COLUMN_TYPE')
     eqList(capturedParams, {'widgets', 'name'})
     eq(info.type, 'varchar')
     eq(info.length, 100)
+    eq(info.columnType, 'varchar(100)')
     eq(info.nullable, true)
     eq(info.default, nil)
 end)
@@ -1183,15 +1185,39 @@ test('MySQLDialect.alterModifyColumnStatements: restates the full column, mergin
     -- The migration only changes nullability; type/length/default are NOT
     -- restated by the caller, and must come from currentInfo instead.
     local col = {name = 'name', kind = 'string', opts = {}, nullable = false}
-    local currentInfo = {type = 'varchar', length = 100, nullable = true, default = 'unknown'}
+    local currentInfo = {type = 'varchar', length = 100, columnType = 'varchar(100)', nullable = true, default = 'unknown'}
 
     local statements = MySQLDialect.alterModifyColumnStatements('widgets', col, currentInfo, q)
 
     eq(#statements, 1)
     truthy(statements[1]:find('MODIFY COLUMN', 1, true), 'uses MODIFY COLUMN')
-    truthy(statements[1]:find('VARCHAR(100)', 1, true), 'restates the original length even though the migration did not specify it')
+    truthy(statements[1]:find('varchar(100)', 1, true), 'restates the original length even though the migration did not specify it')
     truthy(statements[1]:find('NOT NULL', 1, true), 'applies the new nullability')
     truthy(statements[1]:find("DEFAULT 'unknown'", 1, true), 'restates the original default so it is not silently dropped')
+end)
+
+test('MySQLDialect.alterModifyColumnStatements: restates COLUMN_TYPE verbatim for non-string kinds (decimal/enum/unsigned), preserving precision/scale/values/unsigned', function()
+    local MySQLDialect = Dialects.resolve('mysql')
+    local q = MySQLDialect.quoteIdentifier
+
+    -- decimal(p,s): CHARACTER_MAXIMUM_LENGTH is NULL for numeric types, so
+    -- the old type+length reconstruction had no way to recover precision/scale.
+    local decimalCol = {name = 'price', kind = 'decimal', opts = {}, nullable = false}
+    local decimalInfo = {type = 'decimal', length = nil, columnType = 'decimal(10,2)', nullable = true, default = nil}
+    local decimalStatements = MySQLDialect.alterModifyColumnStatements('widgets', decimalCol, decimalInfo, q)
+    truthy(decimalStatements[1]:find('decimal(10,2)', 1, true), 'restates precision/scale verbatim from COLUMN_TYPE')
+
+    -- enum(...): the old reconstruction had no way to recover the value list.
+    local enumCol = {name = 'status', kind = 'enum', opts = {}, nullable = false}
+    local enumInfo = {type = 'enum', length = nil, columnType = "enum('a','b')", nullable = true, default = nil}
+    local enumStatements = MySQLDialect.alterModifyColumnStatements('widgets', enumCol, enumInfo, q)
+    truthy(enumStatements[1]:find("enum('a','b')", 1, true), 'restates the enum value list verbatim from COLUMN_TYPE')
+
+    -- unsigned integer: the old reconstruction had no way to recover UNSIGNED.
+    local intCol = {name = 'count', kind = 'integer', opts = {}, nullable = false}
+    local intInfo = {type = 'int', length = nil, columnType = 'int(10) unsigned', nullable = true, default = nil}
+    local intStatements = MySQLDialect.alterModifyColumnStatements('widgets', intCol, intInfo, q)
+    truthy(intStatements[1]:find('int(10) unsigned', 1, true), 'restates the UNSIGNED attribute verbatim from COLUMN_TYPE')
 end)
 
 test('MySQLDialect.alterModifyColumnStatements: an explicit new type/default on the migration overrides introspection', function()
