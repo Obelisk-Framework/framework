@@ -276,7 +276,7 @@ test('Schema.create: generates a CREATE TABLE statement', function()
 
     Schema.create('users', function(t)
         t:id()
-        t:string('name', 100):notNullable()
+        t:string('name', 100)
         t:integer('age')
         t:timestamps()
     end)
@@ -302,9 +302,94 @@ test('Schema.create: updated_at has no ON UPDATE clause (app layer owns it)', fu
 
     Database.querySync = original
 
-    truthy(captured:find('`updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP', 1, true),
+    truthy(captured:find('`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP', 1, true),
         'updated_at defaults to CURRENT_TIMESTAMP')
     truthy(not captured:find('ON UPDATE', 1, true), 'no ON UPDATE clause (BaseModel sets updated_at itself)')
+end)
+
+test('Blueprint: string() defaults to NOT NULL', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('widgets', function(t)
+        t:id()
+        t:string('name', 50)
+    end)
+
+    Database.querySync = original
+
+    truthy(captured:find('`name` VARCHAR(50) NOT NULL', 1, true), 'string() is NOT NULL by default')
+end)
+
+test('Blueprint: nullable() with no args makes the last column optional', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('widgets', function(t)
+        t:id()
+        t:string('nickname', 50):nullable()
+    end)
+
+    Database.querySync = original
+
+    truthy(not captured:find('`nickname` VARCHAR(50) NOT NULL', 1, true), 'nullable() removes NOT NULL')
+    truthy(captured:find('`nickname` VARCHAR(50)', 1, true), 'column still present')
+end)
+
+test('Blueprint: nullable(false) makes the last column required, same as the new default', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('widgets', function(t)
+        t:id()
+        t:integer('count'):nullable(false)
+    end)
+
+    Database.querySync = original
+
+    truthy(captured:find('`count` INT NOT NULL', 1, true), 'nullable(false) is NOT NULL')
+end)
+
+test('Blueprint: calling the removed notNullable() raises an error', function()
+    throws(function()
+        Schema.create('widgets', function(t)
+            t:id()
+            t:string('name', 50):notNullable()
+        end)
+    end, 'notNullable() must no longer exist on Blueprint')
+end)
+
+test('Blueprint: every column builder except id() defaults to NOT NULL', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('kitchen_sink', function(t)
+        t:id()
+        t:string('a', 10)
+        t:text('b')
+        t:json('c')
+        t:integer('d')
+        t:bigInteger('e')
+        t:unsignedInteger('f')
+        t:float('g')
+        t:decimal('h')
+        t:boolean('i')
+        t:date('j')
+        t:datetime('k')
+        t:timestamp('l')
+        t:enum('m', {'x', 'y'})
+    end)
+
+    Database.querySync = original
+
+    for _, col in ipairs({'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'}) do
+        truthy(captured:find('`' .. col .. '`.-NOT NULL', 1, false) ~= nil or captured:find('`' .. col .. '` .- NOT NULL'),
+            col .. ' should be NOT NULL by default')
+    end
 end)
 
 test('Blueprint:foreignId/:constrained: guesses the referenced table and defaults to RESTRICT', function()
@@ -379,7 +464,7 @@ test('Blueprint:foreignId: emits exactly the same column type as :id() (InnoDB F
     -- identical type AND signedness. `id()` emits plain `INT`, so `foreignId`
     -- must too: `BIGINT UNSIGNED` (the old behaviour) or `INT UNSIGNED` both
     -- make the CREATE TABLE fail with MySQL error 3780 on a real database.
-    truthy(captured:find('`garage_id` INT,', 1, true) or captured:find('`garage_id` INT\n', 1, true),
+    truthy(captured:find('`garage_id` INT NOT NULL,', 1, true) or captured:find('`garage_id` INT NOT NULL\n', 1, true),
         'garage_id is plain INT, not BIGINT and not INT UNSIGNED')
     truthy(not captured:find('`garage_id` BIGINT', 1, true), 'not BIGINT')
     truthy(not captured:find('`garage_id` INT UNSIGNED', 1, true), 'not unsigned')
@@ -466,7 +551,7 @@ test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', fu
 
         Schema.create('users', function(t)
             t:id()
-            t:string('name', 100):notNullable()
+            t:string('name', 100)
             t:boolean('active')
         end)
 
@@ -476,7 +561,7 @@ test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', fu
         truthy(captured:find('"id" SERIAL NOT NULL', 1, true), 'has SERIAL id')
         truthy(captured:find('PRIMARY KEY ("id")', 1, true), 'has primary key')
         truthy(captured:find('"name" VARCHAR(100) NOT NULL', 1, true), 'has not-null varchar')
-        truthy(captured:find('"active" BOOLEAN DEFAULT FALSE', 1, true), 'boolean default renders as FALSE')
+        truthy(captured:find('"active" BOOLEAN NOT NULL DEFAULT FALSE', 1, true), 'boolean default renders as FALSE')
         truthy(not captured:find('ENGINE', 1, true), 'no MySQL ENGINE clause')
     end)
 end)

@@ -34,39 +34,39 @@ function Blueprint:string(name, length)
         name = name,
         kind = 'string',
         opts = { length = length or 255 },
-        nullable = true
+        nullable = false
     })
     return self
 end
 
 --- Add a text column
 function Blueprint:text(name)
-    table.insert(self.columns, { name = name, kind = 'text', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'text', opts = {}, nullable = false })
     return self
 end
 
 --- Add a JSON column
 function Blueprint:json(name)
-    table.insert(self.columns, { name = name, kind = 'json', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'json', opts = {}, nullable = false })
     return self
 end
 
 --- Add an integer column
 function Blueprint:integer(name)
-    table.insert(self.columns, { name = name, kind = 'integer', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'integer', opts = {}, nullable = false })
     return self
 end
 
 --- Add a big integer column
 function Blueprint:bigInteger(name)
-    table.insert(self.columns, { name = name, kind = 'bigInteger', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'bigInteger', opts = {}, nullable = false })
     return self
 end
 
 --- Add an unsigned integer column
 function Blueprint:unsignedInteger(name)
     table.insert(self.columns, {
-        name = name, kind = 'integer', opts = { unsigned = true }, nullable = true
+        name = name, kind = 'integer', opts = { unsigned = true }, nullable = false
     })
     return self
 end
@@ -74,7 +74,7 @@ end
 --- Add a float column
 function Blueprint:float(name, precision, scale)
     table.insert(self.columns, {
-        name = name, kind = 'float', opts = { precision = precision, scale = scale }, nullable = true
+        name = name, kind = 'float', opts = { precision = precision, scale = scale }, nullable = false
     })
     return self
 end
@@ -85,7 +85,7 @@ function Blueprint:decimal(name, precision, scale)
         name = name,
         kind = 'decimal',
         opts = { precision = precision or 8, scale = scale or 2 },
-        nullable = true
+        nullable = false
     })
     return self
 end
@@ -93,26 +93,26 @@ end
 --- Add a boolean column
 function Blueprint:boolean(name)
     table.insert(self.columns, {
-        name = name, kind = 'boolean', opts = {}, nullable = true, default = 0
+        name = name, kind = 'boolean', opts = {}, nullable = false, default = 0
     })
     return self
 end
 
 --- Add a date column
 function Blueprint:date(name)
-    table.insert(self.columns, { name = name, kind = 'date', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'date', opts = {}, nullable = false })
     return self
 end
 
 --- Add a datetime column
 function Blueprint:datetime(name)
-    table.insert(self.columns, { name = name, kind = 'datetime', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'datetime', opts = {}, nullable = false })
     return self
 end
 
 --- Add a timestamp column
 function Blueprint:timestamp(name)
-    table.insert(self.columns, { name = name, kind = 'timestamp', opts = {}, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'timestamp', opts = {}, nullable = false })
     return self
 end
 
@@ -123,32 +123,27 @@ end
 --- trigger is needed.
 function Blueprint:timestamps()
     table.insert(self.columns, {
-        name = 'created_at', kind = 'timestamp', opts = {}, nullable = true, default = 'CURRENT_TIMESTAMP'
+        name = 'created_at', kind = 'timestamp', opts = {}, nullable = false, default = 'CURRENT_TIMESTAMP'
     })
     table.insert(self.columns, {
-        name = 'updated_at', kind = 'timestamp', opts = {}, nullable = true, default = 'CURRENT_TIMESTAMP'
+        name = 'updated_at', kind = 'timestamp', opts = {}, nullable = false, default = 'CURRENT_TIMESTAMP'
     })
     return self
 end
 
 --- Add an enum column
 function Blueprint:enum(name, values)
-    table.insert(self.columns, { name = name, kind = 'enum', opts = { values = values }, nullable = true })
+    table.insert(self.columns, { name = name, kind = 'enum', opts = { values = values }, nullable = false })
     return self
 end
 
---- Make the last column nullable
-function Blueprint:nullable()
+--- Set the nullability of the last column. `value` defaults to `true`, so
+--- `:nullable()` reads naturally for "this column is optional". Pass
+--- `false` to require it: `:nullable(false)`.
+function Blueprint:nullable(value)
+    if value == nil then value = true end
     if #self.columns > 0 then
-        self.columns[#self.columns].nullable = true
-    end
-    return self
-end
-
---- Make the last column not nullable
-function Blueprint:notNullable()
-    if #self.columns > 0 then
-        self.columns[#self.columns].nullable = false
+        self.columns[#self.columns].nullable = value
     end
     return self
 end
@@ -302,7 +297,7 @@ end
 --- UNSIGNED` or even `INT UNSIGNED` referencing `INT` would fail to create.
 function Blueprint:foreignId(name)
     table.insert(self.columns, {
-        name = name, kind = 'integer', opts = {}, nullable = true
+        name = name, kind = 'integer', opts = {}, nullable = false
     })
     self._lastForeignIdColumn = name
     return self
