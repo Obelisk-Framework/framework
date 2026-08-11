@@ -151,6 +151,15 @@ end
 --- Mark the last-defined column as an alteration of an existing column
 --- rather than a new one, for use inside Schema.table(...). Only meaningful
 --- there — Schema.create() ignores the flag since every column is new.
+---
+--- SCOPE, today: only NULLABILITY changes are fully wired end-to-end, i.e.
+---     table:string('nickname'):nullable():change()
+--- The dialects' alterModifyColumnStatements() also support changing a
+--- column's type/default via the internal `_explicitType`/`_explicitDefault`
+--- flags, but no Blueprint method sets those flags yet — that's a future
+--- addition, not a current capability. Until it exists, a :change() column's
+--- type and default are restated from the live column as introspected, and
+--- :change() should be used for nullability changes only.
 function Blueprint:change()
     if #self.columns > 0 then
         self.columns[#self.columns].change = true

@@ -162,6 +162,18 @@ end
 --- attribute that actually changed. Unlike MySQL, Postgres's ALTER COLUMN
 --- clauses are independent — nothing needs to be restated, so this only
 --- touches what the migration actually changed.
+---
+--- Nullability is ALWAYS taken from `col.nullable`: every Blueprint column
+--- builder sets a boolean nullable (NOT NULL by default), so the migration
+--- author's intent is always explicitly stated and is never inferred from
+--- currentInfo — currentInfo.nullable is only consulted to skip emitting a
+--- clause when nothing actually changed.
+---
+--- SCOPE, today: only nullability changes are fully wired end-to-end via
+--- Blueprint:change(). The _explicitType/_explicitDefault paths below are
+--- supported here, but NO Blueprint method currently sets those flags — a
+--- future addition, not a current capability. Use :change() for
+--- nullability changes only.
 --- @param tableName string
 --- @param col table the Blueprint column entry, with .change == true
 --- @param currentInfo table introspectColumn()'s return for this column
@@ -176,10 +188,10 @@ function PostgresDialect.alterModifyColumnStatements(tableName, col, currentInfo
         table.insert(clauses, prefix .. 'TYPE ' .. typeStr .. ';')
     end
 
-    local nullable = col.nullable
-    if nullable == nil then nullable = currentInfo.nullable end
-    if nullable ~= currentInfo.nullable then
-        table.insert(clauses, prefix .. (nullable and 'DROP NOT NULL' or 'SET NOT NULL') .. ';')
+    -- col.nullable is always a boolean here (every Blueprint column builder
+    -- sets it), so there is no nil case to fall back on from currentInfo.
+    if col.nullable ~= currentInfo.nullable then
+        table.insert(clauses, prefix .. (col.nullable and 'DROP NOT NULL' or 'SET NOT NULL') .. ';')
     end
 
     if col._explicitDefault then
