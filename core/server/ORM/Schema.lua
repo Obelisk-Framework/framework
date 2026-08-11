@@ -180,15 +180,23 @@ end
 
 --- Add an index
 function Blueprint:index(columns, name)
-    if type(columns) == 'string' then
+    -- If no columns specified, use the last column defined
+    if columns == nil and #self.columns > 0 then
+        columns = {self.columns[#self.columns].name}
+    elseif type(columns) == 'string' then
         columns = {columns}
     end
-    name = name or (self.tableName .. '_' .. table.concat(columns, '_') .. '_index')
-    table.insert(self.indexes, {
-        name = name,
-        columns = columns,
-        unique = false
-    })
+
+    -- Ensure columns is a table before using table.concat
+    if columns and type(columns) == 'table' then
+        name = name or (self.tableName .. '_' .. table.concat(columns, '_') .. '_index')
+        table.insert(self.indexes, {
+            name = name,
+            columns = columns,
+            unique = false
+        })
+    end
+
     return self
 end
 
