@@ -136,6 +136,21 @@ function PostgresDialect.insertReturningClause(primaryKey)
     return ' RETURNING ' .. PostgresDialect.quoteIdentifier(primaryKey)
 end
 
+--- Introspect an existing column's current type/nullability/default so
+--- Schema.table()'s :change() path can diff against it. Implemented in a
+--- later task; calling it before then is a programming error, not a
+--- reachable runtime state (nothing wires :change() into a real dialect
+--- call yet).
+function PostgresDialect.introspectColumn(_tableName, _columnName)
+    error('PostgresDialect.introspectColumn: not implemented', 2)
+end
+
+--- Build the ALTER TABLE ... TYPE/SET NOT NULL/SET DEFAULT statement(s) for a
+--- :change()-marked column. Implemented in a later task.
+function PostgresDialect.alterModifyColumnStatements(_tableName, _col, _currentInfo, _q)
+    error('PostgresDialect.alterModifyColumnStatements: not implemented', 2)
+end
+
 Dialects.register('postgres', PostgresDialect)
 
 return PostgresDialect

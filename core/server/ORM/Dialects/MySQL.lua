@@ -121,6 +121,21 @@ function MySQLDialect.insertReturningClause(_primaryKey)
     return ''
 end
 
+--- Introspect an existing column's current type/nullability/default so
+--- Schema.table()'s :change() path can diff against it. Implemented in a
+--- later task; calling it before then is a programming error, not a
+--- reachable runtime state (nothing wires :change() into a real dialect
+--- call yet).
+function MySQLDialect.introspectColumn(_tableName, _columnName)
+    error('MySQLDialect.introspectColumn: not implemented', 2)
+end
+
+--- Build the ALTER TABLE ... MODIFY COLUMN statement(s) for a :change()-marked
+--- column. Implemented in a later task.
+function MySQLDialect.alterModifyColumnStatements(_tableName, _col, _currentInfo, _q)
+    error('MySQLDialect.alterModifyColumnStatements: not implemented', 2)
+end
+
 Dialects.register('mysql', MySQLDialect)
 
 return MySQLDialect

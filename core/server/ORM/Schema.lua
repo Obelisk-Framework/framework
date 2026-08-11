@@ -148,6 +148,16 @@ function Blueprint:nullable(value)
     return self
 end
 
+--- Mark the last-defined column as an alteration of an existing column
+--- rather than a new one, for use inside Schema.table(...). Only meaningful
+--- there — Schema.create() ignores the flag since every column is new.
+function Blueprint:change()
+    if #self.columns > 0 then
+        self.columns[#self.columns].change = true
+    end
+    return self
+end
+
 --- Set default value for last column
 function Blueprint:default(value)
     if #self.columns > 0 then
@@ -455,18 +465,29 @@ function Schema.table(tableName, callback)
     local statements = {}
 
     for _, col in ipairs(blueprint.columns) do
-        local typeStr = dialect.columnType(col.kind, col.opts, col.autoIncrement)
-        local def = q(col.name) .. ' ' .. typeStr
+        if col.change then
+            local currentInfo = dialect.introspectColumn(tableName, col.name)
+            if not currentInfo then
+                error('Schema.table: cannot :change() column "' .. col.name ..
+                      '" on table "' .. tableName .. '" — it does not exist', 2)
+            end
+            for _, stmt in ipairs(dialect.alterModifyColumnStatements(tableName, col, currentInfo, q)) do
+                table.insert(statements, stmt)
+            end
+        else
+            local typeStr = dialect.columnType(col.kind, col.opts, col.autoIncrement)
+            local def = q(col.name) .. ' ' .. typeStr
 
-        if not col.nullable then
-            def = def .. ' NOT NULL'
+            if not col.nullable then
+                def = def .. ' NOT NULL'
+            end
+
+            if col.default ~= nil then
+                def = def .. ' DEFAULT ' .. dialect.formatDefault(col.kind, col.default)
+            end
+
+            table.insert(statements, 'ALTER TABLE ' .. q(tableName) .. ' ADD COLUMN ' .. def .. ';')
         end
-
-        if col.default ~= nil then
-            def = def .. ' DEFAULT ' .. dialect.formatDefault(col.kind, col.default)
-        end
-
-        table.insert(statements, 'ALTER TABLE ' .. q(tableName) .. ' ADD COLUMN ' .. def .. ';')
     end
 
     for _, idx in ipairs(blueprint.indexes) do
@@ -508,5 +529,9 @@ function Schema.renameColumn(tableName, from, to)
     local sql = Database.dialect.renameColumnSQL(tableName, from, to)
     return Database.querySync(sql, {})
 end
+
+-- Exposed for unit tests that need to construct/inspect a Blueprint directly
+-- (e.g. verifying :change() without driving a full Schema.table() call).
+Schema.Blueprint = Blueprint
 
 return Schema
