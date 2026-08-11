@@ -1,6 +1,7 @@
 --- BaseModel - Active Record pattern with relationships
 --- Inspired by Laravel's Eloquent ORM
 BaseModel = {}
+BaseModel.__index = BaseModel
 
 --- Model configuration (override in child classes)
 BaseModel.table = nil
@@ -9,21 +10,6 @@ BaseModel.timestamps = true
 BaseModel.fillable = {}
 BaseModel.hidden = {}
 BaseModel.casts = {}
-
---- __index metamethod: allow direct attribute access and method resolution
---- When a property is not found in the instance or class, check the attributes table
-BaseModel.__index = function(instance, key)
-    -- Try to find the key in BaseModel (class methods)
-    local method = rawget(BaseModel, key)
-    if method ~= nil then
-        return method
-    end
-    -- If not found, check the attributes table
-    if instance.attributes and instance.attributes[key] ~= nil then
-        return instance.attributes[key]
-    end
-    return nil
-end
 
 --- Create a new model instance
 --- @param attributes table
@@ -45,26 +31,7 @@ end
 --- @return table The new model class
 function BaseModel:extend(tableName)
     local child = {}
-
-    -- Set up __index to check child methods, then parent, then attributes
-    child.__index = function(instance, key)
-        -- Try child methods first
-        local method = rawget(child, key)
-        if method ~= nil then
-            return method
-        end
-        -- Try parent (self, which is BaseModel) methods
-        method = rawget(self, key)
-        if method ~= nil then
-            return method
-        end
-        -- Finally check attributes
-        if instance.attributes and instance.attributes[key] ~= nil then
-            return instance.attributes[key]
-        end
-        return nil
-    end
-
+    child.__index = child
     setmetatable(child, { __index = self })
 
     if tableName then
