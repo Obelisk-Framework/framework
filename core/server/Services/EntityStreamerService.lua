@@ -83,6 +83,37 @@ function EntityStreamerService.distancePastBoundary(x, y, chunkKey)
     return math.max(dx, dy)
 end
 
+--- The chunk one step away from chunkKey in the direction `heading` points.
+--- FiveM heading convention: 0 = north (+Y), 90 = west (-X), 180 = south
+--- (-Y), 270 = east (+X).
+--- @param chunkKey string
+--- @param heading number degrees, 0-360
+--- @return string
+function EntityStreamerService.getOffsetChunk(chunkKey, heading)
+    local chunkX, chunkY = chunkKey:match('(-?%d+)_(-?%d+)')
+    chunkX, chunkY = tonumber(chunkX), tonumber(chunkY)
+
+    local rad = math.rad(heading)
+    local dx = -math.sin(rad)
+    local dy = math.cos(rad)
+
+    local offsetX = dx > 0.5 and 1 or (dx < -0.5 and -1 or 0)
+    local offsetY = dy > 0.5 and 1 or (dy < -0.5 and -1 or 0)
+
+    return (chunkX + offsetX) .. '_' .. (chunkY + offsetY)
+end
+
+--- The facing chunk (one step from currentChunk toward heading) and the
+--- look-ahead chunk (one further step past that, same direction).
+--- @param currentChunk string
+--- @param heading number
+--- @return string facingChunk, string lookaheadChunk
+function EntityStreamerService.getPrecacheChunk(currentChunk, heading)
+    local facingChunk = EntityStreamerService.getOffsetChunk(currentChunk, heading)
+    local lookaheadChunk = EntityStreamerService.getOffsetChunk(facingChunk, heading)
+    return facingChunk, lookaheadChunk
+end
+
 --- Count only budget-relevant entities (ped/object/pickup) in a chunk.
 --- Markers and blips never consume an entity handle, so they're free.
 --- @param chunkKey string
@@ -390,6 +421,24 @@ function EntityStreamerService.getChunkEntities(chunkKey)
     return EntityStreamerService.chunks[chunkKey] or {}
 end
 
+--- Resolve a chunk's raw entity-id index into a flat array of full entity
+--- records, the same {entityId, entityType, data} shape entityAdd already
+--- sends -- so precache payloads and real spawn payloads share one shape.
+--- @param chunkKey string
+--- @return table[]
+function EntityStreamerService.getChunkEntityRecords(chunkKey)
+    local records = {}
+    for entityType, entityIds in pairs(EntityStreamerService.getChunkEntities(chunkKey)) do
+        for entityId, _ in pairs(entityIds) do
+            local entityData = EntityStreamerService.entities[entityType][entityId]
+            if entityData then
+                table.insert(records, { entityId = entityId, entityType = entityType, data = entityData })
+            end
+        end
+    end
+    return records
+end
+
 --- Clean up player data on disconnect
 AddEventHandler('playerDropped', function()
     local source = source
@@ -397,9 +446,17 @@ AddEventHandler('playerDropped', function()
 end)
 
 --- Net events
-Obelisk.onServer('core:client:streamer-updatePosition', function(x, y)
+Obelisk.onServer('core:client:streamer-updatePosition', function(x, y, heading)
     local source = source
-    EntityStreamerService.updatePlayerChunks(source, x, y)
+    local currentChunk = EntityStreamerService.getChunkKey(x, y)
+    local facingChunk, lookaheadChunk = EntityStreamerService.getPrecacheChunk(currentChunk, heading or 0.0)
+
+    EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
+
+    Obelisk.emitClient('core:server:streamer-precache', source, {
+        chunkKey = lookaheadChunk,
+        entities = EntityStreamerService.getChunkEntityRecords(lookaheadChunk),
+    })
 end)
 
 Obelisk.onServer('core:client:streamer-requestChunk', function(chunkKey)

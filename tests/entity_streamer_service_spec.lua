@@ -220,6 +220,54 @@ test('chunkPlayerRefs increments when a chunk becomes active and decrements when
     eq(Streamer.chunkPlayerRefs['0_0'] or 0, 0, 'ref count decremented after moving far away')
 end)
 
+test('getOffsetChunk moves one chunk north (heading 0) when facing north', function()
+    local Streamer = freshService({ entities = {} })
+    -- heading 0 = facing +Y (north) in FiveM's convention
+    eq(Streamer.getOffsetChunk('0_0', 0.0), '0_1')
+end)
+
+test('getOffsetChunk moves one chunk east (heading 270) when facing east', function()
+    local Streamer = freshService({ entities = {} })
+    eq(Streamer.getOffsetChunk('0_0', 270.0), '1_0')
+end)
+
+test('getPrecacheChunk returns facing and lookahead two chunks apart in the same direction', function()
+    local Streamer = freshService({ entities = {} })
+    local facing, lookahead = Streamer.getPrecacheChunk('0_0', 0.0)
+    eq(facing, '0_1')
+    eq(lookahead, '0_2')
+end)
+
+test('getChunkEntityRecords resolves a chunk index into full entity records', function()
+    local Streamer = freshService({ entities = {} })
+    local id = Streamer.register('object', { x = 10, y = 10, z = 0, model = 'prop_box' })
+    local chunkKey = Streamer.getChunkKey(10, 10)
+
+    local records = Streamer.getChunkEntityRecords(chunkKey)
+
+    eq(#records, 1)
+    eq(records[1].entityId, id)
+    eq(records[1].entityType, 'object')
+    eq(records[1].data.x, 10)
+end)
+
+test('getOffsetChunk never returns its own input chunk key, across a spread of headings', function()
+    local Streamer = freshService({ entities = {} })
+    -- dx = -sin(heading), dy = cos(heading); dx^2 + dy^2 = 1 always, so at
+    -- least one axis magnitude is >= 1/sqrt(2) (~0.707) and clears the 0.5
+    -- threshold that picks a direction -- getOffsetChunk can never return
+    -- its own input. This is what makes tier2's { currentChunk, facingChunk }
+    -- (selectTier, Task 2) safe from double-loading without dedup logic,
+    -- since facingChunk always comes from getOffsetChunk.
+    local headings = { 0, 45, 90, 135, 180, 225, 270, 315 }
+    for _, heading in ipairs(headings) do
+        local offset = Streamer.getOffsetChunk('0_0', heading)
+        if offset == '0_0' then
+            error('getOffsetChunk(\'0_0\', ' .. heading .. ') returned its own input chunk')
+        end
+    end
+end)
+
 if #failures > 0 then
     for _, f in ipairs(failures) do print('FAIL: ' .. f) end
     os.exit(1)
