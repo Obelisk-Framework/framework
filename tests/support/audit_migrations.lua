@@ -1,9 +1,10 @@
 --- Given a directory of migration files, loads and runs each one's up()
---- against the already-loaded Schema/Database globals (Database.querySync
---- stubbed to a no-op per file), returning which passed/failed. Reused by
---- both migration_audit_spec.lua (core's own migrations) and the per-repo
---- audit tasks that verify modules'/plugins' migrations after rewriting
---- them (invoked the same way, pointed at a different directory).
+--- against the already-loaded Schema/Database globals (Database.executeQuery
+--- stubbed to a no-op per file, which covers querySync/insertSync/insert
+--- alike since they all funnel through it), returning which passed/failed.
+--- Reused by both migration_audit_spec.lua (core's own migrations) and the
+--- per-repo audit tasks that verify modules'/plugins' migrations after
+--- rewriting them (invoked the same way, pointed at a different directory).
 local AuditMigrations = {}
 
 --- @param directoryPath string absolute or relative path to a flat directory of *.lua migration files
@@ -19,8 +20,8 @@ function AuditMigrations.run(directoryPath)
     pfile:close()
 
     for _, path in ipairs(files) do
-        local originalQuery = Database.querySync
-        Database.querySync = function() return {} end
+        local originalExecuteQuery = Database.executeQuery
+        Database.executeQuery = function() return {} end
 
         local ok, err = pcall(function()
             local migration = dofile(path)
@@ -30,7 +31,7 @@ function AuditMigrations.run(directoryPath)
             migration.up()
         end)
 
-        Database.querySync = originalQuery
+        Database.executeQuery = originalExecuteQuery
 
         if ok then
             table.insert(passed, path)
