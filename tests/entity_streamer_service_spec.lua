@@ -138,6 +138,88 @@ test('selectTier does not double-count a chunk already referenced by another pla
     eq(tier, 1, 'tier 1 fits because 1_1 is already loaded, not counted again')
 end)
 
+test('getChunkBounds returns the axis-aligned box for a chunk key', function()
+    local Streamer = freshService({ entities = {} })
+    local minX, minY, maxX, maxY = Streamer.getChunkBounds('1_2')
+    eq(minX, 100.0)
+    eq(minY, 200.0)
+    eq(maxX, 200.0)
+    eq(maxY, 300.0)
+end)
+
+test('distancePastBoundary is 0 while still inside the chunk', function()
+    local Streamer = freshService({ entities = {} })
+    eq(Streamer.distancePastBoundary(150.0, 250.0, '1_2'), 0)
+end)
+
+test('distancePastBoundary is positive once outside the chunk', function()
+    local Streamer = freshService({ entities = {} })
+    -- chunk 1_2 spans x:[100,200) y:[200,300); 210,250 is 10 units past the x=200 edge
+    eq(Streamer.distancePastBoundary(210.0, 250.0, '1_2'), 10.0)
+end)
+
+test('updatePlayerChunks keeps a chunk active until the player is 15 units past its boundary', function()
+    local Streamer = freshService({ entities = {} })
+    -- force tier 3 (current chunk only) throughout via a tiny budget and a
+    -- heavy neighbor chunk, so a chunk actually leaving the (single-chunk)
+    -- active set is reachable, and boundary hysteresis on that transition
+    -- is what's under test
+    Streamer.entityBudget = 1
+    local heavy = {}
+    for i = 1, 10 do heavy['p' .. i] = true end
+    Streamer.chunks['1_0'] = { ped = heavy }
+
+    Streamer.updatePlayerChunks(1, 50.0, 50.0, '1_0')
+    local firstActive = {}
+    for _, c in ipairs(Streamer.playerChunks[1].activeChunks) do firstActive[c] = true end
+    eq(firstActive['0_0'], true, 'starts with 0_0 active')
+    eq(#Streamer.playerChunks[1].activeChunks, 1, 'tier 3 forced by the tiny budget')
+
+    -- move 5 units past the x=100 boundary into chunk 1_0 -- within the
+    -- 15-unit margin, so 0_0 must still be active
+    Streamer.updatePlayerChunks(1, 105.0, 50.0, '2_0')
+    local stillActive = {}
+    for _, c in ipairs(Streamer.playerChunks[1].activeChunks) do stillActive[c] = true end
+    eq(stillActive['0_0'], true, '0_0 stays active within the 15-unit margin')
+
+    -- move 20 units past the boundary -- now it should unload
+    Streamer.updatePlayerChunks(1, 120.0, 50.0, '2_0')
+    local laterActive = {}
+    for _, c in ipairs(Streamer.playerChunks[1].activeChunks) do laterActive[c] = true end
+    eq(laterActive['0_0'], nil, '0_0 unloads once 20 units past the boundary')
+end)
+
+test('updatePlayerChunks only changes tier after 2 consecutive ticks agree', function()
+    local Streamer = freshService({ entities = {} })
+    local heavy = {}
+    for i = 1, 10 do heavy['p' .. i] = true end
+    Streamer.chunks['3_0'] = { ped = heavy }
+
+    Streamer.entityBudget = 100000
+    Streamer.updatePlayerChunks(1, 50.0, 50.0, '0_0')
+    eq(#Streamer.playerChunks[1].activeChunks, 9, 'starts at tier 1 (9 chunks)')
+
+    -- move near the heavy chunk with a budget too small to afford it -- should
+    -- NOT downgrade to tier 3 on the first tick
+    Streamer.entityBudget = 5
+    Streamer.updatePlayerChunks(1, 250.0, 50.0, '3_0')
+    eq(#Streamer.playerChunks[1].activeChunks, 9, 'a single spike does not downgrade the tier')
+
+    -- second consecutive tick agreeing -- now it flips
+    Streamer.updatePlayerChunks(1, 250.0, 50.0, '3_0')
+    eq(#Streamer.playerChunks[1].activeChunks, 1, 'two consecutive ticks downgrade to tier 3')
+end)
+
+test('chunkPlayerRefs increments when a chunk becomes active and decrements when unloaded', function()
+    local Streamer = freshService({ entities = {} })
+    Streamer.entityBudget = 100000
+    Streamer.updatePlayerChunks(1, 50.0, 50.0, '0_0')
+    eq(Streamer.chunkPlayerRefs['0_0'], 1, 'ref count incremented for the player chunk')
+
+    Streamer.updatePlayerChunks(1, 1500.0, 1500.0, '16_15')
+    eq(Streamer.chunkPlayerRefs['0_0'] or 0, 0, 'ref count decremented after moving far away')
+end)
+
 if #failures > 0 then
     for _, f in ipairs(failures) do print('FAIL: ' .. f) end
     os.exit(1)
