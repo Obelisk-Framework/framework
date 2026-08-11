@@ -1,6 +1,5 @@
---- Unit tests for PermissionService: entity-type registration and direct
---- grant/revoke/has/list. Delegated (PermissionService.can) behavior is
---- covered in permission_service_delegates_spec.lua (Task 2).
+--- Unit tests for PermissionService: entity-type registration, direct
+--- grant/revoke/has/list, and delegated permission checks (addDelegate/can).
 --- Run from the repository root:  lua5.4 tests/permission_service_spec.lua
 local scriptDir = arg[0]:match('(.*/)') or './'
 local ROOT = scriptDir .. '..'
@@ -108,6 +107,54 @@ test('list: returns every granted key for that owner, no others', function()
         eq(#keys, 2)
         eq(keys[1], 'manage_bank')
         eq(keys[2], 'manage_fleet')
+    end)
+end)
+
+test('can: true for a direct grant even with no delegates registered', function()
+    withFakeDb(function()
+        PermissionService.registerType('character', {})
+        PermissionService.grant('character', 1, 'manage_bank')
+
+        truthy(PermissionService.can('character', 1, 'manage_bank'))
+    end)
+end)
+
+test('can: false when there is no direct grant and no delegate finds one', function()
+    withFakeDb(function()
+        PermissionService.registerType('character', {})
+        eq(PermissionService.can('character', 1, 'manage_bank'), false)
+    end)
+end)
+
+test('can: true via a delegate that resolves to a ref holding the grant', function()
+    withFakeDb(function()
+        PermissionService.registerType('character', {})
+        PermissionService.registerType('rank', {})
+        PermissionService.grant('rank', 5, 'manage_bank')
+
+        PermissionService.addDelegate('character', function(characterId)
+            if characterId == 1 then
+                return { { type = 'rank', id = 5 } }
+            end
+            return {}
+        end)
+
+        truthy(PermissionService.can('character', 1, 'manage_bank'))
+        eq(PermissionService.can('character', 2, 'manage_bank'), false)
+    end)
+end)
+
+test('can: checks every registered delegate for the type, not just the first', function()
+    withFakeDb(function()
+        PermissionService.registerType('character', {})
+        PermissionService.registerType('rank', {})
+        PermissionService.registerType('department', {})
+        PermissionService.grant('department', 9, 'manage_fleet')
+
+        PermissionService.addDelegate('character', function() return { { type = 'rank', id = 999 } } end)
+        PermissionService.addDelegate('character', function() return { { type = 'department', id = 9 } } end)
+
+        truthy(PermissionService.can('character', 1, 'manage_fleet'))
     end)
 end)
 
