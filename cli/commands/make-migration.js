@@ -111,8 +111,9 @@ return {
     up = function()
          Schema.create('${tableName}', function(table)
              table:id()
-             -- Add your columns here
-             table:string('name', 255):notNullable()
+             -- Add your columns here (columns are NOT NULL by default;
+             -- chain :nullable() to make one optional)
+             table:string('name', 255)
              table:timestamps()
          end)
          
