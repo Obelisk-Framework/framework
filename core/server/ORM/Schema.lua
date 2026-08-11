@@ -262,11 +262,19 @@ local function guessForeignTable(column)
     return base .. 's'
 end
 
---- Add an unsigned big-integer foreign key column. Pair with `:constrained()`
---- to also add the FK constraint: `t:foreignId('garage_id'):constrained()`.
+--- Add a foreign key column. Pair with `:constrained()` to also add the FK
+--- constraint: `t:foreignId('garage_id'):constrained()`.
+---
+--- The emitted type MUST match exactly what `:id()` emits for the referenced
+--- primary key — InnoDB rejects a foreign key whose column type or
+--- signedness differs from the referenced column (MySQL error 3780).
+--- `:id()` goes through `columnType('integer', opts, true)`, whose
+--- auto-increment branch returns a plain `INT` and ignores `opts.unsigned`
+--- entirely. So this must be `integer` with NO `unsigned` flag: `BIGINT
+--- UNSIGNED` or even `INT UNSIGNED` referencing `INT` would fail to create.
 function Blueprint:foreignId(name)
     table.insert(self.columns, {
-        name = name, kind = 'bigInteger', opts = { unsigned = true }, nullable = true
+        name = name, kind = 'integer', opts = {}, nullable = true
     })
     self._lastForeignIdColumn = name
     return self
