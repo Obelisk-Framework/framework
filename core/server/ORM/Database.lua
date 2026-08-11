@@ -3,6 +3,14 @@
 --- is REQUIRED; there is no in-memory fallback. If none is present the
 --- framework fails fast rather than silently pretending to persist data.
 Database = {}
+
+--- Sentinel value for QueryBuilder:update({ column = Database.NULL }) to
+--- express "set this column to SQL NULL". Lua tables can never store a
+--- key whose value is literal `nil` (a table constructor with a nil
+--- value simply omits the key), so a real value is needed to represent
+--- "set to NULL" through an update() data table.
+Database.NULL = setmetatable({}, { __tostring = function() return 'NULL' end })
+
 Database.ready = false
 Database.connector = nil -- name of the detected connector resource
 Database.config = {
