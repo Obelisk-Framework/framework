@@ -13,13 +13,14 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue'
+import DOMPurify from 'dompurify'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, readonly: { type: Boolean, default: false } })
 const emit = defineEmits(['update:modelValue', 'sign', 'print'])
 const editorRef = ref(null)
 
 function onInput() {
-  emit('update:modelValue', editorRef.value.innerHTML)
+  emit('update:modelValue', DOMPurify.sanitize(editorRef.value.innerHTML))
 }
 function exec(command) {
   editorRef.value.focus()
@@ -27,8 +28,9 @@ function exec(command) {
   onInput()
 }
 
-onMounted(() => { if (editorRef.value) editorRef.value.innerHTML = props.modelValue })
+onMounted(() => { if (editorRef.value) editorRef.value.innerHTML = DOMPurify.sanitize(props.modelValue) })
 watch(() => props.modelValue, (val) => {
-  if (editorRef.value && editorRef.value.innerHTML !== val) editorRef.value.innerHTML = val
+  const clean = DOMPurify.sanitize(val)
+  if (editorRef.value && editorRef.value.innerHTML !== clean) editorRef.value.innerHTML = clean
 })
 </script>
