@@ -324,6 +324,30 @@ test('Blueprint:foreignId/:constrained: guesses the referenced table and default
     truthy(captured:find('ON DELETE RESTRICT ON UPDATE RESTRICT', 1, true), 'defaults to RESTRICT/RESTRICT')
 end)
 
+test('Blueprint:foreignId: emits exactly the same column type as :id() (InnoDB FK requirement)', function()
+    local captured
+    local original = Database.querySync
+    Database.querySync = function(query) captured = query return {} end
+
+    Schema.create('vehicles', function(t)
+        t:id()
+        t:foreignId('garage_id'):constrained('garages')
+    end)
+
+    Database.querySync = original
+
+    -- InnoDB requires the FK column and the referenced column to have an
+    -- identical type AND signedness. `id()` emits plain `INT`, so `foreignId`
+    -- must too: `BIGINT UNSIGNED` (the old behaviour) or `INT UNSIGNED` both
+    -- make the CREATE TABLE fail with MySQL error 3780 on a real database.
+    truthy(captured:find('`garage_id` INT,', 1, true) or captured:find('`garage_id` INT\n', 1, true),
+        'garage_id is plain INT, not BIGINT and not INT UNSIGNED')
+    truthy(not captured:find('`garage_id` BIGINT', 1, true), 'not BIGINT')
+    truthy(not captured:find('`garage_id` INT UNSIGNED', 1, true), 'not unsigned')
+    truthy(captured:find('`id` INT NOT NULL AUTO_INCREMENT', 1, true),
+        'referenced id column is plain INT (the type foreignId must match)')
+end)
+
 test('Blueprint:constrained/:onDelete: overrides the ON DELETE action', function()
     local captured
     local original = Database.querySync
