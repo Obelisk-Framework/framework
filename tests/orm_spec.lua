@@ -46,6 +46,10 @@ local function truthy(v, msg)
     if not v then error(msg or 'expected a truthy value', 2) end
 end
 
+local function falsy(v, msg)
+    if v then error(msg or 'expected a falsy value', 2) end
+end
+
 local function throws(fn, msg)
     if pcall(fn) then error(msg or 'expected an error but none was raised', 2) end
 end
@@ -1201,7 +1205,8 @@ test('MySQLDialect.alterModifyColumnStatements: restates the full column, mergin
     -- The migration only changes nullability; type/length/default are NOT
     -- restated by the caller, and must come from currentInfo instead.
     local col = {name = 'name', kind = 'string', opts = {}, nullable = false}
-    local currentInfo = {type = 'varchar', length = 100, columnType = 'varchar(100)', nullable = true, default = 'unknown'}
+    -- COLUMN_DEFAULT comes back as an already-quoted SQL literal.
+    local currentInfo = {type = 'varchar', length = 100, columnType = 'varchar(100)', nullable = true, default = "'unknown'"}
 
     local statements = MySQLDialect.alterModifyColumnStatements('widgets', col, currentInfo, q)
 
@@ -1210,6 +1215,34 @@ test('MySQLDialect.alterModifyColumnStatements: restates the full column, mergin
     truthy(statements[1]:find('varchar(100)', 1, true), 'restates the original length even though the migration did not specify it')
     truthy(statements[1]:find('NOT NULL', 1, true), 'applies the new nullability')
     truthy(statements[1]:find("DEFAULT 'unknown'", 1, true), 'restates the original default so it is not silently dropped')
+end)
+
+test('MySQLDialect.alterModifyColumnStatements: restates an introspected default verbatim, never re-formatting an already-SQL literal', function()
+    local MySQLDialect = Dialects.resolve('mysql')
+    local q = MySQLDialect.quoteIdentifier
+
+    -- MariaDB reports the 4-character string "NULL" for "no default". It must
+    -- not become the string literal 'NULL' (nor a DEFAULT NULL on a NOT NULL
+    -- column) — the cleanest correct output is no DEFAULT clause at all.
+    local nullCol = {name = 'name', kind = 'string', opts = {}, nullable = false}
+    local nullInfo = {type = 'varchar', length = 100, columnType = 'varchar(100)', nullable = true, default = 'NULL'}
+    local nullStatements = MySQLDialect.alterModifyColumnStatements('widgets', nullCol, nullInfo, q)
+    falsy(nullStatements[1]:find("DEFAULT 'NULL'", 1, true), "does not emit the no-default sentinel as a string literal")
+    falsy(nullStatements[1]:find('DEFAULT', 1, true), 'omits the DEFAULT clause entirely for the no-default sentinel')
+
+    -- An already-quoted string default must not be double-quoted.
+    local strCol = {name = 'name', kind = 'string', opts = {}, nullable = false}
+    local strInfo = {type = 'varchar', length = 100, columnType = 'varchar(100)', nullable = true, default = "'abc'"}
+    local strStatements = MySQLDialect.alterModifyColumnStatements('widgets', strCol, strInfo, q)
+    truthy(strStatements[1]:find("DEFAULT 'abc'", 1, true), 'restates the quoted string default verbatim')
+    falsy(strStatements[1]:find("DEFAULT ''abc''", 1, true), 'does not double-quote an already-quoted default')
+
+    -- A default expression must stay a function call, not become a string.
+    local tsCol = {name = 'created_at', kind = 'timestamp', opts = {}, nullable = false}
+    local tsInfo = {type = 'timestamp', length = nil, columnType = 'timestamp', nullable = true, default = 'current_timestamp()'}
+    local tsStatements = MySQLDialect.alterModifyColumnStatements('widgets', tsCol, tsInfo, q)
+    truthy(tsStatements[1]:find('DEFAULT current_timestamp()', 1, true), 'restates the default expression verbatim')
+    falsy(tsStatements[1]:find("'current_timestamp()'", 1, true), 'does not turn the expression into a string literal')
 end)
 
 test('MySQLDialect.alterModifyColumnStatements: restates COLUMN_TYPE verbatim for non-string kinds (decimal/enum/unsigned), preserving precision/scale/values/unsigned', function()

@@ -147,11 +147,22 @@ end
 --- Build a single MODIFY COLUMN statement that restates the column's FULL
 --- definition — MySQL redefines the entire column in one MODIFY COLUMN, so
 --- any attribute not restated here would silently revert to no default /
---- the new type's implicit default. Anything the migration's own column
---- builder explicitly set (kind/opts/default) wins; anything it left at the
---- builder's bare default is filled in from currentInfo (the live column),
---- so a migration that only calls :nullable(false):change() doesn't
---- accidentally drop the column's existing type/default.
+--- the new type's implicit default.
+---
+--- Nullability is ALWAYS taken from `col.nullable`: every Blueprint column
+--- builder sets a boolean nullable (NOT NULL by default), so the migration
+--- author's intent is always explicitly stated and is never inferred from
+--- currentInfo. Type and default are different — they're only taken from
+--- the column when the caller flagged them explicit (_explicitType /
+--- _explicitDefault); otherwise they're restated from currentInfo (the
+--- live column) so a migration that only calls :nullable(false):change()
+--- doesn't accidentally drop the column's existing type/default.
+---
+--- SCOPE, today: only nullability changes are fully wired end-to-end via
+--- Blueprint:change(). The _explicitType/_explicitDefault paths below are
+--- supported here, but NO Blueprint method currently sets those flags — a
+--- future addition, not a current capability. Use :change() for
+--- nullability changes only.
 --- @param tableName string
 --- @param col table the Blueprint column entry, with .change == true
 --- @param currentInfo table introspectColumn()'s return for this column
@@ -169,18 +180,33 @@ function MySQLDialect.alterModifyColumnStatements(tableName, col, currentInfo, q
         typeStr = currentInfo.columnType
     end
 
-    local nullable = col.nullable
-    if nullable == nil then nullable = currentInfo.nullable end
-
-    local default = col.default
-    if not col._explicitDefault then default = currentInfo.default end
-
     local def = q(col.name) .. ' ' .. typeStr
-    if not nullable then
+    if not col.nullable then
         def = def .. ' NOT NULL'
     end
-    if default ~= nil then
-        def = def .. ' DEFAULT ' .. MySQLDialect.formatDefault(col.kind, default)
+
+    if col._explicitDefault then
+        -- A raw Lua value straight from Blueprint:default(...) — needs
+        -- dialect formatting (quoting/coercion) to become a SQL literal.
+        if col.default ~= nil then
+            def = def .. ' DEFAULT ' .. MySQLDialect.formatDefault(col.kind, col.default)
+        end
+    elseif currentInfo.default ~= nil then
+        -- Restating the live column's default: COLUMN_DEFAULT is ALREADY a
+        -- SQL literal/expression as the server reports it (an already-quoted
+        -- string like 'abc', a bare number, or an expression like
+        -- current_timestamp()). Running it back through formatDefault would
+        -- double-process it (DEFAULT ''abc'', DEFAULT 'current_timestamp()'),
+        -- so it is emitted verbatim.
+        --
+        -- MariaDB reports the 4-character string "NULL" for "this column has
+        -- no default" (and also for an explicit DEFAULT NULL, which is
+        -- semantically identical for a nullable column). Emit no DEFAULT
+        -- clause at all in that case; a NOT NULL column must never get
+        -- DEFAULT NULL, and for a nullable column the omission is equivalent.
+        if currentInfo.default ~= 'NULL' then
+            def = def .. ' DEFAULT ' .. tostring(currentInfo.default)
+        end
     end
 
     return { 'ALTER TABLE ' .. q(tableName) .. ' MODIFY COLUMN ' .. def .. ';' }
