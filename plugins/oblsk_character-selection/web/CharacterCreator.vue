@@ -103,7 +103,7 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { reactive, ref, computed, watch, inject, onMounted, onUnmounted } from 'vue'
 import { useCharacterSelection } from './useCharacterSelection.js'
 import Slider from './controls/Slider.vue'
 import SwatchGrid from './controls/SwatchGrid.vue'
@@ -147,6 +147,11 @@ function setWardrobe(key, i) {
   updatePreview({ wardrobeSlot: { key, optionIndex: i } })
 }
 
+// The browser only knows labels/swatches (see appearancePresets.js), never
+// native GTA IDs — so this sends 0-based PRESET INDICES under *Index keys and
+// the raw wardrobe selection. Appearance.resolvePresetAppearance (shared/
+// appearance.lua) turns them into native values, on the server for the create
+// path and on the client for the live preview.
 function buildAppearance() {
   const faceFeatures = {}
   const FEATURE_INDEX = { nose: 0, noseH: 2, cheek: 6, jaw: 15, chin: 10, brow: 8, eyeSize: 13, lips: 17 }
@@ -156,12 +161,11 @@ function buildAppearance() {
   return {
     headBlend: { ...form.headBlend },
     faceFeatures,
-    hairStyle: form.hairStyleIndex,
-    hairColor: form.hairColorIndex,
-    hairHighlight: form.hairColorIndex,
-    eyeColor: form.eyeIndex,
-    components: {},
-    props: {},
+    hairStyleIndex: form.hairStyleIndex,
+    hairColorIndex: form.hairColorIndex,
+    eyeColorIndex: form.eyeIndex,
+    skinIndex: form.skinIndex,
+    wardrobe: { ...form.fit },
   }
 }
 
@@ -174,7 +178,17 @@ function cycleAngle() {
   updatePreview({ cameraAngle: angle.value })
 }
 
+// App.vue renders global elements with v-show, so this component stays mounted
+// for the whole session — the keydown listener must ignore keys while the
+// character-selection screen is hidden (another NUI screen may have focus).
+const globalElements = inject('obelisk:globalElementsRegistry', null)
+function isScreenVisible() {
+  const entry = globalElements?.get('character-selection')
+  return entry ? entry.visible : true
+}
+
 function onKey(e) {
+  if (!isScreenVisible()) return
   const tag = e.target?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (e.key.toLowerCase() === 'f') cycleAngle()

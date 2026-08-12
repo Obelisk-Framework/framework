@@ -65,6 +65,16 @@ local function withFakeDb(fn)
     if not ok then error(err, 2) end
 end
 
+--- `character_appearances.data` is a `json`-cast column on the
+--- CharacterAppearance model, so a correctly model-routed write stores an
+--- ENCODED STRING in the row, not a raw Lua table. Asserting on the decoded
+--- value is what proves the service didn't bypass the cast with a raw
+--- QueryBuilder update (which would leave a Lua table sitting in the column).
+local function storedAppearance(row)
+    eq(type(row.data), 'string', 'data was not JSON-encoded — the model cast was bypassed')
+    return json.decode(row.data)
+end
+
 test('createCharacter stores the submitted appearance on the CharacterAppearance row', function()
     withFakeDb(function(tables)
         local character = CharacterSelectionService.createCharacter(1, {
@@ -73,14 +83,38 @@ test('createCharacter stores the submitted appearance on the CharacterAppearance
         })
         truthy(character ~= nil)
         eq(#tables.character_appearances, 1)
-        truthy(tables.character_appearances[1].data.headBlend ~= nil, 'appearance not persisted')
+        truthy(storedAppearance(tables.character_appearances[1]).headBlend ~= nil, 'appearance not persisted')
     end)
 end)
 
 test('createCharacter defaults the appearance when none is submitted', function()
     withFakeDb(function(tables)
         CharacterSelectionService.createCharacter(1, { first_name = 'Sam', last_name = 'Doe', gender = 'male', dob = '1990-01-01', bio = '' })
-        truthy(tables.character_appearances[1].data.headBlend ~= nil, 'default appearance not applied')
+        truthy(storedAppearance(tables.character_appearances[1]).headBlend ~= nil, 'default appearance not applied')
+    end)
+end)
+
+test('createCharacter resolves preset indices to native ids and derives ped_model from gender', function()
+    withFakeDb(function(tables)
+        CharacterSelectionService.createCharacter(1, {
+            first_name = 'Ivy', last_name = 'Nash', gender = 'female', dob = '1992-05-05', bio = '',
+            appearance = {
+                -- 0-based swatch/option indices exactly as CharacterCreator.vue sends them
+                skinIndex = 7, hairColorIndex = 7, hairStyleIndex = 3, eyeColorIndex = 6,
+                wardrobe = { top = 0, hat = 1 },
+            },
+        })
+        local stored = storedAppearance(tables.character_appearances[1])
+        eq(stored.hairColor, Appearance.HAIR_COLORS[8].colorId)
+        eq(stored.hairHighlight, Appearance.HAIR_COLORS[8].highlightId)
+        eq(stored.eyeColor, Appearance.EYE_COLORS[7].index)
+        eq(stored.hairStyle, Appearance.HAIR_STYLES[4].drawable)
+        eq(stored.headBlend.skinFirst, Appearance.SKIN_TONES[8].skinFirst)
+        eq(tables.character_appearances[1].ped_model, 'mp_f_freemode_01')
+        -- Wardrobe resolution itself is asserted in appearance_spec.lua, on the
+        -- pure function: the test stub's json encoder mangles sparse
+        -- integer-keyed tables (components/props are keyed by component id),
+        -- so it can't be checked meaningfully through this round trip.
     end)
 end)
 
@@ -109,6 +143,15 @@ test('selectCharacter marks the session\'s active character and returns vitals +
         eq(CharacterService.getActiveCharacterId(5), character.attributes.id)
         truthy(result.vitals ~= nil, 'missing vitals')
         truthy(result.appearance ~= nil, 'missing appearance')
+    end)
+end)
+
+test('getOwningAccountId resolves the owning account, nil for an unknown character', function()
+    withFakeDb(function()
+        local character = CharacterSelectionService.createCharacter(1, { first_name = 'A', last_name = 'B', gender = 'male', dob = '1990-01-01', bio = '' })
+        eq(CharacterSelectionService.getOwningAccountId(character.attributes.id), 1)
+        eq(CharacterSelectionService.getOwningAccountId(9999), nil)
+        eq(CharacterSelectionService.getOwningAccountId(nil), nil)
     end)
 end)
 

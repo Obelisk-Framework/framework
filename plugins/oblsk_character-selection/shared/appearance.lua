@@ -86,6 +86,10 @@ Appearance.HAIR_COLORS = {
     { label = 'Red',        swatch = '#c94f2a', colorId = 28, highlightId = 28 },
 }
 
+--- Wardrobe slots whose `component` field is a PROP id (SetPedPropIndex),
+--- not a ped component id (SetPedComponentVariation).
+Appearance.PROP_SLOTS = { hat = true }
+
 --- Component 2 (hair) drawable per style.
 Appearance.HAIR_STYLES = {
     { drawable = 0 }, { drawable = 1 }, { drawable = 2 },
@@ -119,6 +123,91 @@ function Appearance.DEFAULT_APPEARANCE(gender)
         components = {},
         props = {},
     }
+end
+
+--- Resolves the browser's PRESET-INDEX payload into a fully native-valued
+--- appearance table (the shape DEFAULT_APPEARANCE returns and
+--- CharacterAppearanceService.apply consumes).
+---
+--- The Vue layer deliberately only knows labels/swatches (see
+--- web/appearancePresets.js) and therefore sends 0-BASED indices into the
+--- preset tables below (`skinIndex`, `eyeColorIndex`, `hairColorIndex`,
+--- `hairStyleIndex`, `wardrobe = { top = 0, ... }`), never native IDs. This
+--- function is the single place those indices become native values, so the
+--- create path (server) and the live preview path (client) agree.
+---
+--- Already-resolved appearances (e.g. a row read back out of the DB) pass
+--- through unchanged: every index key is optional, and the corresponding
+--- native-valued key (`hairColor`, `eyeColor`, `components`, ...) is used
+--- when no index was supplied. That makes the function safe to call on any
+--- appearance payload, whichever side of the bridge it came from.
+---
+--- @param gender string 'male' | 'female'
+--- @param raw table|nil index-based (or already-resolved) appearance payload
+--- @return table fully resolved appearance
+function Appearance.resolvePresetAppearance(gender, raw)
+    gender = gender == 'female' and 'female' or 'male'
+    local resolved = Appearance.DEFAULT_APPEARANCE(gender)
+    if type(raw) ~= 'table' then
+        return resolved
+    end
+
+    if type(raw.headBlend) == 'table' then
+        for key, value in pairs(raw.headBlend) do
+            resolved.headBlend[key] = value
+        end
+    end
+
+    if type(raw.faceFeatures) == 'table' then
+        resolved.faceFeatures = raw.faceFeatures
+    end
+
+    -- Skin tone: a headBlend skin-ID/mix combo, not an RGB value.
+    local skin = raw.skinIndex and Appearance.SKIN_TONES[raw.skinIndex + 1]
+    if skin then
+        resolved.headBlend.skinFirst = skin.skinFirst
+        resolved.headBlend.skinSecond = skin.skinSecond
+        resolved.headBlend.skinMix = skin.skinMix
+    end
+
+    local hairStyle = raw.hairStyleIndex and Appearance.HAIR_STYLES[raw.hairStyleIndex + 1]
+    if hairStyle then
+        resolved.hairStyle = hairStyle.drawable
+    elseif raw.hairStyle ~= nil then
+        resolved.hairStyle = raw.hairStyle
+    end
+
+    local hairColor = raw.hairColorIndex and Appearance.HAIR_COLORS[raw.hairColorIndex + 1]
+    if hairColor then
+        resolved.hairColor = hairColor.colorId
+        resolved.hairHighlight = hairColor.highlightId
+    elseif raw.hairColor ~= nil then
+        resolved.hairColor = raw.hairColor
+        resolved.hairHighlight = raw.hairHighlight or raw.hairColor
+    end
+
+    local eyeColor = raw.eyeColorIndex and Appearance.EYE_COLORS[raw.eyeColorIndex + 1]
+    if eyeColor then
+        resolved.eyeColor = eyeColor.index
+    elseif raw.eyeColor ~= nil then
+        resolved.eyeColor = raw.eyeColor
+    end
+
+    if type(raw.wardrobe) == 'table' then
+        for slotKey, optionIndex in pairs(raw.wardrobe) do
+            local slots = Appearance.WARDROBE[gender][slotKey]
+            local option = slots and type(optionIndex) == 'number' and slots[optionIndex + 1]
+            if option then
+                local target = Appearance.PROP_SLOTS[slotKey] and resolved.props or resolved.components
+                target[option.component] = { drawable = option.drawable, texture = option.texture or 0 }
+            end
+        end
+    else
+        if type(raw.components) == 'table' then resolved.components = raw.components end
+        if type(raw.props) == 'table' then resolved.props = raw.props end
+    end
+
+    return resolved
 end
 
 return Appearance
