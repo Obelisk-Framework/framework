@@ -98,7 +98,7 @@ Citizen.CreateThread(function()
         local configPath = 'plugins/' .. pluginName .. '/shared/config.lua'
         local configContent = LoadResourceFile(GetCurrentResourceName(), configPath)
         if configContent then
-            local chunk = load(configContent)
+            local chunk = load(configContent, configPath, 't', {})
             if chunk then
                 local ok, pluginConfig = pcall(chunk)
                 if ok and pluginConfig and pluginConfig.Requires and pluginConfig.Requires.bindings then
@@ -110,7 +110,7 @@ Citizen.CreateThread(function()
 
     do
         local unbound = {}
-        for _, key in ipairs(ItemService.getRequiredBindingKeysForTests and ItemService.getRequiredBindingKeysForTests() or {}) do
+        for _, key in ipairs(ItemService.getRequiredBindingKeys and ItemService.getRequiredBindingKeys() or {}) do
             if not ItemService.hasBinding(key) then
                 table.insert(unbound, key)
             end
