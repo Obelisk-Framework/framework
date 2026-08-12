@@ -30,6 +30,13 @@
           >{{ bench.label }}</button>
         </div>
       </div>
+
+      <div class="mt-6 pt-4 border-t border-black/15">
+        <div class="text-xs tracking-[0.2em] uppercase text-black/50 mb-2">Keybinds debug</div>
+        <div class="flex flex-wrap gap-2">
+          <button class="px-3 py-1.5 rounded border border-black/20 hover:bg-black/10 text-xs" @click="openKeybinds">Open key bindings</button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -77,5 +84,9 @@ function toggleDock() {
 
 function simulateCall() {
   postToPhone('obelisk:dev-debug:simulate-call', {})
+}
+
+function openKeybinds() {
+  window.postMessage({ eventname: 'core:client:webview-showGlobalElement', args: ['keybinds'] }, '*')
 }
 </script>
