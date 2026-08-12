@@ -1,5 +1,9 @@
 <template>
-  <div id="app" class="relative">
+  <!-- Dev-only dark backdrop (matches the design reference's body{background:#07090a}):
+       translucent panels like bg-black/60 need something dark behind them to render
+       richly dark instead of washing out gray. Left unset in production — the real
+       NUI webview must stay transparent so the game world shows through behind it. -->
+  <div id="app" class="relative" :style="devBackdropStyle">
     <component
       v-for="[name, entry] in registry"
       :key="name"
@@ -15,6 +19,17 @@ import { reactive, onMounted, provide } from 'vue'
 import router from './router'
 import Obelisk from './obelisk.js'
 import coreGlobalElements from './globalElements.js'
+
+// A flat near-black page (matching the design reference's body background
+// exactly) makes bg-black/60 panels merge into it and lose all contrast —
+// the reference relies on a lit backdrop image (src/backdrop.jsx) sitting
+// behind them, which in production is the actual 3D game world. This
+// gradient is a lightweight stand-in with enough tonal range for panels to
+// still read as a distinct floating surface, without porting that whole
+// decorative scene generator into the framework.
+const devBackdropStyle = import.meta.env.DEV
+  ? { background: 'radial-gradient(ellipse 1400px 700px at 50% -10%, #2a2118 0%, #14181c 45%, #08090b 100%)', minHeight: '100vh' }
+  : undefined
 
 const contributedGlobalElementModules = import.meta.glob(
   ['../../modules/*/web/globalElements.js', '../../plugins/*/web/globalElements.js'],
