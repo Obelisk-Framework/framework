@@ -45,6 +45,9 @@ for (const entry of [...coreGlobalElements, ...contributedGlobalElements]) {
 
 provide('obelisk:globalElementsRegistry', registry)
 
+const paymentApi = reactive({ requestPayment: null })
+provide('obelisk:payment', paymentApi)
+
 onMounted(() => {
   Obelisk.on('core:client:navigate', (route) => {
     router.push(route)
