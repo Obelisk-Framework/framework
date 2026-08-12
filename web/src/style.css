@@ -16,3 +16,13 @@ html, body, #app {
 html, body {
   user-select: none;
 }
+
+/* Matches the design reference's body{color:#e6e8ea}. Every panel in this
+   framework is dark-themed; text with no explicit color class (e.g. a
+   plain <div>{{ title }}</div>) falls back to the browser default of
+   black, which is invisible against a dark panel — a real production bug,
+   not just a dev-preview artifact, it just went unnoticed while pages
+   happened to render on a plain white background. */
+body {
+  color: #e6e8ea;
+}
