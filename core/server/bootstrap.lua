@@ -161,7 +161,7 @@ Citizen.CreateThread(function()
     ActionService.register('use_interaction', function(source, data)
         -- This is handled by InteractionService
         print('[Action] use_interaction called by player ' .. source)
-    end)
+    end, { label = 'Interact', default_key = 'E' })
     
     print('[Obelisk] Core actions registered')
     
