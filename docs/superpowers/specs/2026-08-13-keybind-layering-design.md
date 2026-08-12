@@ -14,26 +14,26 @@ loop, `core:client:keybinds-pressed`), which are unchanged.
 
 ## Architecture
 
-Resolving the bound key(s) for one `actionId` given a player's `accountId`
+Resolving the bound key for one `actionId` given a player's `accountId`
 and `characterId` is a three-tier lookup, highest tier wins:
 
 1. **Default** — `ActionService.register(actionId, handler, options)`'s
-   `options.default_key` / `options.default_alt_key`, persisted onto the
-   existing `actions.options` json column (no migration: `options` already
-   exists and is already written by `ActionService.flushPendingRegistrations`).
-   A plugin declares its action's default binding at registration time,
-   e.g. `ActionService.register('vehicle:seatbelt', handler, {label = 'Seatbelt', default_key = 'B'})`.
+   `options.default_key`, persisted onto the existing `actions.options`
+   json column (no migration: `options` already exists and is already
+   written by `ActionService.flushPendingRegistrations`). A plugin declares
+   its action's default binding at registration time, e.g.
+   `ActionService.register('vehicle:seatbelt', handler, {label = 'Seatbelt', default_key = 'B'})`.
 2. **Account override** — `oblsk_preferences`' `PreferenceService.get('account', accountId, 'keybind:'..actionId)`,
-   a `{key, alt}` table.
+   a plain key string.
 3. **Character override** — `PreferenceService.get('character', characterId, 'keybind:'..actionId)`,
    same shape.
 
 This is exactly `PreferenceService.getMerged`'s existing base/override
 precedence (character beats account beats "no row"), reused rather than
 reimplemented — `KeybindService` calls `PreferenceService` directly rather
-than owning its own override storage. `key`/`alt` are set and cleared
-together as one unit per tier (matches the reference UI's two independent
-binding slots per action).
+than owning its own override storage. One key per action per tier — no alt
+slot (the design reference's two independent binding slots per action are
+not carried over; see UI section below).
 
 **Multiple actions may resolve to the same key.** This is not a conflict to
 prevent — e.g. `B` is the default for both `vehicle:seatbelt` and
@@ -58,8 +58,8 @@ just returns the default).
 
 ## Data model
 
-- **`actions.options`** gains two conventional (unenforced) keys: `default_key`,
-  `default_alt_key`. No migration.
+- **`actions.options`** gains one conventional (unenforced) key:
+  `default_key`. No migration.
 - **`keybinds` table**: dropped. `player_identifier`, `is_global`, and the
   `registerGlobal`/`registerPlayer`/`update`/`delete` API built around them
   are removed entirely — every existing caller of `registerGlobal` (e.g.
@@ -67,23 +67,22 @@ just returns the default).
   `ActionService.register`'s `options.default_key` instead. A migration
   drops the table.
 - **`oblsk_preferences`**: no schema change. `keybind:<actionId>` is just
-  another preference key, value `{key, alt}` (or the key absent entirely to
-  mean "cleared back to the tier below").
+  another preference key, value a plain key string (row absent entirely
+  means "cleared back to the tier below").
 
 ## KeybindService API (server, rewritten)
 
-- **`KeybindService.resolve(actionId, accountId, characterId)`** →
-  `{key, alt}` (`alt` may be `nil`). Falls through default → account →
-  character; returns `{key = nil, alt = nil}` if the action has no default
-  and no override at any tier (an unbound action).
+- **`KeybindService.resolve(actionId, accountId, characterId)`** → `key`
+  string, or `nil`. Falls through default → account → character; `nil` if
+  the action has no default and no override at any tier (an unbound
+  action).
 - **`KeybindService.resolveAll(accountId, characterId)`** →
-  `{actionId -> {key, alt}}` for every action in `ActionService.getAll()`.
-  What the client needs to build its local key-press → action dispatch
-  table.
-- **`KeybindService.setOverride(scope, ownerId, actionId, key, alt)`** —
+  `{actionId -> key}` for every action in `ActionService.getAll()`. What
+  the client needs to build its local key-press → action dispatch table.
+- **`KeybindService.setOverride(scope, ownerId, actionId, key)`** —
   `scope` is `'account'` or `'character'` (an allowlist, anything else
   errors, matching `PolicyService.attach`'s `resourceType` precedent).
-  Writes `PreferenceService.set(scope, ownerId, 'keybind:'..actionId, {key = key, alt = alt})`.
+  Writes `PreferenceService.set(scope, ownerId, 'keybind:'..actionId, key)`.
 - **`KeybindService.clearOverride(scope, ownerId, actionId)`** — deletes
   the override row for that scope/action, falling resolution back to the
   tier below. (`PreferenceService` has no `delete`; add one — `PreferenceService.clear(ownerType, ownerId, key)` —
@@ -135,18 +134,19 @@ owns the rebind settings screen. `KeybindService` stays in core since
   `core/core/client/Services/WebView.lua`'s exact API during planning, not
   guessed here).
 - **`web/globalElements.js`**: registers the page, `defaultVisible: false`.
-- **`web/Keybinds.vue`**: ports `src/proto/keybinds.jsx`'s layout —
-  Overview/Edit mode toggle, category filter + search, per-action rows with
-  two rebind buttons (key/alt — click, then "press any key" capture same as
-  the reference's `listening` state machine), a live keyboard map
+- **`web/Keybinds.vue`**: ports `src/proto/keybinds.jsx`'s layout, adapted
+  from two rebind slots per action down to one — Overview/Edit mode toggle,
+  category filter + search, per-action rows with a single rebind button
+  (click, then "press any key" capture, same as the reference's `listening`
+  state machine minus its `slot` dimension), a live keyboard map
   highlighting bound keys and cross-highlighting on hover, and a shared-key
   indicator (amber, informational only — no eviction, see Architecture).
   Real data via `keybinds:server:resolveAll` on mount instead of the
   reference's mock `KB_DEFAULTS` array; "Save" (or immediate-on-rebind,
   decide during planning which matches this framework's other settings UX
   better) calls `keybinds:server:setOverride`/`-clearOverride`. Action
-  metadata (label/description/category) needed for display beyond
-  key/alt comes from `ActionService.getAll()`'s `options`
+  metadata (label/description/category) needed for display beyond the key
+  itself comes from `ActionService.getAll()`'s `options`
   (`label`/`description` already exist there; `category` is a new
   convention this plugin introduces via `options.category`, same
   unenforced-convention pattern as `default_key`) — actions that don't
@@ -174,8 +174,8 @@ call sites to migrate.
   `resolve`/`resolveAll`/`setOverride`/`clearOverride`: default-only
   resolution, account override beats default, character override beats
   account, clearing an override falls back correctly, an action with no
-  default and no override resolves to `{key = nil, alt = nil}`, `resolve`
-  with `nil` `accountId`/`characterId` still returns the default
+  default and no override resolves to `nil`, `resolve` with `nil`
+  `accountId`/`characterId` still returns the default
   (core-without-optional-modules case).
 - `oblsk_preferences`: add `PreferenceService.clear` coverage to its
   existing spec file.
