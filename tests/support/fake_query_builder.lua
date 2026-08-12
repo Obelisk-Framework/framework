@@ -6,7 +6,18 @@ FakeQueryBuilder.__index = FakeQueryBuilder
 
 local function rowMatches(row, wheres, whereNulls)
     for _, w in ipairs(wheres) do
-        if row[w.column] ~= w.value then return false end
+        if w.isIn then
+            local found = false
+            for _, v in ipairs(w.inValues) do
+                if row[w.column] == v then
+                    found = true
+                    break
+                end
+            end
+            if not found then return false end
+        else
+            if row[w.column] ~= w.value then return false end
+        end
     end
     for _, col in ipairs(whereNulls) do
         if row[col] ~= nil then return false end
@@ -22,6 +33,11 @@ end
 
 function FakeQueryBuilder:whereNull(column)
     table.insert(self.whereNulls, column)
+    return self
+end
+
+function FakeQueryBuilder:whereIn(column, values)
+    table.insert(self.wheres, { column = column, value = nil, inValues = values, isIn = true })
     return self
 end
 
