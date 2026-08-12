@@ -36,6 +36,7 @@ function SpawnManagerService.getStage(source)
 end
 
 AddEventHandler('playerDropped', function()
+    local source = source
     SpawnManagerService.stages[source] = nil
 end)
 
