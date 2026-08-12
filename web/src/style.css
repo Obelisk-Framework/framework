@@ -9,3 +9,10 @@
 html, body, #app {
   height: 100%;
 }
+
+/* Matches the design reference's page CSS: this is game UI chrome, not
+   document text — rapid/double clicks on buttons (qty steppers, etc.)
+   shouldn't highlight adjacent labels. */
+html, body {
+  user-select: none;
+}
