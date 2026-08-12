@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import Obelisk from '../../../web/src/obelisk.js'
 import { debugCharacters } from './devFixture.js'
 
@@ -46,9 +46,21 @@ export function useCharacterSelection() {
     Obelisk.emit('character-selection:preview-update', payload)
   }
 
-  Obelisk.on('character-selection:list-result', (list) => { characters.value = list })
-  Obelisk.on('character-selection:created', (attrs) => { list() })
-  Obelisk.on('character-selection:deleted', () => { list() })
+  // Named callback functions to enable proper cleanup
+  const onListResult = (list) => { characters.value = list }
+  const onCreated = (attrs) => { list() }
+  const onDeleted = () => { list() }
+
+  Obelisk.on('character-selection:list-result', onListResult)
+  Obelisk.on('character-selection:created', onCreated)
+  Obelisk.on('character-selection:deleted', onDeleted)
+
+  // Unregister listeners when component unmounts to prevent listener buildup
+  onUnmounted(() => {
+    Obelisk.off('character-selection:list-result', onListResult)
+    Obelisk.off('character-selection:created', onCreated)
+    Obelisk.off('character-selection:deleted', onDeleted)
+  })
 
   return { characters, selectedIndex, mode, gender, selected, list, create, deleteCharacter, select, updatePreview }
 }
