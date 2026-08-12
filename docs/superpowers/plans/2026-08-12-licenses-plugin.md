@@ -34,6 +34,29 @@ global element exactly like `oblsk_phone`.
   is created with `amount = 1` on a base item with `is_stackable = false`,
   so this is never exercised for licenses but is what keeps them from ever
   silently merging if that ever changed.
+- **Multi-repo split** (discovered during Task 1's review, corrected before
+  Task 2 — the initial research this plan was written from used
+  `oblsk_garage`'s on-disk files as a convention reference without checking
+  their git tracking, which hid this entirely). `core`'s `.gitignore` has
+  both `modules/*` and `plugins/*`: **every** directory under `modules/`
+  and `plugins/` — `oblsk_characters`, `oblsk_inventory`, `oblsk_garage`,
+  `oblsk_licenses`, all of them — is its own private GitHub repo under the
+  `Obelisk-Framework` org (`git@github.com:Obelisk-Framework/oblsk_<name>.git`),
+  with its own independent git history. The `core` repo (this plan's spec
+  and this plan file live in its `docs/`, and that's the correct place for
+  them — `docs/` is NOT gitignored) tracks none of the actual license
+  feature code. Concretely, for this plan:
+  - `plugins/oblsk_licenses/**` → commit in `oblsk_licenses`'s own repo
+    (created and initialized in Task 1).
+  - `modules/oblsk_characters/**` (Task 4) → commit in `oblsk_characters`'s
+    own existing repo, not `core`.
+  - `plugins/oblsk_inventory/**` (Task 9) → commit in `oblsk_inventory`'s
+    own existing repo, not `core`.
+  - `plugins/registry.json` is never hand-edited or committed anywhere —
+    it's regenerated on demand by `obelisk registry:generate` (run from
+    `core`'s root; scans disk, writes the file locally, gitignored).
+  Every task below states its repo target explicitly; none of this plan's
+  remaining tasks commit anything into `core` itself.
 
 ---
 
@@ -67,30 +90,35 @@ plugins/oblsk_licenses/
     license_present_service_spec.lua
 ```
 
-Also modified (existing files, cross-cutting):
+Also modified (existing files in OTHER modules'/plugins' own repos — see
+the Global Constraints "Multi-repo split" note; none of this is `core`):
 
-- `core/modules/oblsk_characters/server/services/CharacterService.lua` —
-  emit `character:created` after a character is created.
-- `core/plugins/oblsk_inventory/server/services/InventoryService.lua` —
-  serialize `is_presentable` into the item sync row.
-- `core/plugins/oblsk_inventory/web/ContextMenu.vue` — add the Present
-  button.
-- `core/plugins/oblsk_inventory/web/useInventory.js` — wire the `present`
-  action.
-- `core/plugins/oblsk_inventory/client/main.lua` — relay `inventory:present`
-  to the server.
-- `core/plugins/registry.json` — register `oblsk_licenses`.
+- `modules/oblsk_characters/server/services/CharacterService.lua` (in
+  `oblsk_characters`'s own repo) — emit `character:created` after a
+  character is created.
+- `plugins/oblsk_inventory/server/services/InventoryService.lua` (in
+  `oblsk_inventory`'s own repo) — serialize `is_presentable` into the item
+  sync row.
+- `plugins/oblsk_inventory/web/ContextMenu.vue` (same repo) — add the
+  Present button.
+- `plugins/oblsk_inventory/web/useInventory.js` (same repo) — wire the
+  `present` action.
+- `plugins/oblsk_inventory/client/main.lua` (same repo) — relay
+  `inventory:present` to the server.
+- `plugins/registry.json` — never hand-edited; regenerated locally by
+  `obelisk registry:generate`, not committed anywhere.
 
 ---
 
-### Task 1: Plugin skeleton + `is_presentable` column
+### Task 1: Plugin skeleton + `is_presentable` column — COMPLETE
+
+> Repo target: `plugins/oblsk_licenses`'s own repo (`git@github.com:Obelisk-Framework/oblsk_licenses.git`), not `core`. Completed during setup, corrected from an initial mistaken commit into `core` — see the Global Constraints "Two-repo split" note. `plugins/registry.json` was never hand-edited; `obelisk registry:generate` (run from `core`'s root) picked up the new plugin automatically. Kept below for the record; do not redo this task.
 
 **Files:**
 - Create: `plugins/oblsk_licenses/fxmanifest.lua`
 - Create: `plugins/oblsk_licenses/shared/config.lua`
 - Create: `plugins/oblsk_licenses/server/migrations.json`
 - Create: `plugins/oblsk_licenses/server/migrations/2026_08_12_130000_add_is_presentable_to_base_items_table.lua`
-- Modify: `plugins/registry.json`
 
 **Interfaces:**
 - Produces: `base_items.is_presentable` (boolean, nullable, default 0) —
@@ -205,10 +233,14 @@ return {
 
 (`plugins/oblsk_licenses/server/migrations.json`)
 
-- [ ] **Step 5: Register the plugin**
+- [x] **Step 5: Register the plugin (done via `obelisk registry:generate`, not a hand edit)**
 
-Edit `plugins/registry.json`, add `"oblsk_licenses"` to the `plugins` array
-(alphabetical, between `"oblsk_inventory"` and `"oblsk_mdt"`).
+`plugins/registry.json` is never hand-edited or committed — run
+`node cli/index.js registry:generate` (or `obelisk registry:generate` if
+the CLI is linked) from `core`'s root. It scans `plugins/*/` on disk and
+regenerates `plugins/registry.json` locally (gitignored). Already run;
+`oblsk_licenses` appears in the regenerated list alphabetically between
+`oblsk_inventory` and `oblsk_mdt`.
 
 - [ ] **Step 6: Verify the migration runs**
 
@@ -221,16 +253,21 @@ tasks are testable end to end. For now confirm no Lua syntax error:
 Run: `luac5.4 -p plugins/oblsk_licenses/server/migrations/2026_08_12_130000_add_is_presentable_to_base_items_table.lua plugins/oblsk_licenses/shared/config.lua`
 Expected: no output (both files compile clean).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit (in `plugins/oblsk_licenses`'s own repo, then pushed)**
 
 ```bash
-git add plugins/oblsk_licenses/fxmanifest.lua plugins/oblsk_licenses/shared/config.lua plugins/oblsk_licenses/server/migrations.json plugins/oblsk_licenses/server/migrations/2026_08_12_130000_add_is_presentable_to_base_items_table.lua plugins/registry.json
+cd plugins/oblsk_licenses
+git add fxmanifest.lua shared/config.lua server/migrations.json server/migrations/2026_08_12_130000_add_is_presentable_to_base_items_table.lua README.md
 git commit -m "Scaffold oblsk_licenses plugin, add base_items.is_presentable"
+git push -u origin main
 ```
 
 ---
 
 ### Task 2: Seed license base items and permission keys
+
+> Repo target: `plugins/oblsk_licenses`'s own repo — every file below is
+> under `plugins/oblsk_licenses/`.
 
 **Files:**
 - Create: `plugins/oblsk_licenses/server/seeders/LicensesItemSeeder.lua`
@@ -412,6 +449,8 @@ git commit -m "Seed license base items and permission keys"
 ---
 
 ### Task 3: `LicenseService` — issue / revoke / grant state ID
+
+> Repo target: `plugins/oblsk_licenses`'s own repo.
 
 **Files:**
 - Create: `plugins/oblsk_licenses/server/services/LicenseService.lua`
@@ -713,8 +752,21 @@ git commit -m "Add LicenseService issue/revoke/grantStateId"
 
 ### Task 4: Auto-grant state ID on character creation
 
+> Repo target: **mixed, two plugin/module repos, neither is `core`**.
+> `modules/oblsk_characters/...` is `oblsk_characters`'s own existing repo
+> (Step 1's edit — that module has its own git history same as any plugin,
+> see the Global Constraints note). `plugins/oblsk_licenses/server/main.lua`
+> and `plugins/oblsk_licenses/tests/license_service_spec.lua` are in
+> `oblsk_licenses`'s own repo (Steps 2-3's edits). Commit each half in its
+> own repo — see the two separate commit commands in Step 5. The path below
+> is written as `core/modules/oblsk_characters/...` because that's this
+> plan file's path convention (repo-root-relative from `core`), but the
+> actual commit happens inside `modules/oblsk_characters` as its own repo
+> root, i.e. `git add server/services/CharacterService.lua` from inside
+> that directory, not `core/modules/...`.
+
 **Files:**
-- Modify: `core/modules/oblsk_characters/server/services/CharacterService.lua`
+- Modify: `modules/oblsk_characters/server/services/CharacterService.lua`
 - Modify: `plugins/oblsk_licenses/server/main.lua`
 
 **Interfaces:**
@@ -725,8 +777,9 @@ git commit -m "Add LicenseService issue/revoke/grantStateId"
 
 - [ ] **Step 1: Emit `character:created` from `CharacterService.create`**
 
-Modify `core/modules/oblsk_characters/server/services/CharacterService.lua`
-(the function currently ends at line 82-83, `return character`):
+Modify `modules/oblsk_characters/server/services/CharacterService.lua` (in
+`oblsk_characters`'s own repo — see the repo-target note above; the
+function currently ends at line 82-83, `return character`):
 
 ```lua
     CharacterAppearance:createSync({
@@ -795,16 +848,25 @@ Expected before Task 3's `LicenseService.grantStateId` existed this would
 fail; it already exists, so this new test should pass immediately — run it
 to confirm: `7 passed, 0 failed`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit — two separate commits, two separate repos**
 
 ```bash
-git add core/modules/oblsk_characters/server/services/CharacterService.lua plugins/oblsk_licenses/server/main.lua plugins/oblsk_licenses/tests/license_service_spec.lua
+# In modules/oblsk_characters's own repo (working directory = that repo's root):
+git add server/services/CharacterService.lua
+git commit -m "Emit character:created after CharacterService.create"
+git push
+
+# In plugins/oblsk_licenses's own repo (working directory = that repo's root):
+git add server/main.lua tests/license_service_spec.lua
 git commit -m "Auto-grant state ID on character creation via character:created event"
+git push
 ```
 
 ---
 
 ### Task 5: Admin issue/revoke commands
+
+> Repo target: `plugins/oblsk_licenses`'s own repo.
 
 **Files:**
 - Create: `plugins/oblsk_licenses/server/commands/LicenseCommands.lua`
@@ -895,6 +957,8 @@ git commit -m "Add /license-issue and /license-revoke admin commands"
 ---
 
 ### Task 6: `LicensePresentService` — nearby player resolution
+
+> Repo target: `plugins/oblsk_licenses`'s own repo.
 
 **Files:**
 - Create: `plugins/oblsk_licenses/server/services/LicensePresentService.lua`
@@ -1063,6 +1127,8 @@ git commit -m "Add LicensePresentService nearby-player resolution"
 
 ### Task 7: Present server flow — event wiring
 
+> Repo target: `plugins/oblsk_licenses`'s own repo.
+
 **Files:**
 - Modify: `plugins/oblsk_licenses/server/main.lua`
 
@@ -1165,6 +1231,13 @@ git commit -m "Wire present/putAway server events through WebView relay"
 ---
 
 ### Task 8: Web — `LicenseCard.vue`, `PresentOverlay.vue`, global element registration
+
+> Repo target: `plugins/oblsk_licenses`'s own repo. `PresentOverlay.vue`'s
+> `import Obelisk from '../../../web/src/obelisk.js'` reaches into `core`'s
+> tree by relative filesystem path only (`plugins/oblsk_licenses/web/` →
+> up three → `core/web/src/obelisk.js`) — that's a build-time/runtime
+> import, not a git dependency, so it resolves fine even though the two
+> directories are separate repos on disk under `core/plugins/`.
 
 **Files:**
 - Create: `plugins/oblsk_licenses/web/LicenseCard.vue`
@@ -1414,6 +1487,10 @@ git commit -m "Add LicenseCard and PresentOverlay web components"
 
 ### Task 9: Inventory "Present" action wiring
 
+> Repo target: **mixed, two plugin repos, neither is `core`**. Steps 1-4
+> touch `oblsk_inventory`'s own existing repo. Step 5 touches
+> `oblsk_licenses`'s own repo. Commit each half separately — see Step 8.
+
 **Files:**
 - Modify: `plugins/oblsk_inventory/server/services/InventoryService.lua`
   (`toSyncRow`, currently at lines 55-77)
@@ -1518,11 +1595,18 @@ their inventory, click Present, and confirm:
   correctly since `licenses:client:putAway` unconditionally hides the
   presenter).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Commit — two separate commits, two separate repos**
 
 ```bash
-git add plugins/oblsk_inventory/server/services/InventoryService.lua plugins/oblsk_inventory/web/ContextMenu.vue plugins/oblsk_inventory/web/useInventory.js plugins/oblsk_inventory/client/main.lua plugins/oblsk_licenses/client/main.lua
-git commit -m "Wire Present action from inventory context menu through to oblsk_licenses"
+# In oblsk_inventory's own repo (working directory = that repo's root):
+git add server/services/InventoryService.lua web/ContextMenu.vue web/useInventory.js client/main.lua
+git commit -m "Add Present action to context menu, relay to oblsk_licenses"
+git push
+
+# In oblsk_licenses's own repo (working directory = that repo's root):
+git add client/main.lua
+git commit -m "Add client-side put-away relay for the present overlay"
+git push
 ```
 
 ---
