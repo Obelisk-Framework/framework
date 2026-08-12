@@ -21,6 +21,7 @@ local function spawnPreviewPed(gender)
 
     local c = Config.PreviewCoords
     previewPed = CreatePed(4, model, c.x, c.y, c.z - 1.0, c.heading, false, false)
+    SetModelAsNoLongerNeeded(model)
     SetEntityInvincible(previewPed, true)
     FreezeEntityPosition(previewPed, true)
     SetBlockingOfNonTemporaryEvents(previewPed, true)
@@ -34,8 +35,6 @@ local function despawnPreviewPed()
         previewPed = nil
     end
 end
-
-TriggerEvent('obelisk:spawnStageChanged', nil) -- no-op registration guard, real handler below
 
 AddEventHandler('obelisk:spawnStageChanged', function(stage)
     if stage == 'connecting' then
@@ -71,7 +70,9 @@ WebView.on('character-selection:select', function(data)
         local appearance = data.appearance or Appearance.DEFAULT_APPEARANCE(previewGender)
         local pedCoords = GetEntityCoords(previewPed)
         SetEntityCoords(PlayerPedId(), pedCoords.x, pedCoords.y, pedCoords.z)
-        SetPlayerModel(PlayerId(), GetHashKey(previewGender == 'female' and 'mp_f_freemode_01' or 'mp_m_freemode_01'))
+        local playerModel = GetHashKey(previewGender == 'female' and 'mp_f_freemode_01' or 'mp_m_freemode_01')
+        SetPlayerModel(PlayerId(), playerModel)
+        SetModelAsNoLongerNeeded(playerModel)
         CharacterAppearanceService.apply(PlayerPedId(), appearance, previewGender)
     end
     WebView.emitServer('character-selection:select', data.characterId)
