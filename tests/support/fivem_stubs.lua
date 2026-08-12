@@ -200,3 +200,33 @@ _G.RemoveResourceFile = _G.RemoveResourceFile or function(_, path)
     local full = RESOURCE_FILE_ROOT .. '/' .. path
     return os.remove(full) ~= nil
 end
+
+-- PerformHttpRequest(url, callback, method, data, headers). Real FXServer
+-- calls back asynchronously; here it calls back synchronously (same trick
+-- Citizen.CreateThread's stub above uses) so storage_s3_spec.lua's
+-- Citizen.Await(promise) pattern still works without ever actually waiting.
+-- Tests install their own _G.PerformHttpRequest override when they need to
+-- assert on the request that was made or control the response.
+_G.PerformHttpRequest = _G.PerformHttpRequest or function(_url, callback, _method, _data, _headers)
+    callback(200, '', {})
+end
+
+-- Minimal synchronous promise + Citizen.Await, matching this file's existing
+-- Citizen.CreateThread stub's synchronous style. Real FXServer promises are
+-- async; here, since PerformHttpRequest's stub above calls its callback
+-- immediately (before PerformHttpRequest even returns), :resolve() always
+-- fires before Citizen.Await(p) is ever called, so a simple captured-value
+-- object is enough — no real scheduling needed.
+_G.promise = _G.promise or {
+    new = function()
+        local p = { _resolved = false, _value = nil }
+        function p:resolve(value) self._resolved = true; self._value = value end
+        return p
+    end,
+}
+_G.Citizen.Await = _G.Citizen.Await or function(p)
+    if not p._resolved then
+        error('Citizen.Await stub: promise was never resolved (PerformHttpRequest stub must call its callback synchronously)', 2)
+    end
+    return p._value
+end
