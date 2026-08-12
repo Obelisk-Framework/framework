@@ -1,31 +1,31 @@
 <template>
-  <div class="min-h-screen bg-black/90 text-white p-6 font-mono text-sm">
+  <div class="min-h-screen text-black p-6 font-mono text-sm">
     <div class="max-w-md">
-      <div class="text-xs tracking-[0.2em] uppercase text-white/40 mb-1">Obelisk · Dev only</div>
+      <div class="text-xs tracking-[0.2em] uppercase text-black/50 mb-1">Obelisk · Dev only</div>
       <h1 class="text-lg font-semibold mb-4">HUD elements</h1>
-      <div v-if="entries.length === 0" class="text-white/40">No global elements registered.</div>
+      <div v-if="entries.length === 0" class="text-black/50">No global elements registered.</div>
       <label
         v-for="[name, entry] in entries"
         :key="name"
-        class="flex items-center gap-3 py-1.5 cursor-pointer select-none hover:bg-white/5 rounded px-1.5 -mx-1.5"
+        class="flex items-center gap-3 py-1.5 cursor-pointer select-none hover:bg-black/5 rounded px-1.5 -mx-1.5"
       >
         <input type="checkbox" :checked="entry.visible" @change="toggle(name, entry, $event.target.checked)" />
         <span class="flex-1">{{ name }}</span>
-        <span class="text-white/30 text-xs">{{ entry.visible ? 'visible' : 'hidden' }}</span>
+        <span class="text-black/40 text-xs">{{ entry.visible ? 'visible' : 'hidden' }}</span>
       </label>
 
-      <div class="mt-6 pt-4 border-t border-white/10">
-        <div class="text-xs tracking-[0.2em] uppercase text-white/40 mb-2">Phone debug</div>
+      <div class="mt-6 pt-4 border-t border-black/15">
+        <div class="text-xs tracking-[0.2em] uppercase text-black/50 mb-2">Phone debug</div>
         <div class="flex flex-wrap gap-2 mb-3">
-          <button class="px-3 py-1.5 rounded border border-white/15 hover:bg-white/10 text-xs" @click="toggleDock">Toggle phone dock</button>
-          <button class="px-3 py-1.5 rounded border border-white/15 hover:bg-white/10 text-xs" @click="simulateCall">Simulate incoming call</button>
+          <button class="px-3 py-1.5 rounded border border-black/20 hover:bg-black/10 text-xs" @click="toggleDock">Toggle phone dock</button>
+          <button class="px-3 py-1.5 rounded border border-black/20 hover:bg-black/10 text-xs" @click="simulateCall">Simulate incoming call</button>
         </div>
-        <div class="text-xs tracking-[0.2em] uppercase text-white/40 mb-2">Send a test notification</div>
+        <div class="text-xs tracking-[0.2em] uppercase text-black/50 mb-2">Send a test notification</div>
         <div class="flex flex-wrap gap-2">
           <button
             v-for="bench in testBench"
             :key="bench.label"
-            class="px-3 py-1.5 rounded border border-white/15 hover:bg-white/10 text-xs"
+            class="px-3 py-1.5 rounded border border-black/20 hover:bg-black/10 text-xs"
             @click="fireTestNotification(bench)"
           >{{ bench.label }}</button>
         </div>
