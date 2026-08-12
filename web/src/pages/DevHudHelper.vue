@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen text-white p-6 font-mono text-sm">
+  <div class="min-h-screen bg-black/90 text-white p-6 font-mono text-sm">
     <div class="max-w-md">
       <div class="text-xs tracking-[0.2em] uppercase text-white/40 mb-1">Obelisk · Dev only</div>
       <h1 class="text-lg font-semibold mb-4">HUD elements</h1>
