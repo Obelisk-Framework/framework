@@ -1,4 +1,4 @@
--- core/plugins/oblsk_character-selection/shared/config.lua
+-- plugins/oblsk_character-selection/shared/config.lua
 Config = {}
 
 Config.Debug = false
