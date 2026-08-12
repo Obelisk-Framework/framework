@@ -10,6 +10,21 @@ html, body, #app {
   height: 100%;
 }
 
+/* FiveM's NUI browser has no default background — without this, every page
+   falls back to the CEF default of opaque white, hiding the 3D game world
+   behind what's supposed to be a transparent overlay. */
+html, body, #app {
+  background: transparent;
+}
+
+/* These are always-on-screen game overlays, not scrollable documents — a
+   page taller than the viewport (or a stray horizontal overflow from an
+   absolutely-positioned panel) must clip, not grow a scrollbar over the
+   game world. */
+html, body {
+  overflow: hidden;
+}
+
 /* Matches the design reference's page CSS: this is game UI chrome, not
    document text — rapid/double clicks on buttons (qty steppers, etc.)
    shouldn't highlight adjacent labels. */
