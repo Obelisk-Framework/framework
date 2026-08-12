@@ -45,7 +45,8 @@ end
 --- @param slotKey string e.g. 'top', 'jacket'
 --- @param optionIndex number 1-based index into Appearance.WARDROBE[gender][slotKey]
 function CharacterAppearanceService.applyWardrobeSlot(ped, gender, slotKey, optionIndex)
-    local option = Appearance.WARDROBE[gender][slotKey][optionIndex]
+    local slots = Appearance.WARDROBE[gender] and Appearance.WARDROBE[gender][slotKey]
+    local option = slots and slots[optionIndex]
     if not option then
         return
     end

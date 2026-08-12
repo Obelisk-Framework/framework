@@ -77,7 +77,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, inject, onMounted, onUnmounted } from 'vue'
 import { useCharacterSelection } from './useCharacterSelection.js'
 
 const emit = defineEmits(['create'])
@@ -89,7 +89,27 @@ function setFraming(f) {
   updatePreview({ cameraFraming: f })
 }
 
+// Keep the preview ped showing whichever roster entry is selected. Sending
+// gender is what also keeps the client's previewGender (and therefore the ped
+// model used on spawn) in sync; appearance is omitted when the character has
+// none stored, so the client falls back to defaults instead of erroring.
+watch(selected, (entry) => {
+  if (!entry) return
+  const payload = { gender: entry.character?.gender === 'female' ? 'female' : 'male' }
+  if (entry.appearance) payload.appearance = entry.appearance
+  updatePreview(payload)
+}, { immediate: true })
+
+// App.vue renders global elements with v-show, so this component never
+// unmounts — ignore keys while the character-selection screen is hidden.
+const globalElements = inject('obelisk:globalElementsRegistry', null)
+function isScreenVisible() {
+  const entry = globalElements?.get('character-selection')
+  return entry ? entry.visible : true
+}
+
 function onKey(e) {
+  if (!isScreenVisible()) return
   const k = e.key.toLowerCase()
   if ((k === 'w' || k === 'arrowup') && characters.value.length > 0) { e.preventDefault(); selectedIndex.value = (selectedIndex.value - 1 + characters.value.length) % characters.value.length }
   if ((k === 's' || k === 'arrowdown') && characters.value.length > 0) { e.preventDefault(); selectedIndex.value = (selectedIndex.value + 1) % characters.value.length }
