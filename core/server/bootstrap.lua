@@ -90,6 +90,36 @@ Citizen.CreateThread(function()
 
     print('[Obelisk] Migrations complete')
 
+    -- Load each plugin's Config.Requires.bindings and register with ItemService,
+    -- then report anything unbound (setup checklist) or stale (assigned but no
+    -- loaded plugin needs it) — see docs/superpowers/specs/2026-08-12-banking-plugin-design.md §3.6.
+    local pluginNames = loadRegistry('plugins/registry.json', 'plugins')
+    for _, pluginName in ipairs(pluginNames) do
+        local configPath = 'plugins/' .. pluginName .. '/shared/config.lua'
+        local configContent = LoadResourceFile(GetCurrentResourceName(), configPath)
+        if configContent then
+            local chunk = load(configContent)
+            if chunk then
+                local ok, pluginConfig = pcall(chunk)
+                if ok and pluginConfig and pluginConfig.Requires and pluginConfig.Requires.bindings then
+                    ItemService.registerRequirements(pluginName, pluginConfig.Requires.bindings)
+                end
+            end
+        end
+    end
+
+    do
+        local unbound = {}
+        for _, key in ipairs(ItemService.getRequiredBindingKeysForTests and ItemService.getRequiredBindingKeysForTests() or {}) do
+            if not ItemService.hasBinding(key) then
+                table.insert(unbound, key)
+            end
+        end
+        if #unbound > 0 then
+            print('[Obelisk] ' .. #unbound .. ' item binding(s) unbound, dependent features inactive: ' .. table.concat(unbound, ', '))
+        end
+    end
+
     -- Flush any actions that were registered by modules/plugins during the
     -- synchronous script-load pass, before Database.init() had run. Must
     -- happen before seeders, since a seeder may need to resolve an action
