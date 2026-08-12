@@ -181,6 +181,42 @@ Manages key-to-action bindings with database persistence (`keybinds` table), syn
 
 Clients report key presses via the `core:client:keybinds-pressed` net event and can request a re-sync via `core:client:keybinds-requestSync`; new players are synced automatically shortly after `playerJoining`.
 
+## EntityStreamerService
+
+Budgeted, chunk-based spatial streaming for world entities (peds, objects, pickups, blips, markers) — spawns/despawns them per player based on position, so a plugin that wants ambient NPCs or props doesn't spawn/manage them itself. Backed by an `entities` table via the `Entity` model (`core/core/server/Models/Entity.lua`), with matching server (`core/server/Services/EntityStreamerService.lua`) and client (`core/client/Services/EntityStreamerService.lua`) halves.
+
+- The world is divided into fixed 100-unit chunks (`EntityStreamerService.chunkSize`). Each player streams the chunks around their position, degrading through three tiers under budget pressure:
+  - **Tier 1** (full) — the player's chunk plus all 8 neighbors (9 chunks).
+  - **Tier 2** (degraded) — the player's chunk plus the one they're facing.
+  - **Tier 3** (minimal) — the player's chunk only.
+
+  Only peds/objects/pickups count against the global budget (`EntityStreamerService.entityBudget`, default `300`) — markers and blips are free. The highest tier that fits under budget wins, recalculated as players' active-chunk sets change (a chunk shared by two nearby players costs once, not twice).
+- **Hysteresis** prevents flicker: a chunk only unloads once the player is 15 units past its boundary (not the instant they cross it), and a tier change only takes effect once 2 consecutive position updates (the 500ms client tick, so ~1s) agree on it.
+- **Facing-direction precache**: the client reports its heading alongside position (re-sent only once it's turned more than 20°). The server derives the chunk one step past the facing chunk (`lookaheadChunk`) and pushes that chunk's entity models to the client ahead of time, so `RequestModel` has already streamed them in by the time the player's real chunk membership includes it — spawning becomes an instant `CreatePed`/`CreateObject` rather than a stall.
+- **Local vs. networked entities** (`entities.networked` column): local-only entities (ambient dressing) are spawned independently and privately by every client with the chunk active. Networked entities (anything another player must see identically, e.g. a shared prop) spawn once — whichever client's active-chunk set first includes them becomes the owner (`EntityStreamerService.networkedOwners`, cleared on that owner's disconnect) — then FiveM/OneSync handles visibility and ownership migration to everyone else automatically; no hand-rolled handoff protocol.
+
+Server API:
+
+- **`EntityStreamerService.register(entityType, entityData)`** — registers an entity (`entityType` one of `ped`/`object`/`pickup`/`marker`/`blip`; `entityData` needs `x`/`y`/`z` plus type-specific fields, e.g. `scenario`/`freeze`/`invincible` for peds, `pickupType`/`amount` for pickups, `sprite`/`color`/`scale`/`label` for blips, `markerType`/`scaleX,Y,Z`/`r,g,b,a` for markers). Returns an `entityId`. Currently only called by `init()` at boot, which loads every enabled `entities` row — nothing in the framework registers one at runtime yet, so adding an entity means inserting a row and restarting the resource (or calling `register` directly from your own code for an immediate, unpersisted spawn).
+- **`EntityStreamerService.unregister(entityType, entityId)`** — removes an entity and broadcasts its removal to whichever players have it loaded.
+- **`EntityStreamerService.getChunkEntityRecords(chunkKey)`** — flat array of `{entityId, entityType, data}` for everything currently in a chunk.
+
+```lua
+Entity:create({
+    entity_type = 'ped',
+    model = 'a_m_y_business_01',
+    x = 215.4, y = -810.2, z = 30.7, heading = 90.0,
+    networked = false,
+    enabled = true,
+    data = { scenario = 'WORLD_HUMAN_STAND_IMPATIENT' },
+})
+-- picked up by EntityStreamerService.init() on the next resource restart
+```
+
+On the client, `Obelisk.onClient('core:server:streamer-entityAdd', ...)` / `-entityRemove` spawn/despawn entities via natives (`CreatePed`, `CreateObject`, `CreatePickup`, `AddBlipForCoord`; markers have no handle and are just redrawn every frame). A background thread reports the local player's position and facing heading every 500ms via `core:client:streamer-updatePosition`, which drives the server's tier/hysteresis/precache logic above.
+
+See `docs/superpowers/specs/2026-08-12-entity-streamer-design.md` for the full design writeup (tier/budget math, hysteresis margins, data model) and `core/tests/entity_streamer_service_spec.lua` for its test coverage.
+
 ## Other services
 
-`core/server/Services/*.lua` also loads several additional services not detailed here: `BlipService`, `DeathService`, `EntityStreamerService`, `MarkerService`, and `PedService`. They load automatically via that fxmanifest wildcard alongside the services above.
+`core/server/Services/*.lua` also loads a few additional services not detailed here: `BlipService`, `DeathService`, `MarkerService`, and `PedService`. They're currently empty stubs, loaded automatically via that fxmanifest wildcard alongside the services above.
