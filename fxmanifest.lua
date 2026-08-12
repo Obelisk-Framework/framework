@@ -44,6 +44,7 @@ server_scripts {
     'core/server/Services/NotificationService.lua',
     'core/server/Services/ProgressService.lua',
     'core/server/Services/KeybindService.lua',
+    'core/server/Services/storage/*.lua',
     'core/server/Services/*.lua',
     
     -- Models

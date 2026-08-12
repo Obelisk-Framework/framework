@@ -10,6 +10,12 @@ print([[
   
 ]])
 
+-- Initialize Storage (no DB dependency, so this doesn't need to wait on the
+-- Database.init() thread below).
+if not Storage.init() then
+    print('[Obelisk] WARNING: storage service failed to initialize. See the [Storage] FATAL message above. Continuing without file storage.')
+end
+
 -- Initialize Database
 Citizen.CreateThread(function()
     if not Database.init() then
