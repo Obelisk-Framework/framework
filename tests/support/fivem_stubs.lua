@@ -159,3 +159,44 @@ if not _G.json then
         end,
     }
 end
+
+-- Resource-relative file natives, backed by a real temp directory so
+-- core/server/Services/storage/local.lua's tests exercise real file I/O.
+-- Not resource-name-aware (single global root) — fine for this test suite,
+-- which only ever runs as one "resource" at a time.
+local RESOURCE_FILE_ROOT = os.tmpname()
+os.remove(RESOURCE_FILE_ROOT) -- os.tmpname() creates the file; we want it as a directory
+os.execute('mkdir -p ' .. RESOURCE_FILE_ROOT)
+
+_G.GetCurrentResourceName = _G.GetCurrentResourceName or function() return 'core' end
+
+_G.GetResourcePath = _G.GetResourcePath or function(_) return RESOURCE_FILE_ROOT end
+
+local function ensureParentDir(fullPath)
+    local dir = fullPath:match('(.*/)')
+    if dir then os.execute('mkdir -p ' .. dir) end
+end
+
+_G.SaveResourceFile = _G.SaveResourceFile or function(_, path, data, _len)
+    local full = RESOURCE_FILE_ROOT .. '/' .. path
+    ensureParentDir(full)
+    local f = io.open(full, 'wb')
+    if not f then return false end
+    f:write(data)
+    f:close()
+    return true
+end
+
+_G.LoadResourceFile = _G.LoadResourceFile or function(_, path)
+    local full = RESOURCE_FILE_ROOT .. '/' .. path
+    local f = io.open(full, 'rb')
+    if not f then return nil end
+    local data = f:read('*a')
+    f:close()
+    return data
+end
+
+_G.RemoveResourceFile = _G.RemoveResourceFile or function(_, path)
+    local full = RESOURCE_FILE_ROOT .. '/' .. path
+    return os.remove(full) ~= nil
+end
