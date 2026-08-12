@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* html/body/#app have no in-flow content of their own (every page/global
+   element is absolute/fixed), so without an explicit height the chain
+   collapses to 0 — any `absolute inset-0` overlay centers against that
+   zero-height box instead of the viewport, snapping toward the top. */
+html, body, #app {
+  height: 100%;
+}
