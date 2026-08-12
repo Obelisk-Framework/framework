@@ -1,4 +1,4 @@
--- core/plugins/oblsk_character-selection/client/services/CharacterCameraService.lua
+-- plugins/oblsk_character-selection/client/services/CharacterCameraService.lua
 --- Client CharacterCameraService - a single scripted camera framed on the
 --- preview ped, used by both the select screen (head/torso/full framing)
 --- and the creator screen (4 fixed rotation angles). No automated test
@@ -47,12 +47,14 @@ end
 
 --- @param framing string 'head' | 'torso' | 'full'
 function CharacterCameraService.setFraming(framing)
+    if not CharacterCameraService.cam then return end
     local f = FRAMINGS[framing] or FRAMINGS.full
     place(f.zOffset, f.distance, 0.0, f.fov)
 end
 
 --- @param angleIndex number 0-3, indexes ANGLES (Front/3-4/Side/Back)
 function CharacterCameraService.setAngle(angleIndex)
+    if not CharacterCameraService.cam then return end
     local angle = ANGLES[angleIndex + 1] or ANGLES[1]
     place(FRAMINGS.full.zOffset, FRAMINGS.full.distance, angle, FRAMINGS.full.fov)
 end
