@@ -91,8 +91,8 @@ function setFraming(f) {
 
 function onKey(e) {
   const k = e.key.toLowerCase()
-  if (k === 'w' || k === 'arrowup') { e.preventDefault(); selectedIndex.value = (selectedIndex.value - 1 + characters.value.length) % characters.value.length }
-  if (k === 's' || k === 'arrowdown') { e.preventDefault(); selectedIndex.value = (selectedIndex.value + 1) % characters.value.length }
+  if ((k === 'w' || k === 'arrowup') && characters.value.length > 0) { e.preventDefault(); selectedIndex.value = (selectedIndex.value - 1 + characters.value.length) % characters.value.length }
+  if ((k === 's' || k === 'arrowdown') && characters.value.length > 0) { e.preventDefault(); selectedIndex.value = (selectedIndex.value + 1) % characters.value.length }
   if (k === 'n') emit('create')
   if (k === 'enter' && selected.value) select(selected.value.character.id)
 }
