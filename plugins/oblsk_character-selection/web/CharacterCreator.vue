@@ -115,7 +115,7 @@ const emit = defineEmits(['back'])
 const { create, updatePreview } = useCharacterSelection()
 
 const STEPS = ['Identity', 'Heritage', 'Appearance', 'Wardrobe']
-const step = ref(2)
+const step = ref(0)
 const tab = ref('face')
 const angle = ref(0)
 
@@ -175,6 +175,8 @@ function cycleAngle() {
 }
 
 function onKey(e) {
+  const tag = e.target?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return
   if (e.key.toLowerCase() === 'f') cycleAngle()
 }
 
