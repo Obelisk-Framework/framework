@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Single source of truth for every oblsk_ plugin's color palette. Change a
+   value here to rebrand the whole framework — individual plugins should
+   reference these (var(--ob-accent), or the ob-accent/ob-text/etc. Tailwind
+   utilities wired to them in tailwind.config.js), never hardcode their own
+   hex value. Values match the design reference's page CSS. */
+:root {
+  --ob-accent: #10b981;
+  --ob-bg: #07090a;
+  --ob-panel: rgba(0, 0, 0, 0.6);
+  --ob-border: rgba(255, 255, 255, 0.1);
+  --ob-text: #e6e8ea;
+  --ob-text-dim: rgba(255, 255, 255, 0.45);
+}
+
 /* html/body/#app have no in-flow content of their own (every page/global
    element is absolute/fixed), so without an explicit height the chain
    collapses to 0 — any `absolute inset-0` overlay centers against that
@@ -39,5 +53,5 @@ html, body {
    not just a dev-preview artifact, it just went unnoticed while pages
    happened to render on a plain white background. */
 body {
-  color: #e6e8ea;
+  color: var(--ob-text);
 }
