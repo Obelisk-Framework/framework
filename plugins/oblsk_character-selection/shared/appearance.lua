@@ -94,6 +94,11 @@ Appearance.HAIR_STYLES = {
 
 --- @param gender string 'male' | 'female'
 --- @return table full appearance shape (see design spec's "Appearance data shape")
+---
+--- NOTE: gender is accepted (not currently branched on) so every caller can pass
+--- it uniformly without checking function signatures. Server character creation
+--- and client preview fallback both pass gender for consistency; a future default
+--- could vary by gender without changing this signature.
 function Appearance.DEFAULT_APPEARANCE(gender)
     local faceFeatures = {}
     for _, idx in pairs(Appearance.FACE_FEATURE_INDEX) do
