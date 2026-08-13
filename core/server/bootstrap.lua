@@ -189,6 +189,7 @@ end)
 AddEventHandler('playerJoining', function()
     local source = source
     print('[Obelisk] Player ' .. source .. ' joined, syncing data...')
+    SpawnManagerService.markConnecting(source)
 end)
 
 -- Player dropped handler
