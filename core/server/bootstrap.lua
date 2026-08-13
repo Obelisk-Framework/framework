@@ -130,8 +130,7 @@ Citizen.CreateThread(function()
     print('[Obelisk] Running seeders...')
     
     local seeders = {
-        'DefaultActionsSeeder',
-        'DefaultKeybindsSeeder'
+        'DefaultActionsSeeder'
     }
     
     for _, seeder in ipairs(seeders) do
