@@ -1,163 +1,94 @@
---- KeybindService - Keybind management with database persistence
---- Links keys to actions, syncs to clients on connect
+--- KeybindService - resolves the key bound to an action via a three-tier
+--- model: action-declared default -> account override -> character
+--- override. Overrides are stored in oblsk_preferences (`keybind:<actionId>`
+--- preference keys); the default lives on `actions.options.default_key`,
+--- set by whichever plugin calls ActionService.register. See
+--- docs/superpowers/specs/2026-08-13-keybind-layering-design.md.
 KeybindService = {}
 
---- Load all keybinds for a player from database
---- @param source number Player server ID
---- @param callback function Receives keybinds array
-function KeybindService.loadPlayerKeybinds(source, callback)
-    local identifier = GetPlayerIdentifier(source, 0) -- Get player identifier
-    
-    -- Query player keybinds from database
-    local sql = [[
-        SELECT k.*, a.id as action_id, a.label as action_label
-        FROM keybinds k
-        LEFT JOIN actions a ON k.action_id = a.id
-        WHERE k.player_identifier = ? OR k.player_identifier IS NULL
-        ORDER BY k.is_global DESC, k.id ASC
-    ]]
-    
-    Database.query(sql, {identifier}, function(keybinds)
-        callback(keybinds or {})
-    end)
+local VALID_SCOPES = { account = true, character = true }
+
+--- @param actionId string
+--- @param accountId number|nil
+--- @param characterId number|nil
+--- @return string|nil key
+function KeybindService.resolve(actionId, accountId, characterId)
+    local action = ActionService.get(actionId)
+    local key = action and action.options and action.options.default_key or nil
+
+    if accountId then
+        local override = PreferenceService.get('account', accountId, 'keybind:' .. actionId)
+        if override ~= nil then key = override end
+    end
+
+    if characterId then
+        local override = PreferenceService.get('character', characterId, 'keybind:' .. actionId)
+        if override ~= nil then key = override end
+    end
+
+    return key
 end
 
---- Load all keybinds synchronously
+--- @param accountId number|nil
+--- @param characterId number|nil
+--- @return table {actionId -> key}
+function KeybindService.resolveAll(accountId, characterId)
+    local resolved = {}
+    for actionId in pairs(ActionService.getAll()) do
+        resolved[actionId] = KeybindService.resolve(actionId, accountId, characterId)
+    end
+    return resolved
+end
+
+--- @param scope string 'account'|'character'
+--- @param ownerId number
+--- @param actionId string
+--- @param key string
+function KeybindService.setOverride(scope, ownerId, actionId, key)
+    if not VALID_SCOPES[scope] then
+        error('KeybindService.setOverride: invalid scope "' .. tostring(scope) .. '"')
+    end
+    PreferenceService.set(scope, ownerId, 'keybind:' .. actionId, key)
+end
+
+--- @param scope string 'account'|'character'
+--- @param ownerId number
+--- @param actionId string
+function KeybindService.clearOverride(scope, ownerId, actionId)
+    if not VALID_SCOPES[scope] then
+        error('KeybindService.clearOverride: invalid scope "' .. tostring(scope) .. '"')
+    end
+    PreferenceService.clear(scope, ownerId, 'keybind:' .. actionId)
+end
+
+--- Resolve source -> accountId/characterId softly: AccountService/
+--- CharacterService are optional modules, so a core-only server (or one
+--- mid-boot before they've loaded) still resolves default-only keybinds.
 --- @param source number
---- @return table
-function KeybindService.loadPlayerKeybindsSync(source)
-    local identifier = GetPlayerIdentifier(source, 0)
-    
-    local sql = [[
-        SELECT k.*, a.id as action_id, a.label as action_label
-        FROM keybinds k
-        LEFT JOIN actions a ON k.action_id = a.id
-        WHERE k.player_identifier = ? OR k.player_identifier IS NULL
-        ORDER BY k.is_global DESC, k.id ASC
-    ]]
-    
-    return Database.querySync(sql, {identifier}) or {}
+--- @return number|nil accountId, number|nil characterId
+local function resolveIdsForSource(source)
+    local accountId = AccountService and AccountService.getAccountId(source) or nil
+    local characterId = CharacterService and CharacterService.getActiveCharacterId(source) or nil
+    return accountId, characterId
 end
 
---- Send keybinds to client
---- @param source number Player server ID
+--- Send this player's fully-resolved keybind map to their client.
+--- @param source number
 function KeybindService.syncToClient(source)
-    KeybindService.loadPlayerKeybinds(source, function(keybinds)
-        Obelisk.emitClient('core:server:keybinds-sync', source, keybinds)
-        print('[KeybindService] Synced ' .. #keybinds .. ' keybinds to player ' .. source)
-    end)
+    local accountId, characterId = resolveIdsForSource(source)
+    local resolved = KeybindService.resolveAll(accountId, characterId)
+    Obelisk.emitClient('core:server:keybinds-sync', source, resolved)
 end
 
---- Register a global keybind (applies to all players)
---- @param key string Key code (e.g., 'E', 'F', etc.)
---- @param actionId string Action to trigger
---- @param data table Optional default data
---- @return number keybindId
-function KeybindService.registerGlobal(key, actionId, data)
-    local dbId = ActionService.getDbId(actionId)
-    if not dbId then
-        print('[KeybindService] Error: action "' .. actionId .. '" is not registered')
-        return nil
-    end
-
-    local sql = [[
-        INSERT INTO keybinds (key_code, action_id, data, is_global, player_identifier)
-        VALUES (?, ?, ?, 1, NULL)
-    ]]
-
-    local jsonData = data and json.encode(data) or nil
-    local keybindId = Database.insertSync(sql, {key, dbId, jsonData})
-    
-    print('[KeybindService] Registered global keybind: ' .. key .. ' -> ' .. actionId)
-    
-    -- Sync to all connected clients
-    Obelisk.emitClient('core:server:keybinds-requestSync', -1)
-    
-    return keybindId
-end
-
---- Register a player-specific keybind
---- @param source number Player server ID
---- @param key string Key code
---- @param actionId string Action to trigger
---- @param data table Optional data
---- @return number keybindId
-function KeybindService.registerPlayer(source, key, actionId, data)
-    local dbId = ActionService.getDbId(actionId)
-    if not dbId then
-        print('[KeybindService] Error: action "' .. actionId .. '" is not registered')
-        return nil
-    end
-
-    local identifier = GetPlayerIdentifier(source, 0)
-
-    local sql = [[
-        INSERT INTO keybinds (key_code, action_id, data, is_global, player_identifier)
-        VALUES (?, ?, ?, 0, ?)
-    ]]
-
-    local jsonData = data and json.encode(data) or nil
-    local keybindId = Database.insertSync(sql, {key, dbId, jsonData, identifier})
-    
-    print('[KeybindService] Registered player keybind for ' .. source .. ': ' .. key .. ' -> ' .. actionId)
-    
-    -- Sync to player
-    KeybindService.syncToClient(source)
-    
-    return keybindId
-end
-
---- Update a keybind
---- @param keybindId number
---- @param data table Fields to update
-function KeybindService.update(keybindId, data)
-    local updates = {}
-    for field, value in pairs(data) do
-        if field == 'data' then
-            value = json.encode(value)
-        end
-        updates[field] = value
-    end
-
-    -- Go through QueryBuilder so the column names are quoted/validated as
-    -- identifiers; a crafted field name cannot inject SQL here.
-    QueryBuilder.new('keybinds'):where('id', keybindId):update(updates)
-
-    -- Sync to all clients (global) or specific player
-    Obelisk.emitClient('core:server:keybinds-requestSync', -1)
-end
-
---- Delete a keybind
---- @param keybindId number
-function KeybindService.delete(keybindId)
-    local sql = 'DELETE FROM keybinds WHERE id = ?'
-    Database.updateSync(sql, {keybindId})
-    
-    print('[KeybindService] Deleted keybind #' .. keybindId)
-    
-    -- Sync to all clients
-    Obelisk.emitClient('core:server:keybinds-requestSync', -1)
-end
-
---- Handle keybind press from client
---- Client sends the integer actions.id to trigger (resolved back to the
---- string actionId here, since ActionService's registry is keyed by string)
---- @param source number Player server ID
---- @param actionId number
---- @param keybindData table
-function KeybindService.handlePress(source, actionId, keybindData)
-    local resolvedActionId = ActionService.resolveDbId(actionId)
-    if not resolvedActionId then
-        print('[KeybindService] Error: no action registered for db id: ' .. tostring(actionId))
+--- Client pressed a key already known (client-side) to map to this action.
+--- @param source number
+--- @param actionId string
+function KeybindService.handlePress(source, actionId)
+    if not ActionService.exists(actionId) then
+        print('[KeybindService] Error: Action not found: ' .. tostring(actionId))
         return
     end
-
-    if not ActionService.exists(resolvedActionId) then
-        print('[KeybindService] Error: Action not found: ' .. resolvedActionId)
-        return
-    end
-
-    ActionService.execute(source, resolvedActionId, keybindData)
+    ActionService.execute(source, actionId, {})
 end
 
 --- Net event: Client requests keybind sync
@@ -167,15 +98,14 @@ Obelisk.onServer('core:client:keybinds-requestSync', function()
 end)
 
 --- Net event: Client pressed a keybind
-Obelisk.onServer('core:client:keybinds-pressed', function(actionId, keybindData)
+Obelisk.onServer('core:client:keybinds-pressed', function(actionId)
     local source = source
-    KeybindService.handlePress(source, actionId, keybindData)
+    KeybindService.handlePress(source, actionId)
 end)
 
 --- On player connect, sync keybinds
 AddEventHandler('playerJoining', function()
     local source = source
-    -- Delay slightly to ensure player is fully loaded
     SetTimeout(1000, function()
         KeybindService.syncToClient(source)
     end)
