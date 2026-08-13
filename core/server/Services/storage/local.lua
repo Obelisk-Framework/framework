@@ -16,12 +16,23 @@ local function resourcePath(key)
   return config.basePath .. '/' .. key
 end
 
+--- @return string the configured basePath, e.g. 'storage' — exposed so
+--- callers (e.g. the /storage/* GET handler in upload_handler.lua) can build
+--- the same resource-relative path this module uses internally, without
+--- hardcoding it and risking drift if basePath is ever reconfigured.
+function StorageLocal.getBasePath()
+  return config.basePath
+end
+
 --- @param key string
 --- @param bytes string raw file contents
 --- @param _contentType string unused by the local provider (no metadata store)
 --- @return string url
 function StorageLocal.put(key, bytes, _contentType)
-  SaveResourceFile(GetCurrentResourceName(), resourcePath(key), bytes, #bytes)
+  local ok = SaveResourceFile(GetCurrentResourceName(), resourcePath(key), bytes, #bytes)
+  if not ok then
+    error(string.format('[StorageLocal] put failed for key "%s": SaveResourceFile returned false', key), 2)
+  end
   return StorageLocal.url(key)
 end
 

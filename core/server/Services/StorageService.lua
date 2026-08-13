@@ -67,18 +67,27 @@ end
 --- @param contentType string MIME type, e.g. 'image/jpeg'
 --- @return string url
 function Storage.put(key, bytes, contentType)
+  if not Storage.ready then
+    error('[Storage] not initialized — Storage.init() must succeed before use', 2)
+  end
   return adapter.put(key, bytes, contentType)
 end
 
 --- @param key string
 --- @return boolean
 function Storage.delete(key)
+  if not Storage.ready then
+    error('[Storage] not initialized — Storage.init() must succeed before use', 2)
+  end
   return adapter.delete(key)
 end
 
 --- @param key string
 --- @return string url
 function Storage.url(key)
+  if not Storage.ready then
+    error('[Storage] not initialized — Storage.init() must succeed before use', 2)
+  end
   return adapter.url(key)
 end
 

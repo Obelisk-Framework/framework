@@ -39,7 +39,7 @@ local REGION = 'us-east-1'
 local SERVICE = 's3'
 local EMPTY_PAYLOAD_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 
-test('canonical request hash matches the AWS worked example', function()
+test("matches AWS's SigV4 worked example (verified via independent Python re-implementation) — canonical request hash", function()
     local headers = {
         host = 'examplebucket.s3.amazonaws.com',
         range = 'bytes=0-9',
@@ -51,12 +51,12 @@ test('canonical request hash matches the AWS worked example', function()
     eq(Sha256.hex(Sha256.digest(canonicalRequest)), EXPECTED_CANONICAL_REQUEST_HASH)
 end)
 
-test('string to sign matches the AWS worked example', function()
+test("matches AWS's SigV4 worked example (verified via independent Python re-implementation) — string to sign", function()
     local stringToSign = Sigv4.stringToSign(AMZ_DATE, DATE_STAMP, REGION, SERVICE, EXPECTED_CANONICAL_REQUEST_HASH)
     eq(stringToSign, EXPECTED_STRING_TO_SIGN)
 end)
 
-test('final signature matches the AWS worked example', function()
+test("matches AWS's SigV4 worked example (verified via independent Python re-implementation) — final signature", function()
     local signature = Sigv4.signature(SECRET_KEY, DATE_STAMP, REGION, SERVICE, EXPECTED_STRING_TO_SIGN)
     eq(signature, EXPECTED_SIGNATURE)
 end)

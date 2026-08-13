@@ -224,6 +224,10 @@ _G.promise = _G.promise or {
         return p
     end,
 }
+-- NOTE: this stub only proves correctness when the promise resolves before
+-- Await is called (i.e. when PerformHttpRequest's test stub calls back
+-- synchronously) — it does not prove the real async path works; that
+-- requires a live FXServer.
 _G.Citizen.Await = _G.Citizen.Await or function(p)
     if not p._resolved then
         error('Citizen.Await stub: promise was never resolved (PerformHttpRequest stub must call its callback synchronously)', 2)

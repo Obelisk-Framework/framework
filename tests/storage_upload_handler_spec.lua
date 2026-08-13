@@ -45,6 +45,9 @@ local function fakeRequest(body, boundary)
         setDataHandler = function(_self, cb) cb(body) end,
     }
 end
+local function fakeGetRequest(path)
+    return { method = 'GET', path = path, headers = {} }
+end
 local function fakeResponse()
     local res = { status = nil, headers = nil, body = nil }
     res.writeHead = function(_self, status, headers) res.status = status; res.headers = headers end
@@ -92,6 +95,24 @@ test('a request to a different path is not handled here (falls through with 404)
     local req = { path = '/something/else', headers = {}, setDataHandler = function(_self, cb) cb('') end }
     local res = fakeResponse()
     _registeredHttpHandler(req, res)
+    eq(res.status, 404)
+end)
+
+test('GET on a key that was put() returns 200 with the stored bytes', function()
+    Storage.put('phone-photos/get-test.jpg', 'hello-bytes', 'image/jpeg')
+
+    local req, res = fakeGetRequest('/storage/phone-photos/get-test.jpg'), fakeResponse()
+    _registeredHttpHandler(req, res)
+
+    eq(res.status, 200)
+    eq(res.body, 'hello-bytes')
+    truthy(res.headers['Content-Type'], 'expected a Content-Type header')
+end)
+
+test('GET on a missing key returns 404', function()
+    local req, res = fakeGetRequest('/storage/phone-photos/does-not-exist.jpg'), fakeResponse()
+    _registeredHttpHandler(req, res)
+
     eq(res.status, 404)
 end)
 

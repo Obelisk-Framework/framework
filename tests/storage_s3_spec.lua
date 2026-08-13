@@ -48,6 +48,7 @@ test('put() issues a PUT to the path-style url with an Authorization header', fu
     contains(seen.headers['Authorization'], 'AWS4-HMAC-SHA256')
     contains(seen.headers['Authorization'], 'AKIDEXAMPLE')
     eq(seen.headers['x-amz-content-sha256'], Sha256.hex(Sha256.digest('binarydata')))
+    eq(seen.headers.host, 's3.us-east-1.amazonaws.com', 'host header must be set for SigV4 (regression: commit 222cabf)')
     eq(url, 'https://s3.us-east-1.amazonaws.com/obelisk-uploads/photos/a.jpg')
 end)
 
