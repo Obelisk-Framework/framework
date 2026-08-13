@@ -13,6 +13,14 @@ function WebView.focus()
     setFocus(true, true)
 end
 
+--- Releases NUI focus/cursor without broadcasting a hide-everything message
+--- (unlike WebView.hide()/WebView.destroy()) — for callers that only want to
+--- give input back to the game while other global elements may still be
+--- visible.
+function WebView.blur()
+    setFocus(false, false)
+end
+
 function WebView.toggleCursor()
     setFocus(WebView.state.focus, not WebView.state.cursor)
 end
