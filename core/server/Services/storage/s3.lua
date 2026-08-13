@@ -49,6 +49,7 @@ local function signedRequest(method, key, body)
   )
 
   local outHeaders = {
+    host = host,
     ['x-amz-date'] = amzDate,
     ['x-amz-content-sha256'] = payloadHash,
     ['Authorization'] = authorization,
