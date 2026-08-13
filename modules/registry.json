@@ -1,0 +1,11 @@
+{
+  "modules": [
+    "oblsk_accounts",
+    "oblsk_characters",
+    "oblsk_items",
+    "oblsk_organizations",
+    "oblsk_preferences",
+    "oblsk_vehicles",
+    "oblsk_voice"
+  ]
+}
