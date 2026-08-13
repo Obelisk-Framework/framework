@@ -1546,7 +1546,7 @@ function feed() {
   const id = ++billIdCounter
   flying.value.push(id)
   setTimeout(() => { flying.value = flying.value.filter((x) => x !== id) }, 900)
-  Obelisk.emitServer('phonebooth:feed')
+  Obelisk.emit('phonebooth:feed', {})
 }
 
 function toggleHandset() {
@@ -1564,11 +1564,11 @@ function dial() {
   if (num.value.replace(/\D/g, '').length < 3) { note.value = 'NUMBER TOO SHORT'; return }
   state.value = 'ringing'
   note.value = 'RINGING…'
-  Obelisk.emitServer('phonebooth:dial', { number: num.value })
+  Obelisk.emit('phonebooth:dial', { number: num.value })
 }
 
 function hangUp() {
-  if (callId.value) Obelisk.emitServer('phonebooth:hangup', { callId: callId.value })
+  if (callId.value) Obelisk.emit('phonebooth:hangup', { callId: callId.value })
   state.value = 'idle'
   handset.value = false
   num.value = ''
@@ -1623,7 +1623,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearInterval(flashTimer)
-  Obelisk.emitServer('phonebooth:leave')
+  Obelisk.emit('phonebooth:leave', {})
 })
 
 const DollarBill = {
@@ -1893,7 +1893,7 @@ function tune() {
   const newFrequency = value.toFixed(3)
   channel.frequency = newFrequency
   draft.value = ''
-  Obelisk.emitServer('radio-tune', { channelKey: channel.key, oldFrequency, newFrequency })
+  Obelisk.emit('radio-tune', { channelKey: channel.key, oldFrequency, newFrequency })
 }
 ```
 
@@ -1902,7 +1902,7 @@ Add, near the other lifecycle hooks in this file (it already imports `onBeforeUn
 ```javascript
 onBeforeUnmount(() => {
   channels.forEach((channel) => {
-    Obelisk.emitServer('radio-untune', { frequency: channel.frequency })
+    Obelisk.emit('radio-untune', { frequency: channel.frequency })
   })
 })
 ```
@@ -1911,7 +1911,7 @@ And, since both channels start already tuned to a default frequency (`'155.475'`
 
 ```javascript
 channels.forEach((channel) => {
-  Obelisk.emitServer('radio-tune', { channelKey: channel.key, oldFrequency: null, newFrequency: channel.frequency })
+  Obelisk.emit('radio-tune', { channelKey: channel.key, oldFrequency: null, newFrequency: channel.frequency })
 })
 ```
 
