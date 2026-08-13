@@ -94,6 +94,7 @@ const canvasWrapperStyle = computed(() => ({
   transformOrigin: 'top left',
   width: '1920px',
   height: '1080px',
+  pointerEvents: 'none',
 }))
 
 onMounted(() => {
@@ -133,6 +134,9 @@ onMounted(() => {
 
   Obelisk.on('oblsk_preferences:client:hud-edit-mode-toggled', () => {
     hudEditMode.value = !hudEditMode.value
+    if (!hudEditMode.value) {
+      Obelisk.emit('core:client:close')
+    }
   })
 })
 
