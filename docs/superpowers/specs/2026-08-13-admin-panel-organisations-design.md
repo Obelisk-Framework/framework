@@ -47,15 +47,20 @@ New sibling repo, symlinked in like `oblsk_phone`/`oblsk_licenses`. Follows the 
 
 ### Access control
 
-Reuses the existing `IsAdminPolicy` (`core/core/server/Policies/IsAdminPolicy.lua`, checks `IsPlayerAceAllowed(source, 'admin')`). No new ACE group. The panel-open action is registered with that policy:
+Reuses the existing `IsPlayerAceAllowed(source, 'admin')` check, but via the inline-guard convention this codebase actually uses everywhere admin-gating happens today (`OrganizationCommands.lua`, `AccountCommands.lua`) — not `PolicyService`/`ActionService`'s `options.policies`, which nothing in the framework currently reads or enforces (`PolicyService.attach('action', ...)` has zero call sites; `ActionService.execute`'s policy check passes by default when no policy was ever attached). `IsAdminPolicy.lua` stays unused by this plugin; wiring `options.policies` up to something real is out of scope here.
 
 ```lua
+local function isAdmin(source)
+    return source == 0 or IsPlayerAceAllowed(source, 'admin')
+end
+
 ActionService.register('admin:toggle-panel', function(source, data)
+    if not isAdmin(source) then return end
     Obelisk.emitClient(source, 'admin:client:toggle-panel')
-end, { policies = { 'isAdmin' }, default_key = Config.keybind })
+end, { label = 'Toggle admin panel', default_key = Config.keybind })
 ```
 
-Every NUI→Lua handler the panel registers (`WebView.on('admin:...')`) re-checks `IsPlayerAceAllowed(source, 'admin')` itself — the client-side gate on opening the panel is a UX convenience, not the security boundary; a player who never sees the panel could still fire NUI events by hand.
+Every `Obelisk.onServer('admin:organisations:...')` handler the panel registers calls the same `isAdmin(source)` guard itself — the client-side gate on opening the panel is a UX convenience, not the security boundary; a player who never sees the panel could still fire these server events by hand.
 
 ### Open/close flow
 
@@ -69,11 +74,16 @@ Every NUI→Lua handler the panel registers (`WebView.on('admin:...')`) re-check
 - `web/globalElements.js` — exports `{ name: 'AdminPanel', component: AdminPanel, defaultVisible: false }`.
 - `web/AdminPanel.vue` — shell: header (title, online count placeholder, noclip/god toggles as visual-only stubs for now — those are Players/Server tab territory), 11-tab bar matching the mockup's `TABS` list, tab-switch state. Ten tabs render a shared `ComingSoon.vue` placeholder; `organisations` renders `OrganisationsTab.vue`.
 - `web/OrganisationsTab.vue` — 1:1 port of `AdminOrgs` from `src/proto/admin-tools.jsx`: org list (left, colour swatch + short-code + dept/rank counts + enabled contact numbers), detail panel (right: name, short code, colour picker with custom-colour input, type choice, departments add/remove list, ranks reorderable add/remove list, contact numbers add/remove/toggle list), "+ New" create-organisation flow.
-- NUI bridge: `Obelisk.emit('admin:organisations:list' | ':create' | ':setDetails' | ':addDepartment' | ':removeDepartment' | ':addRank' | ':removeRank' | ':moveRank' | ':addContactNumber' | ':removeContactNumber' | ':toggleContactNumber', payload)` → `WebView.on` handlers in `oblsk_admin/server/main.lua` call the corresponding `OrganizationService` method and return the updated org (or full list) as the NUI callback response — no separate push channel needed since every admin action is player-initiated request/response.
+- NUI bridge: `WebView.on` always acks the NUI callback with a bare `'ok'` (it cannot return data), so this follows the same three-hop push pattern every real plugin in this codebase uses (`oblsk_keybinds`, `oblsk_phone`), not a request/response round trip:
+  1. Vue: `Obelisk.emit('admin:client:organisations-list' | '-create' | '-setDetails' | '-addDepartment' | '-removeDepartment' | '-addRank' | '-removeRank' | '-addContactNumber' | '-removeContactNumber' | '-toggleContactNumber', payload)`.
+  2. Client `oblsk_admin/client/main.lua`: `WebView.on('admin:client:organisations-*', function(data) Obelisk.emitServer('admin:server:organisations-*', data) end)` — thin relay only.
+  3. Server `oblsk_admin/server/main.lua`: `Obelisk.onServer('admin:server:organisations-*', function(...) local source = source; if not isAdmin(source) then return end; <call OrganizationService method>; Obelisk.emitClient('admin:client:organisations-reply', source, result) end)`.
+  4. Client: `Obelisk.onClient('admin:client:organisations-reply', function(result) SendNUIMessage({ eventname = 'admin:client:organisations-reply', args = { result } }) end)`.
+  5. Vue: `Obelisk.on('admin:client:organisations-reply', handler)` registered in `onMounted`, updates local state.
 
 ### Config
 
-`oblsk_admin/config.lua`: `Config.keybind` (default key for `admin:toggle-panel`, following the same `default_key` convention `KeybindService` already reads off action options).
+`oblsk_admin/shared/config.lua` (declared via `shared_scripts` in `fxmanifest.lua`, matching every other plugin's config location): `Config.keybind` (default key for `admin:toggle-panel`, read by `KeybindService` off the action's `options.default_key`).
 
 ## Out of scope for this slice
 
