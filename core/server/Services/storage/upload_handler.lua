@@ -5,6 +5,12 @@
 --- mintUploadToken/consumeUploadToken in StorageService.lua) — never a key
 --- the client supplies directly, so this is not an open write-anything
 --- endpoint. Registered from Storage.init() via SetHttpHandler.
+---
+--- GET /storage/<key> — serves files written by the local driver
+--- (StorageLocal), for parity with S3 URLs being directly fetchable from the
+--- bucket. Only implemented for the local driver: an S3-backed deployment's
+--- StorageS3.url() already points straight at the bucket, so there's nothing
+--- for this resource to serve in that case.
 
 --- Extracts the boundary token from a `Content-Type: multipart/form-data;
 --- boundary=XYZ` header value.
@@ -41,7 +47,50 @@ local function parseMultipart(body, boundary)
   return parts
 end
 
+--- Guesses a Content-Type from a file extension. Good enough for the small
+--- set of file types this endpoint actually serves (screenshots); anything
+--- unrecognized falls back to application/octet-stream.
+--- @param key string
+--- @return string
+local function guessContentType(key)
+  local ext = key:match('%.([%w]+)$')
+  ext = ext and ext:lower()
+  if ext == 'jpg' or ext == 'jpeg' then
+    return 'image/jpeg'
+  elseif ext == 'png' then
+    return 'image/png'
+  end
+  return 'application/octet-stream'
+end
+
+--- Handles GET /storage/<key> for the local driver only. Only called once
+--- the caller has already confirmed Storage.driver == 'local'.
+--- @param req table
+--- @param res table
+local function handleLocalGet(req, res)
+  local key = req.path:sub(#'/storage/' + 1)
+  local basePath = StorageLocal.getBasePath()
+  local bytes = LoadResourceFile(GetCurrentResourceName(), basePath .. '/' .. key)
+  if not bytes then
+    res:writeHead(404, {})
+    res:send('')
+    return
+  end
+  res:writeHead(200, { ['Content-Type'] = guessContentType(key) })
+  res:send(bytes)
+end
+
 SetHttpHandler(function(req, res)
+  if req.method == 'GET' and req.path:sub(1, #'/storage/') == '/storage/' and req.path ~= '/storage/upload' then
+    if Storage.driver == 'local' then
+      handleLocalGet(req, res)
+    else
+      res:writeHead(404, {})
+      res:send('')
+    end
+    return
+  end
+
   if req.path ~= '/storage/upload' then
     res:writeHead(404, {})
     res:send('')
@@ -49,31 +98,40 @@ SetHttpHandler(function(req, res)
   end
 
   req:setDataHandler(function(body)
-    local boundary = parseBoundary(req.headers['content-type'])
-    if not boundary then
-      res:writeHead(400, {})
-      res:send('missing multipart boundary')
-      return
-    end
+    Citizen.CreateThread(function()
+      local boundary = parseBoundary(req.headers['content-type'])
+      if not boundary then
+        res:writeHead(400, {})
+        res:send('missing multipart boundary')
+        return
+      end
 
-    local parts = parseMultipart(body, boundary)
-    local token = parts.token and parts.token.value
-    local pending = token and Storage.consumeUploadToken(token)
-    if not pending then
-      res:writeHead(403, {})
-      res:send('invalid or expired token')
-      return
-    end
+      local parts = parseMultipart(body, boundary)
+      local token = parts.token and parts.token.value
+      local pending = token and Storage.consumeUploadToken(token)
+      if not pending then
+        res:writeHead(403, {})
+        res:send('invalid or expired token')
+        return
+      end
 
-    local file = parts['files[]']
-    if not file or not file.value or #file.value == 0 then
-      res:writeHead(400, {})
-      res:send('missing file')
-      return
-    end
+      local file = parts['files[]']
+      if not file or not file.value or #file.value == 0 then
+        res:writeHead(400, {})
+        res:send('missing file')
+        return
+      end
 
-    local url = Storage.put(pending.key, file.value, pending.contentType)
-    res:writeHead(200, { ['Content-Type'] = 'application/json' })
-    res:send(json.encode({ url = url }))
+      local ok, urlOrErr = pcall(Storage.put, pending.key, file.value, pending.contentType)
+      if not ok then
+        print('[Storage] upload handler: Storage.put failed: ' .. tostring(urlOrErr))
+        res:writeHead(502, {})
+        res:send('upload failed')
+        return
+      end
+
+      res:writeHead(200, { ['Content-Type'] = 'application/json' })
+      res:send(json.encode({ url = urlOrErr }))
+    end)
   end)
 end)

@@ -13,6 +13,20 @@ function StorageS3.configure(cfg)
   for k, v in pairs(cfg) do config[k] = v end
 end
 
+--- Minimal percent-encoding for building a SigV4 canonicalUri: encodes
+--- everything except the unreserved characters (A-Z a-z 0-9 . _ ~ -) and the
+--- path separator '/', which SigV4 canonical URIs use to delimit segments.
+--- Not a general-purpose URL encoder (query strings, IRIs, etc. are out of
+--- scope) — just enough to keep a signed key with spaces/non-ASCII bytes
+--- correct.
+--- @param s string
+--- @return string
+local function uriEncodePath(s)
+  return (s:gsub('[^%w._~/-]', function(c)
+    return string.format('%%%02X', c:byte())
+  end))
+end
+
 local function amzDateNow()
   -- os.date with '!' formats in UTC, required by SigV4.
   return os.date('!%Y%m%dT%H%M%SZ'), os.date('!%Y%m%d')
@@ -36,7 +50,7 @@ local function signedRequest(method, key, body)
   local signedHeaderNames = {'host', 'x-amz-content-sha256', 'x-amz-date'}
   table.sort(signedHeaderNames)
 
-  local canonicalUri = '/' .. config.bucket .. '/' .. key
+  local canonicalUri = uriEncodePath('/' .. config.bucket .. '/' .. key)
   local canonicalRequest = Sigv4.canonicalRequest(method, canonicalUri, '', signedHeaderNames, headers, payloadHash)
   local canonicalRequestHash = Sha256.hex(Sha256.digest(canonicalRequest))
   local stringToSign = Sigv4.stringToSign(amzDate, dateStamp, config.region, 's3', canonicalRequestHash)
