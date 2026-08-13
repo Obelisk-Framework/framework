@@ -159,3 +159,88 @@ if not _G.json then
         end,
     }
 end
+
+-- Resource-relative file natives, backed by a real temp directory so
+-- core/server/Services/storage/local.lua's tests exercise real file I/O.
+-- Not resource-name-aware (single global root) — fine for this test suite,
+-- which only ever runs as one "resource" at a time.
+local RESOURCE_FILE_ROOT = os.tmpname()
+os.remove(RESOURCE_FILE_ROOT) -- os.tmpname() creates the file; we want it as a directory
+os.execute('mkdir -p ' .. RESOURCE_FILE_ROOT)
+
+_G.GetCurrentResourceName = _G.GetCurrentResourceName or function() return 'core' end
+
+_G.GetResourcePath = _G.GetResourcePath or function(_) return RESOURCE_FILE_ROOT end
+
+local function ensureParentDir(fullPath)
+    local dir = fullPath:match('(.*/)')
+    if dir then os.execute('mkdir -p ' .. dir) end
+end
+
+_G.SaveResourceFile = _G.SaveResourceFile or function(_, path, data, _len)
+    local full = RESOURCE_FILE_ROOT .. '/' .. path
+    ensureParentDir(full)
+    local f = io.open(full, 'wb')
+    if not f then return false end
+    f:write(data)
+    f:close()
+    return true
+end
+
+_G.LoadResourceFile = _G.LoadResourceFile or function(_, path)
+    local full = RESOURCE_FILE_ROOT .. '/' .. path
+    local f = io.open(full, 'rb')
+    if not f then return nil end
+    local data = f:read('*a')
+    f:close()
+    return data
+end
+
+_G.RemoveResourceFile = _G.RemoveResourceFile or function(_, path)
+    local full = RESOURCE_FILE_ROOT .. '/' .. path
+    return os.remove(full) ~= nil
+end
+
+-- PerformHttpRequest(url, callback, method, data, headers). Real FXServer
+-- calls back asynchronously; here it calls back synchronously (same trick
+-- Citizen.CreateThread's stub above uses) so storage_s3_spec.lua's
+-- Citizen.Await(promise) pattern still works without ever actually waiting.
+-- Tests install their own _G.PerformHttpRequest override when they need to
+-- assert on the request that was made or control the response.
+_G.PerformHttpRequest = _G.PerformHttpRequest or function(_url, callback, _method, _data, _headers)
+    callback(200, '', {})
+end
+
+-- Minimal synchronous promise + Citizen.Await, matching this file's existing
+-- Citizen.CreateThread stub's synchronous style. Real FXServer promises are
+-- async; here, since PerformHttpRequest's stub above calls its callback
+-- immediately (before PerformHttpRequest even returns), :resolve() always
+-- fires before Citizen.Await(p) is ever called, so a simple captured-value
+-- object is enough — no real scheduling needed.
+_G.promise = _G.promise or {
+    new = function()
+        local p = { _resolved = false, _value = nil }
+        function p:resolve(value) self._resolved = true; self._value = value end
+        return p
+    end,
+}
+-- NOTE: this stub only proves correctness when the promise resolves before
+-- Await is called (i.e. when PerformHttpRequest's test stub calls back
+-- synchronously) — it does not prove the real async path works; that
+-- requires a live FXServer.
+_G.Citizen.Await = _G.Citizen.Await or function(p)
+    if not p._resolved then
+        error('Citizen.Await stub: promise was never resolved (PerformHttpRequest stub must call its callback synchronously)', 2)
+    end
+    return p._value
+end
+
+-- SetHttpHandler(fn) registers fn as THE http handler for this resource.
+-- Real FXServer calls it with (req, res) per request. The stub just records
+-- the last-registered handler so tests can invoke it directly with fake
+-- req/res tables — see tests/storage_upload_handler_spec.lua for the shape
+-- those fakes take.
+_G._registeredHttpHandler = nil
+_G.SetHttpHandler = _G.SetHttpHandler or function(fn)
+    _G._registeredHttpHandler = fn
+end
