@@ -61,20 +61,28 @@ for i = 1, 12 do KEY_TO_VK['F' .. i] = 0x6F + i end
 for i = 0, 25 do KEY_TO_VK[string.char(65 + i)] = 0x41 + i end -- A-Z
 for i = 0, 9 do KEY_TO_VK[tostring(i)] = 0x30 + i end -- 0-9
 
+-- Tracks each key's held state so a held key fires once, not every frame
+-- (IsRawKeyPressed reports current pressed state, not a just-pressed edge).
+local heldKeys = {}
+
 --- Main thread to monitor key presses
 Citizen.CreateThread(function()
     while true do
         Citizen.Wait(0)
 
-        -- Don't dispatch while NUI has focus (e.g. rebinding in the
-        -- Keybinds settings screen itself) - raw key state fires
-        -- regardless of NUI focus, unlike IsControlJustPressed.
-        if not WebView.state.focus then
+        -- Don't dispatch while NUI is focused (e.g. rebinding in the
+        -- Keybinds settings screen itself, or any other resource's NUI) -
+        -- raw key state fires regardless of NUI focus, unlike
+        -- IsControlJustPressed. IsNuiFocused() is resource-agnostic, unlike
+        -- WebView.state.focus which only mirrors this resource's own calls.
+        if not IsNuiFocused() then
             for keyName in pairs(KeybindService.keyMap) do
                 local vk = KEY_TO_VK[keyName]
-                if vk and IsRawKeyPressed(vk) then
+                local isDown = vk and IsRawKeyPressed(vk)
+                if isDown and not heldKeys[keyName] then
                     KeybindService.checkKeyPress(keyName)
                 end
+                heldKeys[keyName] = isDown
             end
         end
     end
