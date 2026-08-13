@@ -230,3 +230,13 @@ _G.Citizen.Await = _G.Citizen.Await or function(p)
     end
     return p._value
 end
+
+-- SetHttpHandler(fn) registers fn as THE http handler for this resource.
+-- Real FXServer calls it with (req, res) per request. The stub just records
+-- the last-registered handler so tests can invoke it directly with fake
+-- req/res tables — see tests/storage_upload_handler_spec.lua for the shape
+-- those fakes take.
+_G._registeredHttpHandler = nil
+_G.SetHttpHandler = _G.SetHttpHandler or function(fn)
+    _G._registeredHttpHandler = fn
+end

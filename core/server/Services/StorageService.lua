@@ -53,6 +53,9 @@ function Storage.init()
     })
   end
 
+  -- Note: the /storage/upload HTTP handler (core/server/Services/storage/
+  -- upload_handler.lua) self-registers via SetHttpHandler when that file
+  -- loads (see fxmanifest.lua's storage/*.lua glob) — nothing to call here.
   Storage.driver = driver
   Storage.ready = true
   print('[Storage] Initialized (driver: ' .. driver .. ')')
@@ -77,4 +80,43 @@ end
 --- @return string url
 function Storage.url(key)
   return adapter.url(key)
+end
+
+local PENDING_UPLOADS = {} -- token -> { key, contentType, expiresAt }
+local TOKEN_TTL_SECONDS = 60
+
+local function randomToken()
+  local chars = '0123456789abcdefghijklmnopqrstuvwxyz'
+  local out = {}
+  for i = 1, 32 do
+    local n = math.random(1, #chars)
+    out[i] = chars:sub(n, n)
+  end
+  return table.concat(out)
+end
+
+--- Registers a pending upload and returns a short-lived, single-use token
+--- for it. The caller hands this token to the client, which posts it (with
+--- the file) to POST /storage/upload — the handler only ever writes to the
+--- exact `key` this call registered, never a key the client supplies.
+--- @param key string
+--- @param contentType string
+--- @return string token
+function Storage.mintUploadToken(key, contentType)
+  local token = randomToken()
+  PENDING_UPLOADS[token] = { key = key, contentType = contentType, expiresAt = os.time() + TOKEN_TTL_SECONDS }
+  return token
+end
+
+--- Consumes a token if valid (exists, not expired). Single-use: removes it
+--- either way once looked up, so a second call for the same token always
+--- misses. Returns nil if the token was never valid.
+--- @param token string
+--- @return table|nil { key, contentType }
+function Storage.consumeUploadToken(token)
+  local entry = PENDING_UPLOADS[token]
+  PENDING_UPLOADS[token] = nil
+  if not entry then return nil end
+  if entry.expiresAt < os.time() then return nil end
+  return entry
 end
