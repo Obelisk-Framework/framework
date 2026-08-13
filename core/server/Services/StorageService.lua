@@ -91,6 +91,20 @@ function Storage.url(key)
   return adapter.url(key)
 end
 
+--- Builds the absolute URL screencapture's server-side exports (or any
+--- other out-of-process uploader) POST to. FXServer mounts a resource's
+--- HTTP handler under /<resourceName>/..., and plugins/*/server/**/*.lua
+--- loads into the same single resource as core (see fxmanifest.lua's
+--- globs), so this resource's own name is always the right prefix no
+--- matter which plugin calls this. storage_http_port must match whatever
+--- port this server's endpoint_add_tcp/endpoint_add_udp lines in
+--- server.cfg actually use (no other convar exposes this).
+--- @return string url
+function Storage.uploadUrl()
+  local port = GetConvarInt('storage_http_port', 30120)
+  return string.format('http://127.0.0.1:%d/%s/storage/upload', port, GetCurrentResourceName())
+end
+
 local PENDING_UPLOADS = {} -- token -> { key, contentType, expiresAt }
 local TOKEN_TTL_SECONDS = 60
 

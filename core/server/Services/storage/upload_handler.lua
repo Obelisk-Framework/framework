@@ -116,7 +116,12 @@ SetHttpHandler(function(req, res)
       end
 
       local parts = parseMultipart(body, boundary)
-      local token = parts.token and parts.token.value
+      -- screencapture's remoteUpload/startVideoCaptureUpload exports send
+      -- exactly one file field plus custom headers - they cannot add a
+      -- second multipart "token" field, so this endpoint also accepts the
+      -- token via a header. The multipart-body field stays supported for any
+      -- other caller.
+      local token = (parts.token and parts.token.value) or req.headers['x-storage-token']
       local pending = token and Storage.consumeUploadToken(token)
       if not pending then
         res:writeHead(403, {})

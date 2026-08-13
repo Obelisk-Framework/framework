@@ -123,6 +123,39 @@ test('GET with a path-traversal key is rejected with 404, not loaded', function(
     eq(res.status, 404, 'a traversal key must not be loaded from disk')
 end)
 
+test('a valid token via the X-Storage-Token header uploads without a multipart token field', function()
+    local token = Storage.mintUploadToken('phone-photos/header-test.jpg', 'image/jpeg')
+    local boundary = 'HEADERTOKENBOUNDARY'
+    -- Only a files[] part this time - no "token" field in the body at all,
+    -- matching screencapture's remoteUpload, which sends exactly one file
+    -- field plus custom headers (see docs/superpowers/specs/2026-08-13-
+    -- camera-gallery-design.md).
+    local body = table.concat({
+        '--' .. boundary .. '\r\n',
+        'Content-Disposition: form-data; name="files[]"; filename="shot.jpg"\r\n',
+        'Content-Type: image/jpeg\r\n\r\n',
+        'fake-jpeg-bytes' .. '\r\n',
+        '--' .. boundary .. '--\r\n',
+    })
+    -- Reuses this file's existing fakeResponse() helper; the request table
+    -- is built inline (rather than via fakeRequest()) since this test needs
+    -- an extra x-storage-token header fakeRequest() doesn't accept.
+    local req = {
+        path = '/storage/upload',
+        headers = {
+            ['content-type'] = 'multipart/form-data; boundary=' .. boundary,
+            ['x-storage-token'] = token,
+        },
+        setDataHandler = function(_self, cb) cb(body) end,
+    }
+    local res = fakeResponse()
+
+    _registeredHttpHandler(req, res)
+
+    eq(res.status, 200)
+    truthy(res.body:find('/storage/phone%-photos/header%-test%.jpg'), 'response body should contain the stored url')
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then passed = passed + 1 else failures[#failures + 1] = {name = t.name, err = err} end

@@ -68,6 +68,12 @@ test('selecting the s3 driver without required convars fails init loudly', funct
     _G.GetConvar = function(_, default) return default end
 end)
 
+test('uploadUrl builds an absolute, resource-prefixed URL to the upload endpoint', function()
+    local url = Storage.uploadUrl()
+    truthy(url:find('http://127.0.0.1:', 1, true), 'expected an absolute http://127.0.0.1:<port> URL')
+    truthy(url:find('/storage/upload', 1, true), 'expected the URL to end at /storage/upload')
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then passed = passed + 1 else failures[#failures + 1] = {name = t.name, err = err} end

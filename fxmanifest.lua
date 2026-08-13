@@ -8,7 +8,8 @@ version '1.0.0'
 -- Dependencies
 dependencies {
     '/server:5848',
-    '/onesync'
+    '/onesync',
+    'screencapture'
 }
 
 -- UI
