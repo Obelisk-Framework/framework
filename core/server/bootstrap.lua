@@ -130,8 +130,7 @@ Citizen.CreateThread(function()
     print('[Obelisk] Running seeders...')
     
     local seeders = {
-        'DefaultActionsSeeder',
-        'DefaultKeybindsSeeder'
+        'DefaultActionsSeeder'
     }
     
     for _, seeder in ipairs(seeders) do
@@ -161,7 +160,7 @@ Citizen.CreateThread(function()
     ActionService.register('use_interaction', function(source, data)
         -- This is handled by InteractionService
         print('[Action] use_interaction called by player ' .. source)
-    end)
+    end, { label = 'Interact', default_key = 'E' })
     
     print('[Obelisk] Core actions registered')
     
@@ -189,6 +188,7 @@ end)
 AddEventHandler('playerJoining', function()
     local source = source
     print('[Obelisk] Player ' .. source .. ' joined, syncing data...')
+    SpawnManagerService.markConnecting(source)
 end)
 
 -- Player dropped handler

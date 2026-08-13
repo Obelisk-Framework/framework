@@ -169,17 +169,15 @@ Progress state is also cleared automatically on `playerDropped`. Clients report 
 
 ## KeybindService
 
-Manages key-to-action bindings with database persistence (`keybinds` table), synced to clients.
+Resolves the key bound to an action through a three-tier model: an action's declared default (`actions.options.default_key`, set by whichever plugin calls `ActionService.register`) → an account-level override → a character-level override. Overrides are stored in `oblsk_preferences` (key `keybind:<actionId>`, scoped `owner_type = 'account'|'character'`) via that module's `PreferenceService.getMerged` precedence pattern — there's no dedicated keybinds table. See `docs/superpowers/specs/2026-08-13-keybind-layering-design.md` for the full design.
 
-- **`KeybindService.loadPlayerKeybinds(source, callback)`** / **`loadPlayerKeybindsSync(source)`** — loads all keybinds visible to a player (their own player-specific ones plus every global one), joined against the `actions` table.
-- **`KeybindService.syncToClient(source)`** — loads and sends the player's keybinds via `core:server:keybinds-sync`.
-- **`KeybindService.registerGlobal(key, actionId, data)`** — inserts a global keybind (`is_global = 1`, no player identifier) and asks every client to re-sync.
-- **`KeybindService.registerPlayer(source, key, actionId, data)`** — inserts a keybind scoped to one player's identifier and re-syncs that client.
-- **`KeybindService.update(keybindId, data)`** — updates a keybind row via `QueryBuilder` (so field names are validated/quoted as identifiers) and asks clients to re-sync.
-- **`KeybindService.delete(keybindId)`** — deletes a keybind row and asks clients to re-sync.
-- **`KeybindService.handlePress(source, actionId, keybindData)`** — verifies the action exists via `ActionService.exists`, then calls `ActionService.execute(source, actionId, keybindData)`.
+- **`KeybindService.resolve(actionId, accountId, characterId)`** — resolves a single action's effective key: default → account override (if set) → character override (if set).
+- **`KeybindService.resolveAll(accountId, characterId)`** — resolves every registered action, returning `{actionId -> key}`.
+- **`KeybindService.setOverride(scope, ownerId, actionId, key)`** / **`clearOverride(scope, ownerId, actionId)`** — write/clear an override (`scope` is `'account'` or `'character'`; anything else raises an error).
+- **`KeybindService.syncToClient(source)`** — resolves that player's `accountId`/`characterId` (soft dependency on `AccountService`/`CharacterService`, so a core-only server still resolves default-only keybinds) and pushes the resolved `{actionId -> key}` map via `core:server:keybinds-sync`.
+- **`KeybindService.handlePress(source, actionId)`** — verifies the action exists via `ActionService.exists`, then calls `ActionService.execute(source, actionId, {})`.
 
-Clients report key presses via the `core:client:keybinds-pressed` net event and can request a re-sync via `core:client:keybinds-requestSync`; new players are synced automatically shortly after `playerJoining`.
+Clients report key presses via the `core:client:keybinds-pressed` net event and can request a re-sync via `core:client:keybinds-requestSync`; new players are synced automatically shortly after `playerJoining`. The client dispatch loop matches raw keyboard state (`IsRawKeyPressed`, not `IsControlJustPressed` — most keys have no native GTA5 control mapping) against the resolved map, skipping dispatch while the NUI has focus. The `oblsk_keybinds` plugin owns the rebind settings screen; it holds no keybind data of its own, just calls back into this service.
 
 ## EntityStreamerService
 
