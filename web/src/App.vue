@@ -8,12 +8,13 @@
         :entry="entry"
       />
     </div>
-    <component
+    <div
       v-for="[name, entry] in nonPositionableEntries"
       :key="name"
-      :is="entry.component"
       v-show="entry.visible"
-    />
+    >
+      <component :is="entry.component" />
+    </div>
     <router-view />
   </div>
 </template>
