@@ -4,6 +4,9 @@ local scriptDir = arg[0]:match('(.*/)') or './'
 local ROOT = scriptDir .. '..'
 dofile(scriptDir .. 'support/fivem_stubs.lua')
 dofile(ROOT .. '/core/server/Services/storage/local.lua')
+-- StorageLocal.url() delegates to Storage.baseUrl() (StorageService.lua) to
+-- build an absolute, resource-prefixed URL — load it too so that resolves.
+dofile(ROOT .. '/core/server/Services/StorageService.lua')
 
 local tests, failures, passed = {}, {}, 0
 local function test(name, fn) tests[#tests + 1] = {name = name, fn = fn} end
@@ -16,9 +19,10 @@ local function truthy(v, msg) if not v then error(msg or 'expected truthy', 2) e
 
 StorageLocal.configure({ basePath = 'storage', urlPrefix = '/storage' })
 
-test('put writes the file and returns a url built from urlPrefix + key', function()
+test('put writes the file and returns an absolute, resource-prefixed url', function()
     local url = StorageLocal.put('photos/a.jpg', 'binarydata123', 'image/jpeg')
-    eq(url, '/storage/photos/a.jpg')
+    truthy(url:find('http://127.0.0.1:', 1, true), 'expected an absolute http://127.0.0.1:<port> URL')
+    truthy(url:find('/storage/photos/a.jpg', 1, true), 'expected the URL to end at /storage/photos/a.jpg')
 end)
 
 test('a file written by put can be read back byte-for-byte via LoadResourceFile', function()
@@ -29,13 +33,15 @@ end)
 
 test('put creates nested directories that do not exist yet', function()
     local url = StorageLocal.put('deep/nested/path/file.bin', 'x', 'application/octet-stream')
-    eq(url, '/storage/deep/nested/path/file.bin')
+    truthy(url:find('/storage/deep/nested/path/file.bin', 1, true))
     local raw = LoadResourceFile(GetCurrentResourceName(), 'storage/deep/nested/path/file.bin')
     eq(raw, 'x')
 end)
 
-test('url() returns the same shape as put() without touching storage', function()
-    eq(StorageLocal.url('anything/here.png'), '/storage/anything/here.png')
+test('url() returns an absolute, resource-prefixed URL matching put()', function()
+    local url = StorageLocal.url('anything/here.png')
+    truthy(url:find('http://127.0.0.1:', 1, true), 'expected an absolute http://127.0.0.1:<port> URL')
+    truthy(url:find('/storage/anything/here.png', 1, true))
 end)
 
 test('delete removes a file that exists and returns true', function()

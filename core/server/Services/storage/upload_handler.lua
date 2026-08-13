@@ -59,6 +59,10 @@ local function guessContentType(key)
     return 'image/jpeg'
   elseif ext == 'png' then
     return 'image/png'
+  elseif ext == 'webp' then
+    return 'image/webp'
+  elseif ext == 'webm' then
+    return 'video/webm'
   end
   return 'application/octet-stream'
 end

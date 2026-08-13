@@ -45,5 +45,10 @@ end
 --- @param key string
 --- @return string url
 function StorageLocal.url(key)
-  return config.urlPrefix .. '/' .. key
+  -- Must be absolute + resource-prefixed, not root-relative: the phone's
+  -- NUI document loads from a nui://<resource>/... origin, so a bare
+  -- '/storage/...' path never reaches the actual HTTP endpoint. Reuses
+  -- Storage.baseUrl() (StorageService.lua) — the same construction
+  -- Storage.uploadUrl() uses — to avoid duplicating it here.
+  return Storage.baseUrl() .. config.urlPrefix .. '/' .. key
 end
