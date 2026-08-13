@@ -1,22 +1,26 @@
 --- Client KeybindService - Handles keybind registration and triggering
 KeybindService = {}
-KeybindService.keybinds = {}
-KeybindService.keyMap = {} -- Map key codes to keybind IDs
+KeybindService.keybinds = {} -- {actionId -> key}
+KeybindService.keyMap = {} -- Map key name (e.g. 'G') -> list of actionIds bound to it
 
---- Sync keybinds from server
-Obelisk.onClient('core:server:keybinds-sync', function(keybinds)
-    KeybindService.keybinds = keybinds
+--- Sync keybinds from server. Payload is the resolved {actionId -> key}
+--- map from KeybindService.resolveAll (server), not a row array.
+Obelisk.onClient('core:server:keybinds-sync', function(resolved)
+    KeybindService.keybinds = resolved
     KeybindService.keyMap = {}
-    
-    -- Build key map for quick lookup
-    for _, keybind in ipairs(keybinds) do
-        if not KeybindService.keyMap[keybind.key_code] then
-            KeybindService.keyMap[keybind.key_code] = {}
+
+    local count = 0
+    for actionId, key in pairs(resolved) do
+        count = count + 1
+        if key then
+            if not KeybindService.keyMap[key] then
+                KeybindService.keyMap[key] = {}
+            end
+            table.insert(KeybindService.keyMap[key], actionId)
         end
-        table.insert(KeybindService.keyMap[keybind.key_code], keybind)
     end
-    
-    print('[KeybindService] Loaded ' .. #keybinds .. ' keybinds')
+
+    print('[KeybindService] Loaded ' .. count .. ' keybinds')
 end)
 
 --- Request keybinds from server
@@ -31,22 +35,14 @@ Obelisk.onClient('core:server:keybinds-requestSync', function()
 end)
 
 --- Check if key is pressed and trigger associated actions
-function KeybindService.checkKeyPress(keyCode)
-    local keybinds = KeybindService.keyMap[keyCode]
-    
-    if not keybinds then return end
-    
-    for _, keybind in ipairs(keybinds) do
-        if keybind.action_id then
-            -- Parse data if JSON string
-            local data = keybind.data
-            if type(data) == 'string' then
-                data = json.decode(data)
-            end
-            
-            -- Trigger action on server
-            Obelisk.emitServer('core:client:keybinds-pressed', keybind.action_id, data or {})
-        end
+--- @param keyName string e.g. 'G' - matches the key strings resolved server-side
+function KeybindService.checkKeyPress(keyName)
+    local actionIds = KeybindService.keyMap[keyName]
+
+    if not actionIds then return end
+
+    for _, actionId in ipairs(actionIds) do
+        Obelisk.emitServer('core:client:keybinds-pressed', actionId)
     end
 end
 
