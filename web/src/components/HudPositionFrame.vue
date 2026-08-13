@@ -39,7 +39,7 @@ const frameStyle = computed(() => ({
     : (selected.value ? '1px dashed color-mix(in oklab, var(--ob-accent) 70%, transparent)' : '1px dashed rgba(255,255,255,.18)'),
   outlineOffset: '6px',
   zIndex: selected.value ? 40 : undefined,
-  pointerEvents: 'auto',
+  pointerEvents: editMode.value ? 'auto' : 'none',
 }))
 
 const persistLayout = debounce(() => {
@@ -52,11 +52,13 @@ const persistLayout = debounce(() => {
 }, 400)
 
 let drag = null
+let moved = false
 
 function onPointerDown(ev) {
   if (!editMode.value) return
   ev.stopPropagation()
   selection.value = props.name
+  moved = false
   drag = { x0: props.entry.layout.x, y0: props.entry.layout.y, px: ev.clientX, py: ev.clientY }
   window.addEventListener('pointermove', onPointerMove)
   window.addEventListener('pointerup', onPointerUp)
@@ -76,12 +78,13 @@ function onPointerMove(ev) {
   const k = canvasScale.value || 1
   props.entry.layout.x = Math.round(drag.x0 + (ev.clientX - drag.px) / k)
   props.entry.layout.y = Math.round(drag.y0 + (ev.clientY - drag.py) / k)
+  moved = true
   persistLayout()
 }
 
 function onPointerUp() {
   if (!drag) return
-  persistLayout.flush()
+  if (moved) persistLayout.flush()
   stopDrag()
 }
 
