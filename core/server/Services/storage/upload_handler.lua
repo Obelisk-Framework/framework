@@ -69,6 +69,15 @@ end
 --- @param res table
 local function handleLocalGet(req, res)
   local key = req.path:sub(#'/storage/' + 1)
+  -- Reject any '..' traversal attempt outright (e.g. GET /storage/../../
+  -- server.cfg). Unlike Storage.put's key (always server-minted, never
+  -- client-supplied), this key comes straight from the request path, so it
+  -- needs its own defense-in-depth rather than relying on the token flow.
+  if key:find('..', 1, true) then
+    res:writeHead(404, {})
+    res:send('')
+    return
+  end
   local basePath = StorageLocal.getBasePath()
   local bytes = LoadResourceFile(GetCurrentResourceName(), basePath .. '/' .. key)
   if not bytes then

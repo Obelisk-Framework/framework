@@ -116,6 +116,13 @@ test('GET on a missing key returns 404', function()
     eq(res.status, 404)
 end)
 
+test('GET with a path-traversal key is rejected with 404, not loaded', function()
+    local req, res = fakeGetRequest('/storage/../../server.cfg'), fakeResponse()
+    _registeredHttpHandler(req, res)
+
+    eq(res.status, 404, 'a traversal key must not be loaded from disk')
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then passed = passed + 1 else failures[#failures + 1] = {name = t.name, err = err} end
