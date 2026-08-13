@@ -10,7 +10,7 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed, inject, watch, onUnmounted } from 'vue'
 import Obelisk from '@/obelisk.js'
 import { layoutTransform, debounce } from '@/lib/hudLayout.js'
 
@@ -39,6 +39,7 @@ const frameStyle = computed(() => ({
     : (selected.value ? '1px dashed color-mix(in oklab, var(--ob-accent) 70%, transparent)' : '1px dashed rgba(255,255,255,.18)'),
   outlineOffset: '6px',
   zIndex: selected.value ? 40 : undefined,
+  pointerEvents: 'auto',
 }))
 
 const persistLayout = debounce(() => {
@@ -61,8 +62,17 @@ function onPointerDown(ev) {
   window.addEventListener('pointerup', onPointerUp)
 }
 
+function stopDrag() {
+  drag = null
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
+}
+
 function onPointerMove(ev) {
-  if (!drag) return
+  if (!drag || !editMode.value) {
+    stopDrag()
+    return
+  }
   const k = canvasScale.value || 1
   props.entry.layout.x = Math.round(drag.x0 + (ev.clientX - drag.px) / k)
   props.entry.layout.y = Math.round(drag.y0 + (ev.clientY - drag.py) / k)
@@ -71,9 +81,19 @@ function onPointerMove(ev) {
 
 function onPointerUp() {
   if (!drag) return
-  drag = null
   persistLayout.flush()
-  window.removeEventListener('pointermove', onPointerMove)
-  window.removeEventListener('pointerup', onPointerUp)
+  stopDrag()
 }
+
+watch(editMode, (isEditMode) => {
+  if (!isEditMode && drag) {
+    persistLayout.flush()
+    stopDrag()
+  }
+})
+
+onUnmounted(() => {
+  persistLayout.cancel()
+  stopDrag()
+})
 </script>
