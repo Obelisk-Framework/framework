@@ -1,7 +1,15 @@
 <template>
   <div id="app" class="relative">
+    <div class="absolute top-0 left-0" :style="canvasWrapperStyle">
+      <HudPositionFrame
+        v-for="[name, entry] in positionableEntries"
+        :key="name"
+        :name="name"
+        :entry="entry"
+      />
+    </div>
     <component
-      v-for="[name, entry] in registry"
+      v-for="[name, entry] in nonPositionableEntries"
       :key="name"
       :is="entry.component"
       v-show="entry.visible"
@@ -11,10 +19,12 @@
 </template>
 
 <script setup>
-import { reactive, onMounted, provide } from 'vue'
+import { reactive, ref, computed, onMounted, onUnmounted, provide } from 'vue'
 import router from './router'
 import Obelisk from './obelisk.js'
 import coreGlobalElements from './globalElements.js'
+import HudPositionFrame from './components/HudPositionFrame.vue'
+import { computeCanvasFit } from './lib/hudLayout.js'
 
 const contributedGlobalElementModules = import.meta.glob(
   ['../../modules/*/web/globalElements.js', '../../plugins/*/web/globalElements.js'],
@@ -40,15 +50,54 @@ for (const entry of [...coreGlobalElements, ...contributedGlobalElements]) {
     console.warn(`[Obelisk] duplicate global element name "${entry.name}", keeping the last one discovered`)
   }
   const defaultVisible = !!entry.defaultVisible
-  registry.set(entry.name, { component: entry.component, defaultVisible, visible: defaultVisible })
+  const positionable = !!entry.positionable
+  const defaultLayout = entry.defaultLayout || { x: 0, y: 0, width: 300, align: 'left' }
+  registry.set(entry.name, {
+    component: entry.component,
+    defaultVisible,
+    visible: defaultVisible,
+    positionable,
+    defaultLayout,
+    layout: reactive({
+      x: defaultLayout.x, y: defaultLayout.y, width: defaultLayout.width, align: defaultLayout.align,
+      scale: 1, rx: 0, ry: 0, rot: 0,
+    }),
+  })
 }
+
+const positionableEntries = computed(() => [...registry].filter(([, entry]) => entry.positionable))
+const nonPositionableEntries = computed(() => [...registry].filter(([, entry]) => !entry.positionable))
 
 provide('obelisk:globalElementsRegistry', registry)
 
 const paymentApi = reactive({ requestPayment: null })
 provide('obelisk:payment', paymentApi)
 
+const hudEditMode = ref(false)
+const hudEditSelection = ref(null)
+const hudEditScope = ref('account')
+provide('obelisk:hudEditMode', hudEditMode)
+provide('obelisk:hudEditSelection', hudEditSelection)
+provide('obelisk:hudEditScope', hudEditScope)
+
+const canvasFit = ref(computeCanvasFit(window.innerWidth, window.innerHeight))
+const hudCanvasScale = computed(() => canvasFit.value.scale)
+provide('obelisk:hudCanvasScale', hudCanvasScale)
+
+function updateCanvasFit() {
+  canvasFit.value = computeCanvasFit(window.innerWidth, window.innerHeight)
+}
+
+const canvasWrapperStyle = computed(() => ({
+  transform: `translate(${canvasFit.value.offsetX}px, ${canvasFit.value.offsetY}px) scale(${canvasFit.value.scale})`,
+  transformOrigin: 'top left',
+  width: '1920px',
+  height: '1080px',
+}))
+
 onMounted(() => {
+  window.addEventListener('resize', updateCanvasFit)
+
   Obelisk.on('core:client:navigate', (route) => {
     router.push(route)
   })
@@ -74,7 +123,20 @@ onMounted(() => {
 
   Obelisk.on('core:client:webview-destroy', () => {
     for (const entry of registry.values()) entry.visible = entry.defaultVisible
+    hudEditMode.value = false
   })
+
+  Obelisk.on('core:client:webview-hide', () => {
+    hudEditMode.value = false
+  })
+
+  Obelisk.on('oblsk_preferences:client:hud-edit-mode-toggled', () => {
+    hudEditMode.value = !hudEditMode.value
+  })
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateCanvasFit)
 })
 </script>
 
