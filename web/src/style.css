@@ -65,3 +65,10 @@ body {
 .ob-no-scroll {
   scrollbar-width: none;
 }
+
+/* Monospace utility, promoted here from pages/nativeMenu/NativeMenuKit.vue's
+   <style scoped> (where it had no effect outside that component) so it
+   actually applies wherever it's used, e.g. oblsk_admin's Staff Panel. */
+.ob-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
