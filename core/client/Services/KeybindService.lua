@@ -46,27 +46,35 @@ function KeybindService.checkKeyPress(keyName)
     end
 end
 
+--- Key label -> Win32 virtual-key code, covering every key the oblsk_keybinds
+--- settings UI (Keybinds.vue's KB_ROWS/kbNameFor) can produce. Uses
+--- IsRawKeyPressed (raw OS keyboard state) rather than IsControlJustPressed
+--- because most of these keys (F-keys, punctuation, brackets, ...) have no
+--- native GTA5 control mapping at all.
+local KEY_TO_VK = {
+    Space = 0x20, CapsLock = 0x14, Tab = 0x09, Enter = 0x0D, Backspace = 0x08,
+    Shift = 0xA0, RShift = 0xA1, Ctrl = 0xA2, RCtrl = 0xA3, Alt = 0xA4, RAlt = 0xA5,
+    [','] = 0xBC, ['.'] = 0xBE, ['/'] = 0xBF, [';'] = 0xBA, ["'"] = 0xDE,
+    ['['] = 0xDB, [']'] = 0xDD, ['\\'] = 0xDC, ['-'] = 0xBD, ['='] = 0xBB, ['`'] = 0xC0,
+}
+for i = 1, 12 do KEY_TO_VK['F' .. i] = 0x6F + i end
+for i = 0, 25 do KEY_TO_VK[string.char(65 + i)] = 0x41 + i end -- A-Z
+for i = 0, 9 do KEY_TO_VK[tostring(i)] = 0x30 + i end -- 0-9
+
 --- Main thread to monitor key presses
 Citizen.CreateThread(function()
     while true do
         Citizen.Wait(0)
-        
-        -- Check for common keys
-        local commonKeys = {
-            ['E'] = 38,      -- E key
-            ['F'] = 23,      -- F key
-            ['G'] = 47,      -- G key
-            ['X'] = 73,      -- X key
-            ['Y'] = 246,     -- Y key
-            ['U'] = 303,     -- U key
-            ['SPACE'] = 22,  -- Space
-            ['ENTER'] = 18,  -- Enter
-            ['ESC'] = 322    -- Escape
-        }
-        
-        for keyName, controlId in pairs(commonKeys) do
-            if IsControlJustPressed(0, controlId) then
-                KeybindService.checkKeyPress(keyName)
+
+        -- Don't dispatch while NUI has focus (e.g. rebinding in the
+        -- Keybinds settings screen itself) - raw key state fires
+        -- regardless of NUI focus, unlike IsControlJustPressed.
+        if not WebView.state.focus then
+            for keyName in pairs(KeybindService.keyMap) do
+                local vk = KEY_TO_VK[keyName]
+                if vk and IsRawKeyPressed(vk) then
+                    KeybindService.checkKeyPress(keyName)
+                end
             end
         end
     end
