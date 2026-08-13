@@ -95,6 +95,9 @@ const canvasWrapperStyle = computed(() => ({
   width: '1920px',
   height: '1080px',
   pointerEvents: 'none',
+  // Explicit low z-index so the HUD canvas is declared to stack below other
+  // global overlay elements, rather than relying on incidental DOM order.
+  zIndex: 0,
 }))
 
 onMounted(() => {
