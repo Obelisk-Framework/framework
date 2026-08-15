@@ -46,6 +46,18 @@ WebView.on('shellbuilder:startAim', function()
     Placement.startAim()
 end)
 
+WebView.on('shellbuilder:searchCharacters', function(data)
+    WebView.emitServer('shellbuilder:client:searchCharacters', data.query)
+end)
+
+WebView.on('shellbuilder:addOwner', function(data)
+    WebView.emitServer('shellbuilder:client:addOwner', data.shellId, data.characterId)
+end)
+
+WebView.on('shellbuilder:removeOwner', function(data)
+    WebView.emitServer('shellbuilder:client:removeOwner', data.shellId, data.characterId)
+end)
+
 Obelisk.onClient('shellbuilder:server:sync', function(payload)
     WebView.emit('shellbuilder:sync', payload)
 end)
@@ -68,4 +80,12 @@ end)
 
 Obelisk.onClient('shellbuilder:server:objectRemoved', function(payload)
     WebView.emit('shellbuilder:objectRemoved', payload)
+end)
+
+Obelisk.onClient('shellbuilder:server:characterSearchResults', function(payload)
+    WebView.emit('shellbuilder:characterSearchResults', payload)
+end)
+
+Obelisk.onClient('shellbuilder:server:ownersUpdated', function(payload)
+    WebView.emit('shellbuilder:ownersUpdated', payload)
 end)

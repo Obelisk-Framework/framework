@@ -119,4 +119,27 @@ function ShellService.listOwnedShellIds(characterId)
     return ids
 end
 
+--- Substring, case-insensitive match against first_name/last_name. Filters
+--- in Lua rather than SQL LIKE, matching this plugin's existing convention
+--- of staying testable against the fake in-memory QueryBuilder, which has
+--- no LIKE support.
+--- @param query string
+--- @return table[] up to 20 { id, first_name, last_name } rows
+function ShellService.searchCharactersByName(query)
+    local needle = query:lower()
+    local rows = QueryBuilder.new('characters'):getSync()
+    local results = {}
+
+    for _, row in ipairs(rows) do
+        local first = (row.first_name or ''):lower()
+        local last = (row.last_name or ''):lower()
+        if first:find(needle, 1, true) or last:find(needle, 1, true) then
+            table.insert(results, { id = row.id, first_name = row.first_name, last_name = row.last_name })
+            if #results >= 20 then break end
+        end
+    end
+
+    return results
+end
+
 return ShellService

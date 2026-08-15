@@ -53,6 +53,23 @@
                 class="h-[38px] rounded-[7px] text-[12.5px] font-semibold uppercase tracking-wide"
                 style="background:var(--ob-accent);color:#04120d">Edit</button>
             </div>
+
+            <div v-if="permissions.canBuild && selected" class="mt-4 pt-4" style="border-top:1px solid color-mix(in oklab, var(--ob-accent) 25%, transparent)">
+              <div class="text-[12px] font-semibold uppercase tracking-wide mb-2">Manage owners</div>
+              <div class="flex flex-col gap-1 mb-2">
+                <div v-for="ownerId in currentOwners" :key="ownerId" class="flex items-center justify-between text-[12px] py-1">
+                  <span>Character #{{ ownerId }}</span>
+                  <button @click="removeOwner(ownerId)" class="text-[11px] px-2 py-0.5 rounded" style="border:1px solid rgba(239,68,68,.4);color:#fca5a5">Remove</button>
+                </div>
+              </div>
+              <input v-model="ownerSearch" @input="searchOwners" placeholder="Search character name..."
+                class="w-full h-[30px] rounded-[6px] px-2 text-[12px] bg-black/40 outline-none mb-1"
+                style="border:1px solid rgba(255,255,255,.12)" />
+              <div v-for="result in ownerSearchResults" :key="result.id" class="flex items-center justify-between text-[12px] py-1">
+                <span>{{ result.first_name }} {{ result.last_name }}</span>
+                <button @click="addOwner(result.id)" class="text-[11px] px-2 py-0.5 rounded" style="background:var(--ob-accent);color:#04120d">Add</button>
+              </div>
+            </div>
           </template>
           <div v-else class="text-[12px] text-white/35">Select a shell</div>
         </div>
@@ -82,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import Obelisk from '../../../web/src/obelisk.js'
 
 const shells = ref([])
@@ -91,7 +108,22 @@ const selectedId = ref(null)
 const creating = ref(false)
 const newName = ref('')
 
+const currentOwners = ref([])
+const ownerSearch = ref('')
+const ownerSearchResults = ref([])
+
 const selected = computed(() => shells.value.find(s => s.id === selectedId.value) || null)
+
+// The sync payload doesn't carry each shell's owner list, so there's no
+// source to populate currentOwners from when a shell is first selected.
+// Keeping this minimal: reset to empty on selection and let it fill in as
+// add/remove roundtrips arrive via shellbuilder:ownersUpdated, rather than
+// adding a dedicated "fetch owners" event for a staff panel this small.
+watch(selectedId, () => {
+  currentOwners.value = []
+  ownerSearch.value = ''
+  ownerSearchResults.value = []
+})
 
 function isOwner(shellId) {
   return permissions.value.ownedShellIds.includes(shellId)
@@ -124,6 +156,20 @@ function close() {
   Obelisk.emit('core:client:close', {})
 }
 
+function searchOwners() {
+  Obelisk.emit('shellbuilder:searchCharacters', { query: ownerSearch.value })
+}
+
+function addOwner(characterId) {
+  if (!selected.value) return
+  Obelisk.emit('shellbuilder:addOwner', { shellId: selected.value.id, characterId })
+}
+
+function removeOwner(characterId) {
+  if (!selected.value) return
+  Obelisk.emit('shellbuilder:removeOwner', { shellId: selected.value.id, characterId })
+}
+
 // Named handler for sync event to enable proper cleanup
 const onShellSync = (payload) => {
   shells.value = payload.shells || []
@@ -133,10 +179,26 @@ const onShellSync = (payload) => {
   }
 }
 
+// Named handlers for the owner-management panel's listeners, cleaned up
+// the same way as onShellSync.
+const onCharacterSearchResults = (results) => {
+  ownerSearchResults.value = results || []
+}
+
+const onOwnersUpdated = (payload) => {
+  if (selected.value && payload.shellId === selected.value.id) {
+    currentOwners.value = payload.owners || []
+  }
+}
+
 Obelisk.on('shellbuilder:sync', onShellSync)
+Obelisk.on('shellbuilder:characterSearchResults', onCharacterSearchResults)
+Obelisk.on('shellbuilder:ownersUpdated', onOwnersUpdated)
 
 // Unregister listener when component unmounts to prevent listener buildup
 onUnmounted(() => {
   Obelisk.off('shellbuilder:sync', onShellSync)
+  Obelisk.off('shellbuilder:characterSearchResults', onCharacterSearchResults)
+  Obelisk.off('shellbuilder:ownersUpdated', onOwnersUpdated)
 })
 </script>

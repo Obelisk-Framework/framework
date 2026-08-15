@@ -168,6 +168,33 @@ test('CanBuildShellsPolicy allows a character with the granted permission', func
     end)
 end)
 
+test('searchCharactersByName matches first or last name, case-insensitively', function()
+    withFreshState(function()
+        QueryBuilder.new('characters'):insert({ id = 1, first_name = 'John', last_name = 'Smith', deleted_at = nil })
+        QueryBuilder.new('characters'):insert({ id = 2, first_name = 'Jane', last_name = 'Johnson', deleted_at = nil })
+        QueryBuilder.new('characters'):insert({ id = 3, first_name = 'Bob', last_name = 'Lee', deleted_at = nil })
+
+        local results = ShellService.searchCharactersByName('john')
+        eq(#results, 2) -- John Smith (first name) + Jane Johnson (last name)
+    end)
+end)
+
+test('searchCharactersByName returns an empty list for no matches', function()
+    withFreshState(function()
+        QueryBuilder.new('characters'):insert({ id = 1, first_name = 'John', last_name = 'Smith' })
+        eq(#ShellService.searchCharactersByName('xyz'), 0)
+    end)
+end)
+
+test('searchCharactersByName caps results at 20', function()
+    withFreshState(function()
+        for i = 1, 25 do
+            QueryBuilder.new('characters'):insert({ id = i, first_name = 'Match' .. i, last_name = 'Test' })
+        end
+        eq(#ShellService.searchCharactersByName('match'), 20)
+    end)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

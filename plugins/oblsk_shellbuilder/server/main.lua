@@ -241,6 +241,38 @@ Obelisk.onServer('shellbuilder:client:removeObject', function(shellId, objectId)
     Obelisk.emitClient('shellbuilder:server:objectRemoved', source, { objectId = objectId })
 end)
 
+Obelisk.onServer('shellbuilder:client:searchCharacters', function(query)
+    local source = source
+    local ok, reason = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
+    if not ok then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
+        return
+    end
+    Obelisk.emitClient('shellbuilder:server:characterSearchResults', source, ShellService.searchCharactersByName(query or ''))
+end)
+
+Obelisk.onServer('shellbuilder:client:addOwner', function(shellId, characterId)
+    local source = source
+    local ok, reason = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
+    if not ok then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
+        return
+    end
+    ShellService.addOwner(shellId, characterId)
+    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwners(shellId) })
+end)
+
+Obelisk.onServer('shellbuilder:client:removeOwner', function(shellId, characterId)
+    local source = source
+    local ok, reason = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
+    if not ok then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
+        return
+    end
+    ShellService.removeOwner(shellId, characterId)
+    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwners(shellId) })
+end)
+
 Citizen.CreateThread(function()
     while not Database.isReady() do Citizen.Wait(200) end
 
