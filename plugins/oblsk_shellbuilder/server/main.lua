@@ -290,13 +290,13 @@ end)
 -- owners, and nothing fetched them on selection. Reuses the SAME
 -- ownersUpdated event/shape the add/remove handlers above emit, so the Vue
 -- side needs no new listener.
+-- Passive background fetch (fires on shell selection, not a user-initiated
+-- action), so a denial fails silently rather than notifying -- unlike
+-- addOwner/removeOwner above, which are explicit user actions.
 Obelisk.onServer('shellbuilder:client:listOwners', function(shellId)
     local source = source
-    local ok, reason = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
-    if not ok then
-        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
-        return
-    end
+    local ok = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
+    if not ok then return end
     Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwnersWithNames(shellId) })
 end)
 

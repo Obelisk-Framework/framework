@@ -125,7 +125,7 @@ watch(selectedId, (shellId) => {
   currentOwners.value = []
   ownerSearch.value = ''
   ownerSearchResults.value = []
-  if (shellId != null) {
+  if (shellId != null && permissions.value.canBuild) {
     Obelisk.emit('shellbuilder:listOwners', { shellId })
   }
 })
