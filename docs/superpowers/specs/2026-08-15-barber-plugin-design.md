@@ -121,3 +121,53 @@ oblsk_barber/
   source was given for those catalogs.
 - Barber chair placement is static config (like other interaction-based
   shops), not an in-game placement tool.
+
+## Implementation deviations (discovered during the build, `barber-plugin` branch)
+
+- **The branch's early history carries unrelated foreign content that
+  must be rebased out before merge.** The `oblsk_character-selection`
+  working tree at the time this branch's worktree was created had another
+  session's uncommitted, unrelated in-progress work (an overlay-picker
+  feature: `Appearance.OVERLAYS`/`PARENTS`/`MAKEUP_COLORS`, a restructured
+  `FACE_FEATURE_INDEX`, `CharacterCreator.vue` changes, etc). That state
+  was deliberately copied into this branch's worktree as a necessary
+  baseline (the hair-catalog work touches the same file), and by the time
+  a commit-split was attempted to separate it out, the original had
+  already been committed/reverted elsewhere on `main` by that other
+  session, making a clean split impossible without guesswork. The
+  branch's first `oblsk_character-selection` commit is honestly disclosed
+  (see its commit message) but still bundles that foreign content. Before
+  merging this branch: rebase to drop the bundled overlay/parents/makeup
+  content once that feature has landed properly through its own process,
+  keeping only this branch's actual hair-catalog and barber-plugin
+  commits.
+- **Non-hair colour swatches (hair color/highlight, beard/eyebrow/chest
+  color, makeup/blush/lipstick) send a raw 0-based swatch index as the
+  native colour ID**, not a curated mapping through
+  `Appearance.HAIR_COLORS`/`MAKEUP_COLORS` (which only have 8 entries
+  each, vs. these sections' 12-24 count from the design prototype). No
+  external data source was given for a real 24-entry native colour table
+  for these sections (only hair *style* had a wiki source). This is the
+  same "curated, not exhaustively researched" posture
+  `shared/appearance.lua` already documents for its other catalogs.
+- **`BarberService.applyAndPersist`'s merge is shallow at the top level.**
+  A charge whose `appearanceChanges` includes a nested `overlays`
+  sub-table touching only some categories (e.g. `{facial_hair = {...}}`)
+  replaces `data.overlays` wholesale rather than deep-merging, which could
+  clobber previously-set overlay categories from an earlier barber visit.
+  Deliberately not fixed on this branch — the overlay subsystem itself
+  belongs to another session's in-progress feature, not this branch's
+  scope.
+- **The clipper minigame's quality discount is clamped server-side to
+  `[0.45, 1]`** (`bbGrade`'s only possible multiplier values) since it's
+  a client-reported gameplay result the server must not trust blindly,
+  not an exact pass-through of whatever a client sends.
+- **No real FXServer/browser manual playtest was possible during
+  implementation** (this environment has no running dev server). All
+  verification was Lua unit tests (37 passing across 4 spec files), Lua
+  syntax checks (`luac5.4 -p`), and Vue SFC compiler checks
+  (`@vue/compiler-sfc`'s `compileScript`/`compileTemplate`) on every
+  changed/created file. A real playtest (hair grid renders for both
+  genders with correct 83/81 counts, live preview, cash/card checkout,
+  clipper minigame, receipt, persistence across a relog) per this spec's
+  own Testing section is still outstanding before this plugin ships.
