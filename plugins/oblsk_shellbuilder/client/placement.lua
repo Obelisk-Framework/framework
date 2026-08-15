@@ -102,18 +102,30 @@ function Placement.confirm()
     end
 end
 
+-- Controls this mode repurposes: 24 (attack/left-click, confirm), 25
+-- (aim/right-click, cancel), 44 (Q, normally cover), 38 (E, normally
+-- pickup/vault). Disabled every frame while aiming so their default GTA
+-- behavior (firing a weapon, taking cover, vaulting) doesn't also fire
+-- alongside the aim-mode action; ESC (322) is left enabled since nothing
+-- else in this mode depends on its default behavior being suppressed.
+local AIM_CONTROLS = { 24, 25, 44, 38 }
+
 Citizen.CreateThread(function()
     while true do
         Citizen.Wait(0)
 
         if aiming then
-            if IsControlJustPressed(0, 24) then -- INPUT_ATTACK (left click)
+            for _, control in ipairs(AIM_CONTROLS) do
+                DisableControlAction(0, control, true)
+            end
+
+            if IsDisabledControlJustPressed(0, 24) then -- INPUT_ATTACK (left click)
                 Placement.confirm()
-            elseif IsControlJustPressed(0, 25) or IsControlJustPressed(0, 322) then -- INPUT_AIM (right click) / ESC
+            elseif IsDisabledControlJustPressed(0, 25) or IsControlJustPressed(0, 322) then -- INPUT_AIM (right click) / ESC
                 Placement.cancelAim()
-            elseif IsControlJustPressed(0, 44) then -- INPUT_COVER (Q), rotate left
+            elseif IsDisabledControlJustPressed(0, 44) then -- INPUT_COVER (Q), rotate left
                 heading = (heading - 5.0) % 360.0
-            elseif IsControlJustPressed(0, 38) then -- INPUT_PICKUP (E), rotate right
+            elseif IsDisabledControlJustPressed(0, 38) then -- INPUT_PICKUP (E), rotate right
                 heading = (heading + 5.0) % 360.0
             end
         end

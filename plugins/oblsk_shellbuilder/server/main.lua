@@ -177,8 +177,16 @@ Obelisk.onServer('shellbuilder:client:exit', function(shellId)
     -- Furniture is spawned client-LOCAL (CreateObject's networked flag is
     -- false), so routing buckets don't despawn it on their own -- without
     -- this, a player who exits shell A and enters shell B would see BOTH
-    -- shells' furniture at once, at the shared anchor coordinate.
-    EntityStreamerService.despawnGroupEntitiesFor(source, 'shellbuilder:shell:' .. shellId)
+    -- shells' furniture at once, at the shared anchor coordinate. Despawn
+    -- targets the player's actual current bucket key (InstanceService's own
+    -- tracking), not the caller-supplied shellId -- a modified client
+    -- sending a foreign shellId here would otherwise despawn the wrong
+    -- shell's furniture and leak their real shell's, same as /leaveshell
+    -- below already does correctly.
+    local currentKey = InstanceService.getCurrentKey(source)
+    if currentKey then
+        EntityStreamerService.despawnGroupEntitiesFor(source, currentKey)
+    end
     InstanceService.leave(source)
     if shell and allowed then
         SetEntityCoords(GetPlayerPed(source), shell.entry_x, shell.entry_y, shell.entry_z, false, false, false, false)
