@@ -108,66 +108,64 @@ function InteractionService.setEnabled(interactionId, enabled)
 end
 
 --- Handle interaction use (triggered from client)
---- @param source number Player server ID
+--- @param player Player
 --- @param interactionId number
-function InteractionService.use(source, interactionId)
+function InteractionService.use(player, interactionId)
     local interaction = InteractionService.registry[interactionId]
-    
+
     if not interaction then
         print('[InteractionService] Error: Interaction not found: ' .. interactionId)
         return
     end
-    
+
     if not interaction.enabled then
         print('[InteractionService] Error: Interaction disabled: ' .. interactionId)
         return
     end
-    
+
     -- Verify player is in range
-    local playerPed = GetPlayerPed(source)
+    local playerPed = GetPlayerPed(player:getSource())
     local playerCoords = GetEntityCoords(playerPed)
-    local dist = #(vector3(playerCoords.x, playerCoords.y, playerCoords.z) - 
+    local dist = #(vector3(playerCoords.x, playerCoords.y, playerCoords.z) -
                    vector3(interaction.x, interaction.y, interaction.z))
-    
+
     if dist > interaction.range + 1.0 then -- +1.0 tolerance for latency
         print('[InteractionService] Player too far from interaction: ' .. interactionId)
         return
     end
-    
+
     -- Check policies
-    PolicyService.check(source, 'interaction', interactionId, function(allowed, reason)
+    PolicyService.check(player, 'interaction', interactionId, function(allowed, reason)
         if not allowed then
-            NotificationService.notify(source, {
+            NotificationService.notify(player, {
                 type = 'error',
                 title = 'Access Denied',
                 description = reason or 'You cannot use this interaction'
             })
             return
         end
-        
+
         -- Execute associated action
         if interaction.action then
-            ActionService.execute(source, interaction.action, {
+            ActionService.execute(player, interaction.action, {
                 interactionId = interactionId,
                 interaction = interaction
             })
         end
-        
+
         -- Run hook for extensibility
-        Hooks.runHook('interaction:use', function() end, source, interaction)
+        Hooks.runHook('interaction:use', function() end, player, interaction)
     end)
 end
 
 --- Net event handlers
-Obelisk.onServer('core:client:interaction-use', function(interactionId)
-    local source = source
-    InteractionService.use(source, interactionId)
+Obelisk.onClient('core:client:interaction-use', function(player, interactionId)
+    InteractionService.use(player, interactionId)
 end)
 
 --- Send all interactions to a player (on join)
-Obelisk.onServer('core:client:interaction-requestAll', function()
-    local source = source
-    Obelisk.emitClient('core:server:interaction-syncAll', source, InteractionService.registry)
+Obelisk.onClient('core:client:interaction-requestAll', function(player)
+    Obelisk.emitClient('core:server:interaction-syncAll', player, InteractionService.registry)
 end)
 
 return InteractionService
