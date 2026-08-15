@@ -2,8 +2,8 @@
 <!-- Shell browser — ported from the Claude Design reference's SbBrowser
      (src/proto/shell-browser.jsx): a shell list on the left, detail +
      actions on the right. Trimmed to what the signed-in player can
-     actually do: owners get Enter, build-permission staff also get Edit,
-     Create, and Delete. -->
+     actually do: owners get Enter, build-permission staff also get Edit
+     and Create. -->
 <template>
   <div class="absolute inset-0 grid place-items-center">
     <div class="rounded-[14px] overflow-hidden flex flex-col"
@@ -82,7 +82,8 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
+import Obelisk from '../../../web/src/obelisk.js'
 
 const shells = ref([])
 const permissions = ref({ canBuild: false, ownedShellIds: [] })
@@ -123,11 +124,19 @@ function close() {
   Obelisk.emit('core:client:close', {})
 }
 
-Obelisk.on('shellbuilder:sync', (payload) => {
+// Named handler for sync event to enable proper cleanup
+const onShellSync = (payload) => {
   shells.value = payload.shells || []
   permissions.value = payload.permissions || { canBuild: false, ownedShellIds: [] }
   if (!selectedId.value && shells.value.length) {
     selectedId.value = shells.value[0].id
   }
+}
+
+Obelisk.on('shellbuilder:sync', onShellSync)
+
+// Unregister listener when component unmounts to prevent listener buildup
+onUnmounted(() => {
+  Obelisk.off('shellbuilder:sync', onShellSync)
 })
 </script>
