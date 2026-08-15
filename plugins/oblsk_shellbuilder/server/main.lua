@@ -10,14 +10,41 @@ local function permissionsFor(source)
 
     local ownedShellIds = {}
     if characterId then
-        for _, shell in ipairs(ShellService.list()) do
-            if ShellService.isOwner(shell.id, characterId) then
-                table.insert(ownedShellIds, shell.id)
-            end
-        end
+        ownedShellIds = ShellService.listOwnedShellIds(characterId)
     end
 
     return { canBuild = canBuild and true or false, ownedShellIds = ownedShellIds }
+end
+
+--- The shell list a given player is allowed to see: staff with build access
+--- see every shell (they need to manage all of them); everyone else only
+--- sees shells they own. Avoids leaking every shell's id/name/budget to
+--- players with no stake in them.
+--- @param source number
+--- @param permissions table result of permissionsFor(source)
+--- @return table[]
+local function visibleShellsFor(source, permissions)
+    if permissions.canBuild then
+        return ShellService.list()
+    end
+
+    local characterId = CharacterService.getActiveCharacterId(source)
+    if not characterId then
+        return {}
+    end
+
+    local ownedIds = {}
+    for _, id in ipairs(ShellService.listOwnedShellIds(characterId)) do
+        ownedIds[id] = true
+    end
+
+    local shells = {}
+    for _, shell in ipairs(ShellService.list()) do
+        if ownedIds[shell.id] then
+            table.insert(shells, shell)
+        end
+    end
+    return shells
 end
 
 --- Whether `source` may furnish/edit unlocked objects in `shellId`: either an
@@ -45,18 +72,16 @@ end
 local function openBrowser(source)
     WebView.openPage(source, '/ShellBrowser')
     WebView.focus(source)
+    local permissions = permissionsFor(source)
     Obelisk.emitClient('shellbuilder:server:sync', source, {
-        shells = ShellService.list(),
-        permissions = permissionsFor(source),
+        shells = visibleShellsFor(source, permissions),
+        permissions = permissions,
     })
 end
 
 ActionService.register('shellbuilder:open', function(source, data)
     openBrowser(source)
 end, { label = 'Access shells' })
-
-PolicyService.attach('action', 'shellbuilder:create', 'shellbuilder:canBuild')
-PolicyService.attach('action', 'shellbuilder:edit', 'shellbuilder:canBuild')
 
 Obelisk.onServer('shellbuilder:client:create', function(name)
     local source = source
@@ -69,9 +94,10 @@ Obelisk.onServer('shellbuilder:client:create', function(name)
     local characterId = CharacterService.getActiveCharacterId(source)
     local shell = ShellService.create(characterId, name)
     ShellService.addOwner(shell.id, characterId)
+    local permissions = permissionsFor(source)
     Obelisk.emitClient('shellbuilder:server:sync', source, {
-        shells = ShellService.list(),
-        permissions = permissionsFor(source),
+        shells = visibleShellsFor(source, permissions),
+        permissions = permissions,
     })
 end)
 
@@ -90,7 +116,7 @@ Obelisk.onServer('shellbuilder:client:enter', function(shellId)
     end
 
     InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
-    SetEntityCoords(GetPlayerPed(source), Config.Anchor.x, Config.Anchor.y, Config.Anchor.z, false, false, false, false)
+    SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.Anchor.x, ShellBuilderConfig.Anchor.y, ShellBuilderConfig.Anchor.z, false, false, false, false)
     SetEntityHeading(GetPlayerPed(source), shell.interior_heading)
     WebView.openPage(source, '/ShellEditor')
     WebView.focus(source)
@@ -120,7 +146,7 @@ Obelisk.onServer('shellbuilder:client:edit', function(shellId)
     end
 
     InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
-    SetEntityCoords(GetPlayerPed(source), Config.Anchor.x, Config.Anchor.y, Config.Anchor.z, false, false, false, false)
+    SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.Anchor.x, ShellBuilderConfig.Anchor.y, ShellBuilderConfig.Anchor.z, false, false, false, false)
     SetEntityHeading(GetPlayerPed(source), shell.interior_heading)
     WebView.openPage(source, '/ShellEditor')
     WebView.focus(source)
@@ -135,17 +161,41 @@ Obelisk.onServer('shellbuilder:client:edit', function(shellId)
     })
 end)
 
+-- A player should always be able to leave, but the caller-supplied shellId
+-- isn't trusted as a teleport target: only honor its stored entry
+-- coordinates when the caller actually manages that shell (owner, or
+-- build-permission staff). Otherwise still leave the instance, just land at
+-- the plugin's safe, always-valid EntryPoint instead of a possibly
+-- manipulated shellId's coordinates.
 Obelisk.onServer('shellbuilder:client:exit', function(shellId)
     local source = source
     local shell = ShellService.get(shellId)
+    local allowed = shell ~= nil and select(1, canManageShell(source, shellId))
+
     InstanceService.leave(source)
-    if shell then
+    if shell and allowed then
         SetEntityCoords(GetPlayerPed(source), shell.entry_x, shell.entry_y, shell.entry_z, false, false, false, false)
         SetEntityHeading(GetPlayerPed(source), shell.entry_heading)
+    else
+        SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.EntryPoint.x, ShellBuilderConfig.EntryPoint.y, ShellBuilderConfig.EntryPoint.z, false, false, false, false)
     end
     WebView.hide(source)
     Obelisk.emitClient('shellbuilder:server:exited', source, {})
 end)
+
+-- Safety-net command: force-exits the caller from whatever instance/routing
+-- bucket they're in and drops them at the plugin's fixed entry point,
+-- regardless of NUI state. Pressing ESC only hides the NUI dock, it doesn't
+-- emit shellbuilder:client:exit, so a player without the editor UI open has
+-- no other way back to the overworld from inside a shell's bucket. This is
+-- a pragmatic safety net, not a full fix - a proper on-disconnect/on-join
+-- position guard is still a follow-up item.
+RegisterCommand('leaveshell', function(source)
+    if source == 0 then return end
+    InstanceService.leave(source)
+    SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.EntryPoint.x, ShellBuilderConfig.EntryPoint.y, ShellBuilderConfig.EntryPoint.z, false, false, false, false)
+    WebView.hide(source)
+end, false)
 
 Obelisk.onServer('shellbuilder:client:place', function(shellId, itemKey, x, y, z, heading, floorLevel, colorData, locked)
     local source = source
@@ -192,9 +242,19 @@ end)
 Citizen.CreateThread(function()
     while not Database.isReady() do Citizen.Wait(200) end
 
+    -- PolicyService.attach issues DB queries immediately, so it can't run
+    -- at top-level script load - Database.init() only finishes inside this
+    -- background thread. CanBuildShellsPolicy.lua registers
+    -- 'shellbuilder:canBuild' unconditionally at its own top-level load
+    -- (independent of DB readiness), so by the time this thread runs the
+    -- policy is guaranteed to already be registered regardless of file
+    -- load order.
+    PolicyService.attach('action', 'shellbuilder:create', 'shellbuilder:canBuild')
+    PolicyService.attach('action', 'shellbuilder:edit', 'shellbuilder:canBuild')
+
     InteractionService.register({
-        x = Config.EntryPoint.x, y = Config.EntryPoint.y, z = Config.EntryPoint.z,
-        range = Config.EntryPoint.range, label = Config.EntryPoint.label,
+        x = ShellBuilderConfig.EntryPoint.x, y = ShellBuilderConfig.EntryPoint.y, z = ShellBuilderConfig.EntryPoint.z,
+        range = ShellBuilderConfig.EntryPoint.range, label = ShellBuilderConfig.EntryPoint.label,
         action = 'shellbuilder:open',
     })
 
