@@ -8,7 +8,7 @@ function DeathService:handlePlayerDeath(player)
             end
         end
 
-        local ped = GetPlayerPed(player)
+        local ped = GetPlayerPed(player:getSource())
         local coords = GetEntityCoords(ped)
         --RespawnPedAtCoords(player, coords)
         SetEntityHealth(ped, GetEntityMaxHealth(ped))
