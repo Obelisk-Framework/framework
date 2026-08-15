@@ -2,6 +2,7 @@
   "plugins": [
     "oblsk_admin",
     "oblsk_banking",
+    "oblsk_barber",
     "oblsk_character-selection",
     "oblsk_deathscreen",
     "oblsk_garage",
