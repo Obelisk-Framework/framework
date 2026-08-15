@@ -4,6 +4,7 @@ print('[Barber] Client loading...')
 
 local currentGender = 'male'
 local currentChairId = nil
+local currentAppearance = {}
 
 --- @return string 'male' | 'female' — best-effort guess from the player's
 ---   current ped model; oblsk_character-selection doesn't expose the
@@ -17,6 +18,7 @@ end
 Obelisk.onClient('barber:server:sync', function(data)
     currentChairId = data.chairId
     currentGender = currentPlayerGender()
+    currentAppearance = data.appearance or {}
     local hairStyles = exports['oblsk_character-selection']:getHairStyles(currentGender)
     WebView.emit('barber:sync', {
         chairId = data.chairId,
@@ -35,12 +37,11 @@ end)
 --- @param data table { appearance table partial keys }
 WebView.on('barber:preview', function(data)
     local ped = PlayerPedId()
-    local Appearance = exports['oblsk_character-selection']
-    -- getHairStyles above already gave the UI real drawables/labels; the UI
-    -- sends back a full appearance-shaped partial (native-valued, not
-    -- preset indices) so this can apply it directly without re-resolving.
-    local current = data.appearance or {}
-    exports['oblsk_character-selection']:applyAppearance(ped, current, currentGender)
+    local partial = data.appearance or {}
+    for key, value in pairs(partial) do
+        currentAppearance[key] = value
+    end
+    exports['oblsk_character-selection']:applyAppearance(ped, currentAppearance, currentGender)
 end)
 
 WebView.on('barber:charge', function(data)

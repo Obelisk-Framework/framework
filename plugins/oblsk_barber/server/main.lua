@@ -7,7 +7,12 @@ local function openForSource(source, chairId)
 
     WebView.openPage(source, '/Barber')
     WebView.focus(source)
-    Obelisk.emitClient('barber:server:sync', source, { chairId = chairId, sections = Config.Sections, hairPrice = Config.HairPrice })
+    Obelisk.emitClient('barber:server:sync', source, {
+        chairId = chairId,
+        sections = Config.Sections,
+        hairPrice = Config.HairPrice,
+        appearance = BarberService.getAppearance(source),
+    })
 end
 
 ActionService.register('barber:open', function(source, data)
