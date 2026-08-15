@@ -86,7 +86,9 @@ test('place consumes one item and inserts an unlocked object row for the placing
         eq(ok, true)
         eq(obj.shell_id, 1)
         eq(obj.item_key, 'shellbuilder.sofa_basic')
-        eq(obj.locked, false)
+        -- Stored as integer 0/1 (matches a MySQL TINYINT(1) round-trip),
+        -- not a Lua boolean - see ShellObjectService.place/.remove.
+        eq(obj.locked, 0)
         eq(obj.placed_by_character_id, 100)
         eq(OWNED[100]['shellbuilder.sofa_basic'], 4)
     end)
@@ -96,8 +98,16 @@ test('place sets placed_by_character_id to nil for locked pieces', function()
     withFreshState(function()
         local ok, obj = ShellObjectService.place(1, 1, 'shellbuilder.sofa_basic', 1.0, 2.0, 3.0, 0, 0, nil, true)
         eq(ok, true)
-        eq(obj.locked, true)
+        eq(obj.locked, 1)
         eq(obj.placed_by_character_id, nil)
+    end)
+end)
+
+test('place JSON-encodes colorData before insert', function()
+    withFreshState(function()
+        local ok, obj = ShellObjectService.place(1, 1, 'shellbuilder.sofa_basic', 1.0, 2.0, 3.0, 0, 0, { r = 10, g = 20, b = 30 }, false)
+        eq(ok, true)
+        eq(type(obj.color_data), 'string')
     end)
 end)
 
@@ -145,6 +155,38 @@ test('remove refuses to delete a locked object', function()
         eq(ok, false)
         eq(reason, 'This piece is locked')
         eq(#ShellObjectService.list(1), 1)
+    end)
+end)
+
+-- Regression coverage for the truthiness bug: `locked` round-trips from a
+-- real MySQL TINYINT(1) as the integer 1 or 0, not a Lua boolean. The fake
+-- QueryBuilder above stores whatever Lua value ShellObjectService.place
+-- inserts (now integers), but these two tests bypass place() entirely and
+-- manually seed a row the way a real driver would hand it back, so the
+-- read-side check is verified against both representations.
+test('remove refuses to delete a row with integer locked = 1', function()
+    withFreshState(function()
+        QueryBuilder.new('shell_objects'):insert({
+            id = 999, shell_id = 1, item_key = 'shellbuilder.sofa_basic',
+            x = 0, y = 0, z = 0, heading = 0, floor_level = 0,
+            locked = 1, placed_by_character_id = nil,
+        })
+        local ok, reason = ShellObjectService.remove(1, 1, 999)
+        eq(ok, false)
+        eq(reason, 'This piece is locked')
+    end)
+end)
+
+test('remove deletes a row with integer locked = 0', function()
+    withFreshState(function()
+        QueryBuilder.new('shell_objects'):insert({
+            id = 999, shell_id = 1, item_key = 'shellbuilder.sofa_basic',
+            x = 0, y = 0, z = 0, heading = 0, floor_level = 0,
+            locked = 0, placed_by_character_id = 100,
+        })
+        local ok = ShellObjectService.remove(1, 1, 999)
+        eq(ok, true)
+        eq(#ShellObjectService.list(1), 0)
     end)
 end)
 

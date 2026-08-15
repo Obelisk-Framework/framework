@@ -14,16 +14,25 @@ See `docs/superpowers/specs/2026-08-15-shell-builder-plugin-design.md` for
 the full design.
 
 ## Access
-A single world interaction (`Config.EntryPoint` in `shared/config.lua`)
-opens the shell browser. Owners (rows in `shell_owners`) see **Enter**.
-Anyone with the ACE `admin` permission, or a character explicitly granted
-`shellbuilder.build` via `PermissionService`, also sees **Edit** and
-**Create new shell**.
+A single world interaction (`ShellBuilderConfig.EntryPoint` in
+`shared/config.lua`) opens the shell browser. Owners (rows in
+`shell_owners`) see **Enter**. Anyone with the ACE `admin` permission, or a
+character explicitly granted `shellbuilder.build` via `PermissionService`,
+also sees **Edit** and **Create new shell**.
 
 ## Installation
 This plugin loads as part of the `core` resource. After adding it under
 `plugins/`, run `obelisk registry:generate` from `core/` on the host, then
 restart `core` (or the whole server).
+
+## Dependencies
+This plugin has undeclared hard dependencies beyond `core` (its
+`fxmanifest.lua` only lists `dependencies { 'obelisk' }`): it requires
+`oblsk_items` to be installed and loaded for `ItemService`/item bindings
+(the placeable catalog and place/remove item accounting), and it requires
+core's `CharacterService` for character-scoped shell ownership. Neither is
+enforced defensively in code — `server/main.lua` and
+`server/services/ShellObjectService.lua` call into both unguarded.
 
 ## Placeable catalog
 Placeable objects are `oblsk_items` bindings whose key is prefixed
@@ -31,4 +40,8 @@ Placeable objects are `oblsk_items` bindings whose key is prefixed
 Each bound base item's `data` column needs `shell_tool` (`build` | `style` |
 `decor`), `shell_category`, and `shell_model` set for it to appear in the
 editor's catalog — see `ShellObjectService.catalog` in
-`server/services/ShellObjectService.lua`.
+`server/services/ShellObjectService.lua`. Declaring a key in
+`ShellBuilderConfig.Requires.bindings` (`shared/config.lua`) only makes it
+known to `ItemService.getRequiredBindingKeys()` — a server operator still
+needs to create matching `base_items`/`item_bindings` rows before the
+catalog is actually populated.

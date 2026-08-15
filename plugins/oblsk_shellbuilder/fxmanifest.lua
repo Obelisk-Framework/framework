@@ -24,5 +24,4 @@ client_scripts {
 files {
     'web/*.vue',
     'web/routes.js',
-    'web/globalElements.js',
 }

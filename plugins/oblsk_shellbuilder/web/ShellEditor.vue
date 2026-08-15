@@ -54,6 +54,12 @@
             Walk preview
           </button>
         </div>
+        <div v-if="canBuild" class="flex gap-2">
+          <button @click="forceLocked = !forceLocked" class="h-[34px] px-3 rounded-[7px] text-[11px] uppercase"
+            :style="forceLocked ? { background: 'color-mix(in oklab, var(--ob-accent) 30%, transparent)', border: '1px solid var(--ob-accent)' } : { background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)' }">
+            Lock placement
+          </button>
+        </div>
         <button @click="exitEditor" class="mt-auto h-[36px] w-full rounded-[7px] text-[12px] uppercase"
           style="background:var(--ob-accent);color:#04120d">Save & exit</button>
       </div>
@@ -82,6 +88,10 @@ const tool = ref('decor')
 const selectedItem = ref(null)
 const wreck = ref(false)
 const walking = ref(false)
+// Staff-only toggle: lets staff explicitly lock a piece placed through the
+// Decorate tool too, so a "comes with interior, not removable" shell can be
+// fully furnished rather than only ever locking Construction/Style pieces.
+const forceLocked = ref(false)
 
 const availableTools = computed(() => canBuild.value ? ['build', 'style', 'decor'] : ['decor'])
 
@@ -98,7 +108,7 @@ const budgetPct = computed(() => shell.value ? Math.min(100, (objects.value.leng
 // places unlocked furniture they can later remove themselves.
 function place(x, y, z, heading, floorLevel) {
   if (!selectedItem.value || !shell.value) return
-  const locked = canBuild.value && tool.value !== 'decor'
+  const locked = canBuild.value && (tool.value !== 'decor' || forceLocked.value)
   Obelisk.emit('shellbuilder:place', {
     shellId: shell.value.id,
     itemKey: selectedItem.value,
