@@ -353,7 +353,7 @@ git commit -m "mdt: add mdt_lines/mdt_line_registrations tables"
 - Test: `core/plugins/oblsk_mdt/tests/mdt_line_service_spec.lua`
 
 **Interfaces:**
-- Produces: `MdtLineService.list(orgId)`, `MdtLineService.create(characterId, auth, orgId, number, label)`, `MdtLineService.delete(characterId, auth, lineId)`, `MdtLineService.register(characterId, auth, orgId, lineId, role)`, `MdtLineService.unregister(characterId, auth, lineId, role)`, `MdtLineService.resolveByNumber(number)`. Consumed by Task 6 (main.lua events) and Task 9 (`oblsk_phone`'s `DialerService`, cross-plugin global call).
+- Produces: `MdtLineService.list(orgId)`, `MdtLineService.create(characterId, auth, orgId, number, label)`, `MdtLineService.delete(characterId, auth, orgId, lineId)` (signature corrected during this task's review to include an org-ownership check, matching `register`/`unregister`), `MdtLineService.register(characterId, auth, orgId, lineId, role)`, `MdtLineService.unregister(characterId, auth, orgId, lineId, role)`, `MdtLineService.resolveByNumber(number)`. Consumed by Task 6 (main.lua events) and Task 9 (`oblsk_phone`'s `DialerService`, cross-plugin global call).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -669,7 +669,15 @@ Obelisk.onServer('oblsk_mdt:server:lines-delete', function(data)
     end
     data = data or {}
     local auth, _, orgId = MdtAuthService.acting(resolved, data.auth)
-    MdtLineService.delete(characterId, auth, data.lineId)
+    -- MdtLineService.delete's signature was corrected during Task 5's
+    -- review to take orgId and enforce an ownership check (same pattern
+    -- as register/unregister), matching this plugin's precedent
+    -- (MdtDocTemplateService.delete also checks ownership despite also
+    -- being mdt-admin-gated) — see the SDD ledger's Task 5 ruling.
+    if not MdtLineService.delete(characterId, auth, orgId, data.lineId) then
+        Obelisk.emitClient('oblsk_mdt:client:lines-delete', source, { ok = false, error = 'forbidden' })
+        return
+    end
     Obelisk.emitClient('oblsk_mdt:client:lines-delete', source, { ok = true })
     Obelisk.emitClient('oblsk_mdt:client:lines-list', source, MdtLineService.list(orgId))
 end)
