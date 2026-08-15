@@ -1,0 +1,6 @@
+{
+  "migrations": [
+    "2026_08_15_120000_create_attach_points_table",
+    "2026_08_15_120001_create_attachments_table"
+  ]
+}
