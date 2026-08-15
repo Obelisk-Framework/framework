@@ -92,6 +92,15 @@ test('place consumes one item and inserts an unlocked object row for the placing
     end)
 end)
 
+test('place sets placed_by_character_id to nil for locked pieces', function()
+    withFreshState(function()
+        local ok, obj = ShellObjectService.place(1, 1, 'shellbuilder.sofa_basic', 1.0, 2.0, 3.0, 0, 0, nil, true)
+        eq(ok, true)
+        eq(obj.locked, true)
+        eq(obj.placed_by_character_id, nil)
+    end)
+end)
+
 test('place rejects an unknown item_key', function()
     withFreshState(function()
         local ok, reason = ShellObjectService.place(1, 1, 'shellbuilder.does_not_exist', 0, 0, 0, 0, 0, nil, false)
