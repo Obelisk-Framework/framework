@@ -1,0 +1,5 @@
+{
+  "migrations": [
+    "2026_08_15_150000_create_barber_chairs_table"
+  ]
+}
