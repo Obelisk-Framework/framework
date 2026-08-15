@@ -2,14 +2,14 @@
 --- Checks if player has admin permission
 
 --- Policy validator function
---- @param source number Player server ID
+--- @param player Player
 --- @param resource table Resource being accessed {type, id}
 --- @param config table Configuration from pivot data
 --- @return boolean allowed
 --- @return string reason Optional denial reason
-local function isAdminValidator(source, resource, config)
+local function isAdminValidator(player, resource, config)
     -- This integrates with FiveM's ACE permission system
-    if IsPlayerAceAllowed(source, 'admin') then
+    if IsPlayerAceAllowed(player:getSource(), 'admin') then
         return true
     end
     

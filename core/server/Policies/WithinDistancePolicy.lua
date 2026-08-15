@@ -2,20 +2,20 @@
 --- Checks if player is within distance of coordinates
 
 --- Policy validator function
---- @param source number Player server ID
+--- @param player Player
 --- @param resource table Resource being accessed {type, id}
 --- @param config table Configuration from pivot data
 --- @return boolean allowed
 --- @return string reason Optional denial reason
-local function withinDistanceValidator(source, resource, config)
+local function withinDistanceValidator(player, resource, config)
     local maxDist = config.distance or 5.0
     local coords = config.coords -- {x, y, z}
-    
+
     if not coords then
         return false, 'Invalid distance check configuration'
     end
-    
-    local playerPed = GetPlayerPed(source)
+
+    local playerPed = GetPlayerPed(player:getSource())
     local playerCoords = GetEntityCoords(playerPed)
     local dist = #(vector3(playerCoords.x, playerCoords.y, playerCoords.z) - 
                    vector3(coords.x, coords.y, coords.z))
