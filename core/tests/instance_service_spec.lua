@@ -13,7 +13,11 @@ local makeFakeQueryBuilderModule = dofile(ROOT .. '/tests/support/fake_query_bui
 
 -- Native stubs: fivem_stubs.lua doesn't know about routing-bucket natives.
 local bucketCalls = {}
-function SetPlayerRoutingBucket(source, bucket) bucketCalls[#bucketCalls + 1] = { source = source, bucket = bucket } end
+local lastBucketPerSource = {} -- Track the final bucket for each source
+function SetPlayerRoutingBucket(source, bucket)
+    bucketCalls[#bucketCalls + 1] = { source = source, bucket = bucket }
+    lastBucketPerSource[source] = bucket
+end
 function SetRoutingBucketPopulationEnabled(bucket, enabled) end
 function SetRoutingBucketEntityLockdownMode(bucket, mode) end
 
@@ -30,6 +34,7 @@ end
 local function withFreshState(fn)
     QueryBuilder = makeFakeQueryBuilderModule({})
     bucketCalls = {}
+    lastBucketPerSource = {}
     InstanceService.resetForTests()
     fn()
 end
@@ -61,8 +66,8 @@ test('enter moves the player into the key\'s bucket and tracks membership', func
     withFreshState(function()
         local bucketId = InstanceService.enter(7, 'shellbuilder:shell:1')
         eq(bucketId, 1001)
-        eq(bucketCalls[1].source, 7)
-        eq(bucketCalls[1].bucket, 1001)
+        -- Verify the player's final bucket is the target bucket (not reset to 0)
+        eq(lastBucketPerSource[7], 1001, 'player final bucket should be 1001')
 
         local players = InstanceService.getPlayersIn('shellbuilder:shell:1')
         eq(#players, 1)
@@ -75,8 +80,8 @@ test('leave moves the player back to bucket 0 and clears membership', function()
         InstanceService.enter(7, 'shellbuilder:shell:1')
         InstanceService.leave(7)
 
-        eq(bucketCalls[2].source, 7)
-        eq(bucketCalls[2].bucket, 0)
+        -- Verify the player's final bucket is 0 (default overworld bucket)
+        eq(lastBucketPerSource[7], 0, 'player final bucket should be 0 after leave')
         eq(#InstanceService.getPlayersIn('shellbuilder:shell:1'), 0)
     end)
 end)

@@ -36,6 +36,17 @@ function InstanceService.getOrCreateBucket(key)
     return bucketId
 end
 
+--- Private: clears stale membership bookkeeping without resetting the bucket native.
+--- Used by enter() before assigning the player to a new bucket.
+--- @param source number
+local function clearStaleMembership(source)
+    local key = playerBucketKey[source]
+    if key and bucketMembers[key] then
+        bucketMembers[key][source] = nil
+    end
+    playerBucketKey[source] = nil
+end
+
 --- Moves `source` into `key`'s bucket, disabling ambient population/traffic
 --- in it the first time this process resolves that key. Records membership
 --- so getPlayersIn/leave/playerDropped cleanup can find this player again.
@@ -45,11 +56,15 @@ end
 function InstanceService.enter(source, key)
     local bucketId = InstanceService.getOrCreateBucket(key)
 
+    -- Clear any previous membership first, but do NOT call the bucket native yet.
+    clearStaleMembership(source)
+
+    -- Set the bucket as the final native call so the player ends up in it.
     SetPlayerRoutingBucket(source, bucketId)
     SetRoutingBucketPopulationEnabled(bucketId, false)
     SetRoutingBucketEntityLockdownMode(bucketId, 'strict')
 
-    InstanceService.leave(source) -- clear any previous membership first
+    -- Now update membership to reflect the new bucket.
     playerBucketKey[source] = key
     bucketMembers[key] = bucketMembers[key] or {}
     bucketMembers[key][source] = true
@@ -61,12 +76,7 @@ end
 --- membership from whatever key they were previously in, if any.
 --- @param source number
 function InstanceService.leave(source)
-    local key = playerBucketKey[source]
-    if key and bucketMembers[key] then
-        bucketMembers[key][source] = nil
-    end
-    playerBucketKey[source] = nil
-
+    clearStaleMembership(source)
     SetPlayerRoutingBucket(source, 0)
 end
 
@@ -81,6 +91,7 @@ function InstanceService.getPlayersIn(key)
 end
 
 AddEventHandler('playerDropped', function()
+    local source = source
     InstanceService.leave(source)
 end)
 
