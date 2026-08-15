@@ -33,16 +33,18 @@ copy that could drift:
   lookup site (`Appearance.HAIR_STYLES[1]` → `Appearance.HAIR_STYLES[gender][1]`,
   `Appearance.HAIR_STYLES[raw.hairStyleIndex + 1]` → gender-scoped) — no
   other call site changes.
-- Two new exports on `oblsk_character-selection` (FiveM resources don't
-  share Lua globals, so cross-plugin reuse needs `exports`, the same
-  pattern `oblsk_licenses` already uses for `hasValidLicense`):
-  - server or shared: `getHairStyles(gender)` → returns
-    `Appearance.HAIR_STYLES[gender]`
-  - client: `applyAppearance(ped, appearance, gender)` → wraps the
-    existing `CharacterAppearanceService.apply`
-- `oblsk_barber` adds `oblsk_character-selection` to its fxmanifest
-  `dependencies` and calls those exports instead of owning its own hair
-  data or ped-native calls.
+- No cross-resource `exports` are involved. Per `AGENTS.md`, plugins are
+  **not** separate FiveM resources — `core/fxmanifest.lua` globs every
+  plugin's `shared/**`, `client/**` and `server/**` Lua into ONE Lua state
+  per side. `Appearance` (from `oblsk_character-selection/shared/
+  appearance.lua`) and `CharacterAppearanceService` (its client service)
+  are therefore already plain globals in the same state that
+  `oblsk_barber`'s client code runs in.
+- `oblsk_barber/client/main.lua` reads `Appearance.HAIR_STYLES[gender]`
+  and calls `CharacterAppearanceService.apply(ped, appearance, gender)`
+  directly, instead of owning its own hair data or ped-native calls. It
+  declares no fxmanifest dependency (it has no fxmanifest at all — plugins
+  are registered in `plugins/registry.json`).
 
 163 other `HAIR_STYLES` call sites (character creator's Wardrobe/hair
 step) keep working unchanged since the shape per entry
@@ -53,22 +55,27 @@ an extra `thumb` field they can ignore.
 
 164 thumbnails (83 male + 81 female, 240x240 JPEG, ~3.2MB total) already
 downloaded from wiki.rage.mp and verified. They land at
-`oblsk_character-selection/web/assets/hair/{male,female}/<drawable>.jpg`
-— bundled locally (not hotlinked) so the NUI has no runtime dependency on
-an external site.
+`web/public/assets/hair/{male,female}/<drawable>.jpg` — the repo's single
+shared Vite `public/` dir, which `web/vite.config.js` copies verbatim into
+the served `core/html` bundle. (Per-plugin `web/assets/` directories are
+copied by nothing and are unreachable from the NUI.) They are bundled
+locally (not hotlinked) so the NUI has no runtime dependency on an
+external site. `thumb` values stay `assets/hair/<gender>/<n>.jpg`, which is
+already correct relative to the served document root.
 
 ## Plugin layout (matches `oblsk_terminal`'s shape)
 
 ```
 oblsk_barber/
-  fxmanifest.lua          -- dependencies: obelisk, oblsk_character-selection
-  shared/config.lua        -- section prices, non-hair counts (beard/brows/etc, unchanged from design)
+  (no fxmanifest.lua -- plugins are globbed by core/fxmanifest.lua and
+   listed in plugins/registry.json)
+  shared/config.lua        -- BarberConfig: section prices, non-hair counts (beard/brows/etc, unchanged from design)
   server/
     migrations/            -- barber_chairs table (or reuse a static config list if no admin placement UI needed)
     services/BarberService.lua   -- purchase/charge logic (cash + card via oblsk_payment pattern), section pricing, receipt
     main.lua                -- interaction registration, event wiring
   client/
-    main.lua                -- opens NUI, calls oblsk_character-selection exports for catalog + live preview apply
+    main.lua                -- opens NUI, reads Appearance.HAIR_STYLES / calls CharacterAppearanceService.apply (shared globals) for catalog + live preview
   web/
     Barber.vue               -- ported BarberUI (rail, sections, footer)
     BarberClipperGame.vue    -- ported BbClipperGame minigame
@@ -83,13 +90,13 @@ oblsk_barber/
 1. Player interacts with a registered barber chair (core InteractionService,
    same convention every world-object plugin uses — no custom proximity
    code).
-2. Client opens NUI, fetches `hair = exports['oblsk_character-selection']:getHairStyles(gender)`
+2. Client opens NUI, reads `hair = Appearance.HAIR_STYLES[gender]`
    for the player's character gender, plus the plugin's own static section
    config (beard/brows/makeup/etc counts+prices from `shared/config.lua`,
    unchanged from the design prototype since no external data source was
    given for those).
 3. Selecting a style previews live via
-   `exports['oblsk_character-selection']:applyAppearance(ped, previewAppearance, gender)`
+   `CharacterAppearanceService.apply(ped, previewAppearance, gender)`
    on the client ped — same call the character creator's live preview uses.
 4. On "Cut it" (owned/no-charge) or paying (cash/card, ported from
    `barber.jsx`'s payment sheet, same pattern as `oblsk_terminal`/

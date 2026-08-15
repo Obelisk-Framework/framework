@@ -4,8 +4,9 @@
      numbered/colour-swatch sections, and paying-the-barber sheets.
      Two required deviations from the design source (see task-7 brief):
        1. The 'hair' section renders real per-style JPEG thumbnails
-          (Appearance.HAIR_STYLES via oblsk_character-selection's
-          getHairStyles export, delivered through barber:sync) instead of
+          (oblsk_character-selection's Appearance.HAIR_STYLES, read
+          directly as a shared global, delivered through barber:sync)
+          instead of
           the design's abstract numbered tiles.
        2. Payment drops the design's inline CARDS.map card picker entirely
           and instead calls the shared `obelisk:payment` picker (same
@@ -259,20 +260,31 @@ const total = computed(() =>
   allSections.value.filter(s => touched[s.id]).reduce((a, s) => a + s.price, 0)
 )
 
+// Every pick — style, colour, or hair — live-previews on the ped, not just
+// hair. The whole changeset is re-sent (rather than a per-pick delta)
+// because overlay entries are built as a unit: a colour pick and its style
+// sibling collapse into ONE overlays[key] entry, so sending only the delta
+// would emit a half-built entry that resolvePresetAppearance drops.
+function emitPreview() {
+  Obelisk.emit('barber:preview', { appearance: appearanceChangesFromTouched() })
+}
+
 function pickStyle(sec, n) {
   picks[sec.id] = n
   touched[sec.id] = true
+  emitPreview()
 }
 
 function pickColour(sec, i) {
   cols[sec.id] = i
   touched[sec.id] = true
+  emitPreview()
 }
 
 function pickHair(style) {
   picks.hair = style.drawable
   touched.hair = true
-  Obelisk.emit('barber:preview', { appearance: { hairStyle: style.drawable } })
+  emitPreview()
 }
 
 // --- serializing touched picks into a native-valued appearance partial ---
@@ -304,11 +316,37 @@ function overlayNativeStyle(uiIndex) {
   return uiIndex > 0 ? uiIndex - 1 : -1
 }
 
+// overlay key -> the OVERLAY_TARGETS section id that carries its *style*
+// (the entry without a colorType), e.g. 'facial_hair' -> 'beard'. Colour-
+// only sections (blush/lipstick) have no style sibling and so are absent
+// here. Derived rather than hand-written so it can't drift from
+// OVERLAY_TARGETS.
+const OVERLAY_STYLE_SECTION = Object.fromEntries(
+  Object.entries(OVERLAY_TARGETS)
+    .filter(([, t]) => !t.colorType)
+    .map(([id, t]) => [t.overlay, id])
+)
+
 function appearanceChangesFromTouched() {
   const changes = {}
   const overlays = {}
+  // An overlay entry ALWAYS carries a styleIndex, even when only the
+  // colour half of a section was touched: Appearance.resolvePresetAppearance
+  // silently drops overlay entries that have neither `style` nor
+  // `styleIndex`, so a colour-only purchase would otherwise be paid for and
+  // then discarded on the next spawn. The default is the section's current
+  // style pick where one exists (beard/eyebrows/chest hair), and native
+  // style 0 for the colour-only sections (blush/lipstick), which have no
+  // player-choosable style at all.
   const ensureOverlay = (key, overlayId) => {
-    if (!overlays[key]) overlays[key] = { overlayId, opacity: 1 }
+    if (!overlays[key]) {
+      const styleSection = OVERLAY_STYLE_SECTION[key]
+      overlays[key] = {
+        overlayId,
+        opacity: 1,
+        styleIndex: styleSection ? overlayNativeStyle(picks[styleSection]) : 0,
+      }
+    }
     return overlays[key]
   }
 
@@ -416,8 +454,21 @@ async function onGameDone({ mult }) {
     // confirm. The real, server-computed amount is what actually gets
     // billed once barber:charge lands.
     const discounted = Math.round(price * mult)
-    const result = await payment.requestPayment({ amount: discounted, description: 'Barber shop' })
-    if (!result.ok) return
+    // The shared `obelisk:payment` picker is provided by core; if it was
+    // never injected (or it throws/rejects), the player must be told --
+    // otherwise the minigame just ends and nothing visibly happens.
+    if (!payment?.requestPayment) {
+      chargeError.value = 'Payment system is not available right now.'
+      return
+    }
+    let result
+    try {
+      result = await payment.requestPayment({ amount: discounted, description: 'Barber shop' })
+    } catch (e) {
+      chargeError.value = 'Something went wrong opening the card picker. Try again.'
+      return
+    }
+    if (!result || !result.ok) return
     pendingCardId.value = result.cardId
     emitCharge('card', result.cardId, mult)
     return
