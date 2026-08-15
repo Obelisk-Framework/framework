@@ -125,6 +125,7 @@ const onEditSync = (payload) => {
   catalogBuild.value = payload.catalogBuild || []
   catalogStyle.value = payload.catalogStyle || []
   catalogDecor.value = payload.catalogDecor || []
+  canBuild.value = payload.canBuild || false
 }
 
 // Named handler for objectPlaced event to enable proper cleanup
