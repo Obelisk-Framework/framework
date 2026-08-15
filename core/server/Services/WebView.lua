@@ -5,8 +5,8 @@
 WebView = {}
 
 for serverMethodName, clientMethodName in pairs(WebViewRelayMethods) do
-    WebView[serverMethodName] = function(target, ...)
-        Obelisk.emitClient('core:server:webview-' .. clientMethodName, target, ...)
+    WebView[serverMethodName] = function(player, ...)
+        Obelisk.emitClient('core:server:webview-' .. clientMethodName, player, ...)
     end
 end
 
