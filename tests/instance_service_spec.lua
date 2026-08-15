@@ -96,6 +96,27 @@ test('getPlayersIn reflects multiple players sharing one shell\'s bucket', funct
     end)
 end)
 
+test('getCurrentBucket returns 0 for a source with no active bucket', function()
+    withFreshState(function()
+        eq(InstanceService.getCurrentBucket(7), 0)
+    end)
+end)
+
+test('getCurrentBucket returns the active bucket after enter', function()
+    withFreshState(function()
+        local bucketId = InstanceService.enter(7, 'shellbuilder:shell:1')
+        eq(InstanceService.getCurrentBucket(7), bucketId)
+    end)
+end)
+
+test('getCurrentBucket returns 0 again after leave', function()
+    withFreshState(function()
+        InstanceService.enter(7, 'shellbuilder:shell:1')
+        InstanceService.leave(7)
+        eq(InstanceService.getCurrentBucket(7), 0)
+    end)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

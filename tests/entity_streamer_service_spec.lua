@@ -12,7 +12,16 @@ local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_build
 -- register(), which init() calls immediately via Citizen.CreateThread's
 -- synchronous stub -- see fivem_stubs.lua). A minimal stub is enough since
 -- these tests never assert on network traffic.
-_G.Obelisk = _G.Obelisk or { onServer = function() end, emitClient = function() end }
+-- A spy that records emitClient calls, so group-entity broadcast tests can
+-- assert on them. Existing tests never inspect these calls, so this is a
+-- behavior-preserving upgrade, not a breaking change.
+local emitClientCalls = {}
+_G.Obelisk = _G.Obelisk or {
+    onServer = function() end,
+    emitClient = function(eventName, target, data)
+        table.insert(emitClientCalls, { eventName = eventName, target = target, data = data })
+    end,
+}
 
 local failures = {}
 local function test(name, fn)
@@ -432,6 +441,69 @@ test('handlePlayerDropped releases the chunk refs and budget the player held', f
     for _, chunkKey in ipairs(held) do
         eq(Streamer.chunkPlayerRefs[chunkKey] or 0, 0, 'ref released for ' .. chunkKey)
     end
+end)
+
+test('registerGroupEntity stores a flattened record retrievable via getGroupEntityRecords', function()
+    emitClientCalls = {}
+    local service = freshService()
+    local entityId = service.registerGroupEntity('shellbuilder:shell:1', 'object', {
+        id = 42, x = 1.0, y = 2.0, z = 3.0, heading = 90.0, model = 'prop_sofa_01', networked = false,
+    })
+    local records = service.getGroupEntityRecords('shellbuilder:shell:1')
+    eq(#records, 1)
+    eq(records[1].entityId, entityId)
+    eq(records[1].entityType, 'object')
+    eq(records[1].data.model, 'prop_sofa_01')
+    eq(records[1].data.x, 1.0)
+end)
+
+test('registerGroupEntity broadcasts entityAdd to every target source', function()
+    emitClientCalls = {}
+    local service = freshService()
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'prop_sofa_01' }, { 7, 9 })
+    eq(#emitClientCalls, 2)
+    eq(emitClientCalls[1].eventName, 'core:server:streamer-entityAdd')
+    eq(emitClientCalls[1].target, 7)
+    eq(emitClientCalls[2].target, 9)
+end)
+
+test('registerGroupEntity with no targetSources broadcasts nothing', function()
+    emitClientCalls = {}
+    local service = freshService()
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'prop_sofa_01' })
+    eq(#emitClientCalls, 0)
+end)
+
+test('different groupKeys keep entirely separate entity lists', function()
+    local service = freshService()
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
+    service.registerGroupEntity('shellbuilder:shell:2', 'object', { id = 43, x = 1.0, y = 2.0, z = 3.0, model = 'b' })
+    eq(#service.getGroupEntityRecords('shellbuilder:shell:1'), 1)
+    eq(#service.getGroupEntityRecords('shellbuilder:shell:2'), 1)
+end)
+
+test('unregisterGroupEntity removes the record and broadcasts entityRemove', function()
+    emitClientCalls = {}
+    local service = freshService()
+    local entityId = service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
+    emitClientCalls = {}
+    service.unregisterGroupEntity('shellbuilder:shell:1', 'object', entityId, { 7 })
+    eq(#service.getGroupEntityRecords('shellbuilder:shell:1'), 0)
+    eq(#emitClientCalls, 1)
+    eq(emitClientCalls[1].eventName, 'core:server:streamer-entityRemove')
+    eq(emitClientCalls[1].target, 7)
+end)
+
+test('sendGroupEntitiesTo emits entityAdd for every record in that group to one source', function()
+    local service = freshService()
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 43, x = 4.0, y = 5.0, z = 6.0, model = 'b' })
+    emitClientCalls = {}
+    service.sendGroupEntitiesTo(7, 'shellbuilder:shell:1')
+    eq(#emitClientCalls, 2)
+    eq(emitClientCalls[1].eventName, 'core:server:streamer-entityAdd')
+    eq(emitClientCalls[1].target, 7)
+    eq(emitClientCalls[2].target, 7)
 end)
 
 if #failures > 0 then

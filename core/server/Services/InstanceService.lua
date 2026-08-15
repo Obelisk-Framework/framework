@@ -80,6 +80,14 @@ function InstanceService.leave(source)
     SetPlayerRoutingBucket(source, 0)
 end
 
+--- @param source number
+--- @return number the bucket id this player is currently tracked in, or 0
+function InstanceService.getCurrentBucket(source)
+    local key = playerBucketKey[source]
+    if not key then return 0 end
+    return InstanceService.getOrCreateBucket(key)
+end
+
 --- @param key string
 --- @return number[] every player source currently tracked as inside this key's bucket
 function InstanceService.getPlayersIn(key)
