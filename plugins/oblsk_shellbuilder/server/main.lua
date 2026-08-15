@@ -20,6 +20,28 @@ local function permissionsFor(source)
     return { canBuild = canBuild and true or false, ownedShellIds = ownedShellIds }
 end
 
+--- Whether `source` may furnish/edit unlocked objects in `shellId`: either an
+--- owner managing their own shell, or a builder with `shellbuilder:edit`
+--- policy access (e.g. staff placing/removing unlocked decor as part of a
+--- "comes with interior but not locked" shell).
+--- @param source number
+--- @param shellId number
+--- @return boolean ok
+--- @return string|nil reason
+local function canManageShell(source, shellId)
+    local characterId = CharacterService.getActiveCharacterId(source)
+    if characterId and ShellService.isOwner(shellId, characterId) then
+        return true
+    end
+
+    local ok, reason = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
+    if ok then
+        return true
+    end
+
+    return false, reason or 'You do not have access to this shell'
+end
+
 local function openBrowser(source)
     WebView.openPage(source, '/ShellBrowser')
     WebView.focus(source)
@@ -77,8 +99,13 @@ Obelisk.onServer('shellbuilder:client:edit', function(shellId)
         return
     end
 
-    InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
     local shell = ShellService.get(shellId)
+    if not shell then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = 'Unknown shell' })
+        return
+    end
+
+    InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
     SetEntityCoords(GetPlayerPed(source), Config.Anchor.x, Config.Anchor.y, Config.Anchor.z, false, false, false, false)
     SetEntityHeading(GetPlayerPed(source), shell.interior_heading)
     WebView.openPage(source, '/ShellEditor')
@@ -113,6 +140,12 @@ Obelisk.onServer('shellbuilder:client:place', function(shellId, itemKey, x, y, z
             NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
             return
         end
+    else
+        local ok, reason = canManageShell(source, shellId)
+        if not ok then
+            NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
+            return
+        end
     end
 
     local ok, objectOrReason = ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, floorLevel, colorData, locked)
@@ -126,6 +159,12 @@ end)
 
 Obelisk.onServer('shellbuilder:client:removeObject', function(shellId, objectId)
     local source = source
+    local accessOk, accessReason = canManageShell(source, shellId)
+    if not accessOk then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = accessReason })
+        return
+    end
+
     local ok, reason = ShellObjectService.remove(source, shellId, objectId)
     if not ok then
         NotificationService.notify(source, { type = 'error', title = 'Could not remove', description = reason })
