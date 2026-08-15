@@ -60,9 +60,9 @@
             Lock placement
           </button>
         </div>
-        <button v-if="selectedItem && !wreck" @click="startAim" class="h-[34px] px-3 rounded-[7px] text-[11px] uppercase"
-          style="background:color-mix(in oklab, var(--ob-accent) 30%, transparent);border:1px solid var(--ob-accent)">
-          Place (aim)
+        <button v-if="selectedItem || wreck" @click="startAim" class="h-[34px] px-3 rounded-[7px] text-[11px] uppercase"
+          :style="wreck ? { background: 'rgba(190,40,40,.35)', border: '1px solid #ef4444' } : { background: 'color-mix(in oklab, var(--ob-accent) 30%, transparent)', border: '1px solid var(--ob-accent)' }">
+          {{ wreck ? 'Remove (aim)' : 'Place (aim)' }}
         </button>
         <button @click="exitEditor" class="mt-auto h-[36px] w-full rounded-[7px] text-[12px] uppercase"
           style="background:var(--ob-accent);color:#04120d">Save & exit</button>
