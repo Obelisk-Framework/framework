@@ -9,11 +9,8 @@ dependencies {
     'obelisk'
 }
 
-exports {
-    'getHairStyles'
-}
-
 client_exports {
+    'getHairStyles',
     'applyAppearance'
 }
 
