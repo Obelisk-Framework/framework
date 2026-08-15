@@ -156,6 +156,13 @@ Obelisk.onClient('character-selection:selected', function(characterId, result)
     spawnAsSelectedCharacter(result)
 end)
 
+--- @param gender string 'male' | 'female'
+--- @return table[] Appearance.HAIR_STYLES[gender], or the male list if gender is neither
+exports('getHairStyles', function(gender)
+    gender = gender == 'female' and 'female' or 'male'
+    return Appearance.HAIR_STYLES[gender]
+end)
+
 --- @param ped number
 --- @param appearance table shaped per Appearance.DEFAULT_APPEARANCE
 --- @param gender string 'male' | 'female'
