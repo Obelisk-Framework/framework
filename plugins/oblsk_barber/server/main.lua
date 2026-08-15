@@ -78,6 +78,10 @@ Obelisk.onServer('barber:client:applyFree', function(gender, appearanceChanges)
     Obelisk.emitClient('barber:server:chargeResult', source, { ok = true, total = 0, appearance = resolvedOrReason })
 end)
 
-registerAllChairs()
-
-print('[Barber] Loaded successfully!')
+Citizen.CreateThread(function()
+    while not Database.isReady() do
+        Citizen.Wait(200)
+    end
+    registerAllChairs()
+    print('[Barber] Loaded successfully!')
+end)
