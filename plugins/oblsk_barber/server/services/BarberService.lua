@@ -95,4 +95,24 @@ function BarberService.applyAndPersist(source, gender, appearanceChanges)
     return true, data
 end
 
+--- Read-only: the active character's current fully-resolved appearance, for
+--- sending to the client as a live-preview base (see server/main.lua's
+--- openForSource). Always a complete Appearance.DEFAULT_APPEARANCE-shaped
+--- table, never sparse -- CharacterSelectionService.createCharacter always
+--- initializes this row from Appearance.DEFAULT_APPEARANCE.
+--- @param source number
+--- @return table|nil appearance data, nil if no active character or no row
+function BarberService.getAppearance(source)
+    local characterId = CharacterService.getActiveCharacterId(source)
+    if not characterId then
+        return nil
+    end
+    local row = CharacterAppearance:where('character_id', characterId):firstSync()
+    if not row then
+        return nil
+    end
+    local appearanceModel = CharacterAppearance:newFromQuery(row)
+    return appearanceModel.attributes.data
+end
+
 return BarberService

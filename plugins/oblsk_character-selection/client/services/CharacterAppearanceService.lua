@@ -35,6 +35,13 @@ function CharacterAppearanceService.apply(ped, appearance, gender)
             SetPedPropIndex(ped, propId, variation.drawable, variation.texture or 0, true)
         end
     end
+
+    for _, overlay in pairs(appearance.overlays or {}) do
+        SetPedHeadOverlay(ped, overlay.overlayId, overlay.styleIndex, overlay.opacity or 1.0)
+        if overlay.colorId ~= nil then
+            SetPedHeadOverlayColor(ped, overlay.overlayId, overlay.colorType or 1, overlay.colorId, overlay.colorId)
+        end
+    end
 end
 
 --- Convenience: apply one wardrobe slot's chosen option (from
