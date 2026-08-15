@@ -21,7 +21,6 @@
     "oblsk_shop",
     "oblsk_speedometer",
     "oblsk_terminal",
-    "oblsk_tuner",
-    "oblsk_vendingmachine"
+    "oblsk_tuner"
   ]
 }
