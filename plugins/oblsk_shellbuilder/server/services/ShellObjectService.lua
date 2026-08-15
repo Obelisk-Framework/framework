@@ -99,9 +99,18 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
         z = z,
         heading = heading or 0,
         floor_level = floorLevel or 0,
-        locked = locked and true or false,
+        -- Stored as 1/0, not a Lua boolean: the `locked` column is a MySQL
+        -- TINYINT(1), and a row read back through QueryBuilder:firstSync
+        -- carries `locked` as an integer, not a Lua boolean (0 is truthy in
+        -- Lua). Inserting 1/0 keeps the write side and the read-side check
+        -- below consistent regardless of how reliably the underlying
+        -- connector round-trips Lua true/false.
+        locked = (locked and 1 or 0),
         placed_by_character_id = placedByCharacterId,
-        color_data = colorData or {},
+        -- The ShellObject model declares casts.color_data = 'json', but
+        -- this service calls QueryBuilder directly and bypasses the model,
+        -- so that cast never runs - encode explicitly here instead.
+        color_data = colorData and json.encode(colorData) or nil,
         created_at = Database.now(),
         updated_at = Database.now(),
     })
@@ -109,9 +118,10 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
     return true, QueryBuilder.new('shell_objects'):where('id', id):firstSync()
 end
 
---- Deletes a placed object and refunds the item it was placed from, unless
---- the object is locked (a staff-placed structural/fixed piece).
---- @param source number the removing player, credited the refund
+--- Deletes a placed object and, when the remover is the same character who
+--- placed it, refunds the item it was placed from. The object is refused
+--- when locked (a staff-placed structural/fixed piece).
+--- @param source number the removing player
 --- @param shellId number
 --- @param objectId number
 --- @return boolean ok
@@ -122,15 +132,34 @@ function ShellObjectService.remove(source, shellId, objectId)
     if not object then
         return false, 'Unknown object'
     end
-    if object.locked then
+    -- `locked` round-trips from MySQL as the integer 0/1 (TINYINT(1)), not
+    -- a Lua boolean - 0 is truthy in Lua, so a plain `if object.locked`
+    -- check refused removal for every object, locked or not. Accept both
+    -- the fake test QueryBuilder's raw Lua booleans and the real
+    -- integer 0/1 the live driver returns.
+    if object.locked == true or object.locked == 1 then
         return false, 'This piece is locked'
     end
 
     local item = ItemService.binding(object.item_key)
     QueryBuilder.new('shell_objects'):where('id', objectId):delete()
 
-    if item then
-        ItemService.add(source, item, 1)
+    -- canManageShell (server/main.lua) grants remove access to any
+    -- build-permission staff member, not just the shell's owner - refunding
+    -- unconditionally to `source` would let staff pocket another
+    -- character's placed item by deleting it. Only refund when the remover
+    -- is the same character who originally placed it; a different
+    -- character removing someone else's unlocked item gets no refund.
+    -- Known limitation: if the placer isn't currently online as `source`,
+    -- there's no way to credit their live inventory through
+    -- ItemService.add's source-based API, so the item is simply not
+    -- refunded to anyone in that case - crediting an offline character
+    -- would need a different item-grant path, out of scope here.
+    if item and object.placed_by_character_id then
+        local removerCharacterId = CharacterService.getActiveCharacterId(source)
+        if removerCharacterId and removerCharacterId == object.placed_by_character_id then
+            ItemService.add(source, item, 1)
+        end
     end
 
     return true

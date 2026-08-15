@@ -9,12 +9,12 @@ ShellService = {}
 function ShellService.create(createdByCharacterId, name)
     local id = QueryBuilder.new('shells'):insert({
         name = name,
-        entry_x = Config.EntryPoint.x,
-        entry_y = Config.EntryPoint.y,
-        entry_z = Config.EntryPoint.z,
+        entry_x = ShellBuilderConfig.EntryPoint.x,
+        entry_y = ShellBuilderConfig.EntryPoint.y,
+        entry_z = ShellBuilderConfig.EntryPoint.z,
         entry_heading = 0,
         interior_heading = 0,
-        object_budget = Config.DefaultObjectBudget,
+        object_budget = ShellBuilderConfig.DefaultObjectBudget,
         timecycle = 'Neutral',
         created_by_character_id = createdByCharacterId,
         created_at = Database.now(),
@@ -101,6 +101,20 @@ function ShellService.listOwners(shellId)
     local ids = {}
     for _, row in ipairs(rows) do
         table.insert(ids, row.character_id)
+    end
+    return ids
+end
+
+--- All shell ids owned by a given character, in a single query. Used by
+--- server/main.lua's permissionsFor/openBrowser to avoid an N+1
+--- ShellService.list() + per-shell isOwner() loop.
+--- @param characterId number
+--- @return number[] every shell_id this character owns
+function ShellService.listOwnedShellIds(characterId)
+    local rows = QueryBuilder.new('shell_owners'):where('character_id', characterId):getSync()
+    local ids = {}
+    for _, row in ipairs(rows) do
+        table.insert(ids, row.shell_id)
     end
     return ids
 end
