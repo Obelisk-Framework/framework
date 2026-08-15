@@ -1,6 +1,6 @@
--- Run from the repository root:  lua5.4 core/tests/instance_service_spec.lua
+-- Run from the repository root:  lua5.4 tests/instance_service_spec.lua
 local scriptDir = arg[0]:match('(.*/)') or './'
-local ROOT = scriptDir .. '../..'
+local ROOT = scriptDir .. '..'
 
 dofile(ROOT .. '/tests/support/fivem_stubs.lua')
 dofile(ROOT .. '/core/server/ORM/Dialects/Init.lua')
