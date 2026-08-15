@@ -116,6 +116,7 @@ Obelisk.onServer('shellbuilder:client:enter', function(shellId)
     end
 
     InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
+    EntityStreamerService.sendGroupEntitiesTo(source, 'shellbuilder:shell:' .. shellId)
     SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.Anchor.x, ShellBuilderConfig.Anchor.y, ShellBuilderConfig.Anchor.z, false, false, false, false)
     SetEntityHeading(GetPlayerPed(source), shell.interior_heading)
     WebView.openPage(source, '/ShellEditor')
@@ -146,6 +147,7 @@ Obelisk.onServer('shellbuilder:client:edit', function(shellId)
     end
 
     InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
+    EntityStreamerService.sendGroupEntitiesTo(source, 'shellbuilder:shell:' .. shellId)
     SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.Anchor.x, ShellBuilderConfig.Anchor.y, ShellBuilderConfig.Anchor.z, false, false, false, false)
     SetEntityHeading(GetPlayerPed(source), shell.interior_heading)
     WebView.openPage(source, '/ShellEditor')

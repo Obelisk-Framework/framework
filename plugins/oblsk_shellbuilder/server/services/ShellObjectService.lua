@@ -115,6 +115,26 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
         updated_at = Database.now(),
     })
 
+    EntityStreamerService.registerGroupEntity(
+        'shellbuilder:shell:' .. shellId,
+        'object',
+        { id = id, x = x, y = y, z = z, heading = heading or 0, model = item.data and item.data.shell_model, networked = false },
+        InstanceService.getPlayersIn('shellbuilder:shell:' .. shellId)
+    )
+
+    QueryBuilder.new('entities'):insert({
+        entity_type = 'object',
+        model = item.data and item.data.shell_model,
+        x = x, y = y, z = z, heading = heading or 0,
+        networked = false,
+        enabled = true,
+        owner_type = 'shellbuilder_shell_object',
+        owner_id = id,
+        data = json.encode({ shellId = shellId }),
+        created_at = Database.now(),
+        updated_at = Database.now(),
+    })
+
     return true, QueryBuilder.new('shell_objects'):where('id', id):firstSync()
 end
 
@@ -143,6 +163,15 @@ function ShellObjectService.remove(source, shellId, objectId)
 
     local item = ItemService.binding(object.item_key)
     QueryBuilder.new('shell_objects'):where('id', objectId):delete()
+
+    EntityStreamerService.unregisterGroupEntity(
+        'shellbuilder:shell:' .. shellId,
+        'object',
+        'object_' .. tostring(objectId),
+        InstanceService.getPlayersIn('shellbuilder:shell:' .. shellId)
+    )
+
+    QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', objectId):delete()
 
     -- canManageShell (server/main.lua) grants remove access to any
     -- build-permission staff member, not just the shell's owner - refunding
