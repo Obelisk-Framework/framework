@@ -5,6 +5,23 @@
 --- for the final point_name/slot_index, matching this repo's existing
 --- admin-command input pattern (see oblsk_licenses' console-args commands).
 local session = nil -- { entity, entityType, model, propHandle, boneIndex, boneName, offset, rotation }
+local PendingSave = nil -- staged { model, boneIndex, offset, rotation } awaiting /attach-point-save
+
+--- Minimal on-screen text helper (this repo has no shared DrawText3D
+--- utility today per a codebase search during design) -- kept local to this
+--- file since no other plugin needs it yet.
+local function DrawText3D(x, y, z, text)
+    local onScreen, sx, sy = GetScreenCoordFromWorldCoord(x, y, z)
+    if onScreen then
+        SetTextFont(4)
+        SetTextScale(0.3, 0.3)
+        SetTextColour(255, 255, 255, 215)
+        SetTextEntry("STRING")
+        SetTextCentre(true)
+        AddTextComponentString(text)
+        DrawText(sx, sy)
+    end
+end
 
 --- World-space position of `boneIndex` on `entity`.
 local function boneWorldPos(entity, boneIndex)
@@ -49,7 +66,7 @@ local function raycastEntity()
 
     local ray = StartShapeTestRay(camCoords.x, camCoords.y, camCoords.z, destination.x, destination.y, destination.z, 16, PlayerPedId(), 0)
     local _, hit, hitCoords, _, entity = GetShapeTestResult(ray)
-    if hit == 0 or entity == 0 then return nil end
+    if not hit or entity == 0 then return nil end
 
     local entityType = 'ped'
     if GetEntityType(entity) == 2 then entityType = 'vehicle' end
@@ -82,7 +99,12 @@ local function startSession(model)
         Citizen.Wait(10)
         waited = waited + 10
     end
-    local prop = CreateObject(propModel, 0.0, 0.0, 0.0, true, true, false)
+    if not HasModelLoaded(propModel) then
+        print('[PropAttach] Failed to load preview prop model, aborting placement session.')
+        SetModelAsNoLongerNeeded(propModel)
+        return
+    end
+    local prop = CreateObject(propModel, 0.0, 0.0, 0.0, false, false, true)
     SetModelAsNoLongerNeeded(propModel)
     AttachEntityToEntity(prop, entity, boneIndex, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
 
@@ -113,17 +135,17 @@ local function endSession(save)
     if save then
         -- Chat/console input for the follow-up fields, matching this
         -- repo's existing admin-command convention of taking arguments
-        -- rather than opening a form UI.
-        Citizen.CreateThread(function()
-            -- Simplest correct v1: prompt on the F8 console rather than
-            -- building a chat suggestion/input box. A follow-up plugin can
-            -- upgrade this to an NUI form without changing the save event.
-            print('[PropAttach] Run: /attach-point-save <point_name> [slot_index] to save this placement.')
-            PendingSave = {
-                model = session.model, boneIndex = session.boneIndex,
-                offset = session.offset, rotation = session.rotation,
-            }
-        end)
+        -- rather than opening a form UI. Assigned synchronously (NOT inside
+        -- a Citizen.CreateThread) -- `session` is set to nil right below,
+        -- on this same tick, so a queued thread body would see it as nil.
+        -- Simplest correct v1: prompt on the F8 console rather than
+        -- building a chat suggestion/input box. A follow-up plugin can
+        -- upgrade this to an NUI form without changing the save event.
+        PendingSave = {
+            model = session.model, boneIndex = session.boneIndex,
+            offset = session.offset, rotation = session.rotation,
+        }
+        print('[PropAttach] Run: /attach-point-save <point_name> [slot_index] to save this placement.')
     end
 
     session = nil
@@ -206,18 +228,9 @@ Citizen.CreateThread(function()
     end
 end)
 
---- Minimal on-screen text helper (this repo has no shared DrawText3D
---- utility today per a codebase search during design) -- kept local to this
---- file since no other plugin needs it yet.
-function DrawText3D(x, y, z, text)
-    local onScreen, sx, sy = GetScreenCoordFromWorldCoord(x, y, z)
-    if onScreen then
-        SetTextFont(4)
-        SetTextScale(0.3, 0.3)
-        SetTextColour(255, 255, 255, 215)
-        SetTextEntry("STRING")
-        SetTextCentre(true)
-        AddTextComponentString(text)
-        DrawText(sx, sy)
-    end
-end
+--- Clean up a live preview prop on resource stop (e.g. hot-restart), same
+--- guard convention as core/server/bootstrap.lua's onResourceStop handler.
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+    endSession(false)
+end)

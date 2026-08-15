@@ -9,13 +9,13 @@ local function notifyFailure(player, title, reason)
     NotificationService.notify(player, { type = 'error', title = title, description = reason })
 end
 
---- exports('attach', ...) equivalent for same-VM callers: any other plugin
---- calls AttachmentService.attach/detach directly (shared global, no
---- resource export needed per this framework's single-Lua-state
---- convention) and then calls this to notify clients. Kept as a named
---- function (not inlined into AttachmentService) so AttachmentService stays
---- pure data-layer and net broadcasting stays here with the rest of this
---- plugin's event wiring.
+--- Broadcast helper for same-VM callers: any other plugin calls
+--- AttachmentService.attach/detach directly (shared global, no resource
+--- export needed per this framework's single-Lua-state convention -- see
+--- README's "Usage (from another plugin)" section) and then calls this to
+--- notify clients. Kept as a named function (not inlined into
+--- AttachmentService) so AttachmentService stays pure data-layer and net
+--- broadcasting stays here with the rest of this plugin's event wiring.
 --- @param row table attachments row
 --- @param target Player|number|nil
 function PropAttachBroadcast(row, target)
@@ -55,23 +55,8 @@ function PropAttachDetach(attachmentId)
     return ok
 end
 
---- Client-driven test/manual attach (also what the placement tool's "test
---- attach" step, if ever added, would call) — takes the parent model
---- explicitly since the server has no reliable way to resolve a live
---- entity's model from just a net id without a client round trip.
---- @param player Player
-Obelisk.onClient('propattach:server:attach', function(player, parentEntityType, parentNetId, parentModel, propModel, pointName, slotIndex)
-    local row, err = AttachmentService.attach(parentEntityType, parentNetId, parentModel, propModel, pointName, slotIndex or 0, {})
-    if not row then
-        notifyFailure(player, 'Cannot attach', tostring(err))
-        return
-    end
-    row.parent_model = parentModel
-    PropAttachBroadcast(row)
-end)
-
 Obelisk.onClient('propattach:server:savePoint', function(player, model, pointName, slotIndex, boneIndex, offset, rotation)
-    local characterId = CharacterService.getActiveCharacterId(player:getSource())
+    local characterId = CharacterService and CharacterService.getActiveCharacterId(player:getSource())
     local character = characterId and Character:findSync(characterId)
     if not character or not character:can(PropAttachConfig.EditPermission) then
         notifyFailure(player, 'Cannot save attach point', 'You do not have permission to do that.')
@@ -88,38 +73,23 @@ end)
 --- Late-joiner snapshot: every currently-live attachment, sent as
 --- individual propattach-create events. Attachment count is small, so a
 --- flat push (not chunk-scoped like EntityStreamerService) is fine.
-Obelisk.on('playerJoining', function()
-    -- Deferred: PlayerService has no Player for this source yet during
-    -- playerJoining itself. Poll briefly (matches this framework's existing
-    -- "wait for Database.isReady()" idiom) rather than assuming a fixed delay.
-    -- `source` is not a playerJoining callback arg -- capture the runtime
-    -- global here, matching core/server/Services/PlayerService.lua's own
-    -- playerJoining/playerDropped handlers (`local source = source`).
-    local source = source
-    Citizen.CreateThread(function()
-        local player, waited = nil, 0
-        while not player and waited < 5000 do
-            player = PlayerService.get(source)
-            if not player then Citizen.Wait(200); waited = waited + 200 end
-        end
-        if not player then return end
-
-        for _, row in ipairs(AttachmentService.all()) do
-            local point = AttachPointService.find(row.parent_model or '', row.point_name, row.slot_index)
-            Obelisk.emitClient('core:server:propattach-create', player, {
-                attachmentId = row.id, propModel = row.prop_model,
-                parentEntityType = row.parent_entity_type, parentNetId = row.parent_net_id,
-                pointName = row.point_name, slotIndex = row.slot_index,
-                boneIndex = point and point.bone_index,
-                offset = point and { x = point.offset_x, y = point.offset_y, z = point.offset_z },
-                rotation = point and { x = point.rot_x, y = point.rot_y, z = point.rot_z },
-            })
-        end
-    end)
+---
+--- Fired off `core:client:ready` (client emits this from
+--- core/client/bootstrap.lua once its resource has actually started and
+--- registered its `core:server:propattach-create` handler), not
+--- `playerJoining` -- PlayerService creates its Player synchronously during
+--- playerJoining, so a poll there resolves immediately, well before the
+--- client is actually listening. Obelisk.onClient already resolves the
+--- Player for us and drops the event if none exists yet, so no polling is
+--- needed here either.
+Obelisk.onClient('core:client:ready', function(player)
+    for _, row in ipairs(AttachmentService.all()) do
+        -- The attachments table has no parent_model column (see README's
+        -- "Known limitations" section), so row.parent_model is never set
+        -- here -- PropAttachBroadcast already falls back to '' internally.
+        PropAttachBroadcast(row, player)
+    end
 end)
-
-exports('propAttach', function(...) return AttachmentService.attach(...) end)
-exports('propDetach', function(...) return PropAttachDetach(...) end)
 
 Citizen.CreateThread(function()
     while not Database.isReady() do Citizen.Wait(200) end

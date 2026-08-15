@@ -25,8 +25,24 @@ PropAttachDetach(row.id)
 
 ## Placement tool
 
-`/attach-point-edit <model>` while aiming at a live entity of that model —
-see the design doc's "Placement tool" section for controls.
+Requires the `propattach_edit` permission — grant it via the org-grant
+pattern (same as `PropAttachPermissionSeeder.lua`'s doc comment shows), e.g.
+`/org-grant character <characterId> propattach_edit`.
+
+Three console commands drive the tool (no NUI form in v1):
+
+- `/attach-point-edit <model>` — aim your camera at a live entity of that
+  model, then run this to start a session. It raycasts to find the nearest
+  bone and attaches a neutral preview prop there.
+- Once a session is active: arrow keys nudge X/Y offset, PageUp/PageDown
+  nudge Z offset, hold Shift + arrows to nudge rotation instead, Enter
+  stages the placement for saving, Esc (or the bound `attach-point-cancel`
+  key) cancels the session outright.
+- `/attach-point-save <point_name> [slot_index]` — after Enter has staged a
+  placement, run this to persist it as an attach point (`slot_index`
+  defaults to `0`).
+- `/attach-point-cancel` — cancel an active session, or clear a staged (but
+  not yet saved) placement.
 
 ## Known limitations (v1)
 

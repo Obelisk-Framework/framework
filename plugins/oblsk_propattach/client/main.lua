@@ -40,7 +40,7 @@ Obelisk.onServer('core:server:propattach-create', function(data)
         return
     end
 
-    local prop = CreateObject(model, 0.0, 0.0, 0.0, true, true, false)
+    local prop = CreateObject(model, 0.0, 0.0, 0.0, false, false, true)
     SetModelAsNoLongerNeeded(model)
 
     local offset = data.offset or { x = 0, y = 0, z = 0 }
@@ -62,4 +62,19 @@ Obelisk.onServer('core:server:propattach-remove', function(data)
         DeleteEntity(prop)
     end
     PropAttach.active[data.attachmentId] = nil
+end)
+
+--- Clean up every locally-spawned attachment prop when this resource stops
+--- (e.g. hot-restart), matching core/server/bootstrap.lua's
+--- `if resourceName == GetCurrentResourceName()` guard convention.
+AddEventHandler('onResourceStop', function(resourceName)
+    if resourceName ~= GetCurrentResourceName() then return end
+
+    for attachmentId, prop in pairs(PropAttach.active) do
+        if DoesEntityExist(prop) then
+            DetachEntity(prop, true, true)
+            DeleteEntity(prop)
+        end
+        PropAttach.active[attachmentId] = nil
+    end
 end)
