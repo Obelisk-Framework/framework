@@ -178,6 +178,12 @@
       <button @click="chargeError = null" class="ob-mono text-[11px] text-white/60 hover:text-white/90 transition">×</button>
     </div>
 
+    <!-- clipper-precision minigame — runs between "Pay"/"Cut it" and the
+         actual barber:charge/barber:applyFree emit; its result's `mult`
+         discounts the total charged (see onGameDone below). -->
+    <BarberClipperGame v-if="game" :label="game.label" :price="game.price" :free="owned"
+      @done="onGameDone" @cancel="onGameCancel" />
+
     <!-- receipt -->
     <div v-if="done" class="absolute inset-0 z-40 grid place-items-center" style="background:rgba(0,0,0,.6)" @click="done = null">
       <div class="rounded-[10px] p-7 text-center w-[330px]" style="background:rgba(10,14,18,.92);border:1px solid rgba(255,255,255,.12)" @click.stop>
@@ -196,6 +202,7 @@
 <script setup>
 import { computed, inject, onMounted, onUnmounted, reactive, ref } from 'vue'
 import Obelisk from '../../../web/src/obelisk.js'
+import BarberClipperGame from './BarberClipperGame.vue'
 
 const payment = inject('obelisk:payment')
 
@@ -342,32 +349,82 @@ const pendingCardId = ref(null)
 // warning, not a silently-closed sheet.
 const chargeError = ref(null)
 
+// --- clipper-precision minigame ------------------------------------------
+// null | { label, price }. `price` is the running total across every
+// touched section at the moment the minigame is opened (NOT a per-section
+// price — the design's BbClipperGame is invoked once per item there, but
+// this shop charges a single total across multiple sections, so the
+// minigame's `mult` is applied to that whole running total, not to any one
+// section's price — see onGameDone below).
+const game = ref(null)
+
 function onFooterClick() {
   if (!total.value) return
   chargeError.value = null
   if (owned.value) {
-    pendingMethod.value = 'free'
-    pendingCardId.value = null
-    Obelisk.emit('barber:applyFree', { appearanceChanges: appearanceChangesFromTouched() })
+    startGame('free')
     return
   }
   pay.value = 'method'
 }
 
-async function payByCard() {
-  chargeError.value = null
-  const result = await payment.requestPayment({ amount: total.value, description: 'Barber shop' })
-  if (!result.ok) return
-  pendingMethod.value = 'card'
-  pendingCardId.value = result.cardId
-  emitCharge('card', result.cardId)
+// Both payment methods now open the minigame instead of charging
+// immediately — the actual payment.requestPayment()/barber:charge emit
+// happens in onGameDone once the minigame's quality multiplier is known,
+// so a bad cut discounts what's actually charged (mirroring the design's
+// `Math.round(game.price * res.mult)` behavior).
+function payByCard() {
+  startGame('card')
 }
 
 function payByCash() {
+  startGame('cash')
+}
+
+function startGame(method) {
   chargeError.value = null
-  pendingMethod.value = 'cash'
+  pendingMethod.value = method
   pendingCardId.value = null
+  pay.value = null // close the payment-method sheet while the minigame runs
+  game.value = {
+    label: `${Object.keys(touched).length} change${Object.keys(touched).length === 1 ? '' : 's'}`,
+    price: total.value,
+  }
+}
+
+// Fired by BarberClipperGame's `done` event once all three passes are
+// scored, carrying { q, grade, mult }. `mult` discounts the running total
+// captured in game.price (not any single section) — for 'free' cuts there's
+// nothing to discount (BarberClipperGame hides the price on its own when
+// `free` is true), and for 'cash'/'card' the discounted total is what
+// actually gets charged.
+async function onGameDone({ mult }) {
+  const method = pendingMethod.value
+  const price = game.value ? game.value.price : total.value
+  game.value = null
+
+  if (method === 'free') {
+    Obelisk.emit('barber:applyFree', { appearanceChanges: appearanceChangesFromTouched() })
+    return
+  }
+
+  if (method === 'card') {
+    const discounted = Math.round(price * mult)
+    const result = await payment.requestPayment({ amount: discounted, description: 'Barber shop' })
+    if (!result.ok) return
+    pendingCardId.value = result.cardId
+    emitCharge('card', result.cardId)
+    return
+  }
+
+  // cash
   emitCharge('cash', null)
+}
+
+function onGameCancel() {
+  game.value = null
+  pendingMethod.value = null
+  pendingCardId.value = null
 }
 
 function emitCharge(method, cardId) {
