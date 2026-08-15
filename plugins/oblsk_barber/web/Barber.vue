@@ -409,16 +409,22 @@ async function onGameDone({ mult }) {
   }
 
   if (method === 'card') {
+    // The server is authoritative for the discount (BarberService.charge
+    // now applies + clamps `mult` itself) — this client-side
+    // Math.round(price * mult) is purely cosmetic, so the card picker
+    // shows the player roughly what they're about to pay before they
+    // confirm. The real, server-computed amount is what actually gets
+    // billed once barber:charge lands.
     const discounted = Math.round(price * mult)
     const result = await payment.requestPayment({ amount: discounted, description: 'Barber shop' })
     if (!result.ok) return
     pendingCardId.value = result.cardId
-    emitCharge('card', result.cardId)
+    emitCharge('card', result.cardId, mult)
     return
   }
 
   // cash
-  emitCharge('cash', null)
+  emitCharge('cash', null, mult)
 }
 
 function onGameCancel() {
@@ -427,12 +433,13 @@ function onGameCancel() {
   pendingCardId.value = null
 }
 
-function emitCharge(method, cardId) {
+function emitCharge(method, cardId, mult) {
   Obelisk.emit('barber:charge', {
     touchedSectionIds: Object.keys(touched),
     method,
     cardId,
     appearanceChanges: appearanceChangesFromTouched(),
+    mult,
   })
 }
 

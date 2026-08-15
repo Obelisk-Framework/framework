@@ -31,13 +31,26 @@ end
 --- @param touchedSectionIds string[]
 --- @param method string 'cash'|'card'
 --- @param cardId number|nil required when method == 'card'
+--- @param mult number|nil quality multiplier from the clipper minigame
+---   (bbGrade's only possible values are 1, 0.7, 0.45 -- clamped to
+---   [0.45, 1] and defaulted to 1 if missing/invalid, since this is a
+---   client-reported gameplay result, not a trusted price)
 --- @return boolean ok
 --- @return number|string totalOrReason total charged on success, reason string on failure
-function BarberService.charge(source, touchedSectionIds, method, cardId)
+function BarberService.charge(source, touchedSectionIds, method, cardId, mult)
     local total = BarberService.total(touchedSectionIds)
     if total <= 0 then
         return false, 'Nothing to charge'
     end
+
+    if type(mult) ~= 'number' or mult ~= mult then -- NaN check
+        mult = 1
+    elseif mult < 0.45 then
+        mult = 0.45
+    elseif mult > 1 then
+        mult = 1
+    end
+    total = total * mult
 
     if method == 'cash' then
         local cash = ItemService.binding('currency.cash')

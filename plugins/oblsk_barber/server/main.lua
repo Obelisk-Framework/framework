@@ -52,9 +52,10 @@ end
 --- @param cardId number|nil
 --- @param gender string
 --- @param appearanceChanges table
-Obelisk.onServer('barber:client:charge', function(touchedSectionIds, method, cardId, gender, appearanceChanges)
+--- @param mult number|nil quality multiplier from the clipper minigame
+Obelisk.onServer('barber:client:charge', function(touchedSectionIds, method, cardId, gender, appearanceChanges, mult)
     local source = source
-    local ok, totalOrReason = BarberService.charge(source, touchedSectionIds, method, cardId)
+    local ok, totalOrReason = BarberService.charge(source, touchedSectionIds, method, cardId, mult)
     if not ok then
         notifyFailure(source, totalOrReason)
         Obelisk.emitClient('barber:server:chargeResult', source, { ok = false })

@@ -31,8 +31,12 @@ function ItemService.binding(key)
     if key == 'currency.cash' then return { id = 1 } end
     return nil
 end
+LAST_CASH_REMOVED = nil
 function ItemService.has(source, item, amount) return ITEM_HAS_CASH end
-function ItemService.remove(source, item, amount) return ITEM_HAS_CASH, ITEM_HAS_CASH and nil or 'Not enough cash' end
+function ItemService.remove(source, item, amount)
+    LAST_CASH_REMOVED = amount
+    return ITEM_HAS_CASH, ITEM_HAS_CASH and nil or 'Not enough cash'
+end
 
 BANKING_CHARGE_RESULT = { ok = true }
 BankingService = {}
@@ -134,6 +138,22 @@ test('charge rejects an unknown payment method', function()
         local ok, reason = BarberService.charge(1, { 'hair' }, 'crypto', nil)
         eq(ok, false)
         eq(reason, 'Unknown payment method')
+    end)
+end)
+
+test('charge applies the clipper minigame quality multiplier to the total charged', function()
+    withFakeDb(function()
+        local ok = BarberService.charge(1, { 'hair' }, 'cash', nil, 0.7)
+        eq(ok, true)
+        eq(LAST_CASH_REMOVED, math.floor(Config.HairPrice * 0.7 + 0.5), 'the discounted amount should be removed, not the full price')
+    end)
+end)
+
+test('charge clamps an out-of-range multiplier to the valid floor (0.45)', function()
+    withFakeDb(function()
+        local ok = BarberService.charge(1, { 'hair' }, 'cash', nil, 0.1)
+        eq(ok, true)
+        eq(LAST_CASH_REMOVED, math.floor(Config.HairPrice * 0.45 + 0.5), 'a below-floor multiplier should clamp to 0.45, not pass through as 0.1')
     end)
 end)
 
