@@ -6,7 +6,11 @@ local ROOT = scriptDir .. '..'
 dofile(scriptDir .. 'support/fivem_stubs.lua')
 local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_builder.lua')
 
-_G.Obelisk = _G.Obelisk or { onServer = function() end, emitClient = function() end }
+_G.Obelisk = _G.Obelisk or {
+    on = function(eventName, callback) AddEventHandler(eventName, callback) end,
+    onServer = function() end,
+    emitClient = function() end,
+}
 
 local tests, failures, passed = {}, {}, 0
 local function test(name, fn) tests[#tests + 1] = {name = name, fn = fn} end

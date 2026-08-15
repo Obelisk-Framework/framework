@@ -17,6 +17,7 @@ local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_build
 -- behavior-preserving upgrade, not a breaking change.
 local emitClientCalls = {}
 _G.Obelisk = _G.Obelisk or {
+    on = function(eventName, callback) AddEventHandler(eventName, callback) end,
     onServer = function() end,
     emitClient = function(eventName, target, data)
         table.insert(emitClientCalls, { eventName = eventName, target = target, data = data })

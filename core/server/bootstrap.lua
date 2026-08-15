@@ -180,31 +180,18 @@ Citizen.CreateThread(function()
 end)
 
 -- Player connection handler
-AddEventHandler('playerConnecting', function(name, setKickReason, deferrals)
+Obelisk.on('playerConnecting', function(name, setKickReason, deferrals)
     deferrals.defer()
-    
+
     Wait(0)
     deferrals.update('Loading Obelisk Framework...')
-    
+
     Wait(100)
     deferrals.done()
 end)
 
--- Player joined handler
-AddEventHandler('playerJoining', function()
-    local source = source
-    print('[Obelisk] Player ' .. source .. ' joined, syncing data...')
-    SpawnManagerService.markConnecting(source)
-end)
-
--- Player dropped handler
-AddEventHandler('playerDropped', function(reason)
-    local source = source
-    print('[Obelisk] Player ' .. source .. ' left (' .. reason .. ')')
-end)
-
 -- Resource stop handler
-AddEventHandler('onResourceStop', function(resourceName)
+Obelisk.on('onResourceStop', function(resourceName)
     if resourceName == GetCurrentResourceName() then
         print('[Obelisk] Framework stopping...')
     end

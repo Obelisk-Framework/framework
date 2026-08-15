@@ -105,7 +105,7 @@ function InstanceService.getPlayersIn(key)
     return sources
 end
 
-AddEventHandler('playerDropped', function()
+Obelisk.on('playerDropped', function()
     local source = source
     InstanceService.leave(source)
 end)

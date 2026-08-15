@@ -690,7 +690,7 @@ function EntityStreamerService.handlePlayerDropped()
     end
 end
 
-AddEventHandler('playerDropped', EntityStreamerService.handlePlayerDropped)
+Obelisk.on('playerDropped', EntityStreamerService.handlePlayerDropped)
 
 --- Net events
 Obelisk.onServer('core:client:streamer-updatePosition', function(x, y, heading)

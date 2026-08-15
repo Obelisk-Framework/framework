@@ -7,7 +7,8 @@ local ROOT = scriptDir .. '..'
 dofile(scriptDir .. 'support/fivem_stubs.lua')
 
 local emitted = {}
-_G.Obelisk = _G.Obelisk or {}
+_G.Obelisk = nil
+dofile(ROOT .. '/core/shared/Obelisk.lua')
 Obelisk.emitClient = function(eventName, target, ...)
     emitted[#emitted + 1] = { eventName = eventName, target = target, args = { ... } }
 end

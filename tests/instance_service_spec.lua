@@ -21,6 +21,10 @@ end
 function SetRoutingBucketPopulationEnabled(bucket, enabled) end
 function SetRoutingBucketEntityLockdownMode(bucket, mode) end
 
+_G.Obelisk = _G.Obelisk or {
+    on = function(eventName, callback) AddEventHandler(eventName, callback) end,
+}
+
 dofile(ROOT .. '/core/server/Services/InstanceService.lua')
 
 local tests, failures, passed = {}, {}, 0

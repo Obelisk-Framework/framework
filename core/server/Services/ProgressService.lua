@@ -127,7 +127,7 @@ Obelisk.onServer('core:client:progress-cancel', function(progressId)
 end)
 
 --- Clean up on player disconnect
-AddEventHandler('playerDropped', function()
+Obelisk.on('playerDropped', function()
     local source = source
     ProgressService.activeProgress[source] = nil
 end)

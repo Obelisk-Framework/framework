@@ -35,7 +35,7 @@ function SpawnManagerService.getStage(source)
     return SpawnManagerService.stages[source]
 end
 
-AddEventHandler('playerDropped', function()
+Obelisk.on('playerDropped', function()
     local source = source
     SpawnManagerService.stages[source] = nil
 end)

@@ -104,7 +104,7 @@ Obelisk.onServer('core:client:keybinds-pressed', function(actionId)
 end)
 
 --- On player connect, sync keybinds
-AddEventHandler('playerJoining', function()
+Obelisk.on('playerJoining', function()
     local source = source
     SetTimeout(1000, function()
         KeybindService.syncToClient(source)
