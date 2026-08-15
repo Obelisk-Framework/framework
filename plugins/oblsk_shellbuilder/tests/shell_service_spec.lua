@@ -168,6 +168,70 @@ test('CanBuildShellsPolicy allows a character with the granted permission', func
     end)
 end)
 
+test('searchCharactersByName matches first or last name, case-insensitively', function()
+    withFreshState(function()
+        QueryBuilder.new('characters'):insert({ id = 1, first_name = 'John', last_name = 'Smith', deleted_at = nil })
+        QueryBuilder.new('characters'):insert({ id = 2, first_name = 'Jane', last_name = 'Johnson', deleted_at = nil })
+        QueryBuilder.new('characters'):insert({ id = 3, first_name = 'Bob', last_name = 'Lee', deleted_at = nil })
+
+        local results = ShellService.searchCharactersByName('john')
+        eq(#results, 2) -- John Smith (first name) + Jane Johnson (last name)
+    end)
+end)
+
+test('searchCharactersByName returns an empty list for no matches', function()
+    withFreshState(function()
+        QueryBuilder.new('characters'):insert({ id = 1, first_name = 'John', last_name = 'Smith' })
+        eq(#ShellService.searchCharactersByName('xyz'), 0)
+    end)
+end)
+
+test('searchCharactersByName caps results at 20', function()
+    withFreshState(function()
+        for i = 1, 25 do
+            QueryBuilder.new('characters'):insert({ id = i, first_name = 'Match' .. i, last_name = 'Test' })
+        end
+        eq(#ShellService.searchCharactersByName('match'), 20)
+    end)
+end)
+
+test('searchCharactersByName returns {} for a query shorter than 2 characters, without scanning', function()
+    withFreshState(function()
+        QueryBuilder.new('characters'):insert({ id = 1, first_name = 'John', last_name = 'Smith' })
+        eq(#ShellService.searchCharactersByName('j'), 0)
+        eq(#ShellService.searchCharactersByName(''), 0)
+        eq(#ShellService.searchCharactersByName('  '), 0, 'whitespace-only trims to under 2 chars')
+        eq(#ShellService.searchCharactersByName(nil), 0)
+    end)
+end)
+
+test('listOwnersWithNames resolves owning character ids to first/last names', function()
+    withFreshState(function()
+        local shell = ShellService.create(100, 'Test')
+        QueryBuilder.new('characters'):insert({ id = 200, first_name = 'John', last_name = 'Smith' })
+        QueryBuilder.new('characters'):insert({ id = 300, first_name = 'Jane', last_name = 'Doe' })
+        ShellService.addOwner(shell.id, 200)
+        ShellService.addOwner(shell.id, 300)
+
+        local owners = ShellService.listOwnersWithNames(shell.id)
+        table.sort(owners, function(a, b) return a.id < b.id end)
+
+        eq(#owners, 2)
+        eq(owners[1].id, 200)
+        eq(owners[1].first_name, 'John')
+        eq(owners[1].last_name, 'Smith')
+        eq(owners[2].id, 300)
+        eq(owners[2].first_name, 'Jane')
+    end)
+end)
+
+test('listOwnersWithNames returns an empty list for a shell with no owners', function()
+    withFreshState(function()
+        local shell = ShellService.create(100, 'Test')
+        eq(#ShellService.listOwnersWithNames(shell.id), 0)
+    end)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

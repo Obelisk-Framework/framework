@@ -80,6 +80,21 @@ function InstanceService.leave(source)
     SetPlayerRoutingBucket(source, 0)
 end
 
+--- @param source number
+--- @return number the bucket id this player is currently tracked in, or 0
+function InstanceService.getCurrentBucket(source)
+    local key = playerBucketKey[source]
+    if not key then return 0 end
+    return InstanceService.getOrCreateBucket(key)
+end
+
+--- @param source number
+--- @return string|nil the key this player is currently tracked as inside
+---   (e.g. "shellbuilder:shell:42"), or nil if they're not in any bucket
+function InstanceService.getCurrentKey(source)
+    return playerBucketKey[source]
+end
+
 --- @param key string
 --- @return number[] every player source currently tracked as inside this key's bucket
 function InstanceService.getPlayersIn(key)

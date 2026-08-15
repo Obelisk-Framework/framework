@@ -12,6 +12,15 @@ EntityStreamerService.globalSpawnedCount = 0 -- sum of budget-countable entities
 EntityStreamerService.budgetCountableTypes = { ped = true, object = true, pickup = true }
 EntityStreamerService.networkedOwners = {} -- {entityId: source}, who owns a networked entity
 
+--- Group-entity registry: a shell (or any future non-spatial grouping) gets
+--- its entities keyed by an opaque string instead of a spatial chunk, since
+--- coordinate-based partitioning provides no value when every group's
+--- entities sit at the same shared coordinate (see the shell builder
+--- follow-up design). Entirely separate from `.entities`/`.chunks` -- no
+--- budget, no tier, no hysteresis; a group's caller is responsible for
+--- knowing who should see it (see `registerGroupEntity`'s `targetSources`).
+EntityStreamerService.groups = {} -- {groupKey: {entityType: {entityId: record}}}
+
 --- Initialize the streamer: reset in-memory state, then load every
 --- currently-enabled entity from the database and register it.
 function EntityStreamerService.init()
@@ -19,17 +28,60 @@ function EntityStreamerService.init()
         EntityStreamerService.entities[entityType] = {}
     end
     EntityStreamerService.chunks = {}
+    EntityStreamerService.groups = {}
 
     local rows = Entity:where('enabled', true):getSync()
     for _, row in ipairs(rows) do
-        -- `id = row.id` keys the runtime entity id off the real DB primary key
-        -- rather than a timestamp+random pair, which collided in practice when
-        -- a whole table's worth of rows registered inside one second.
-        EntityStreamerService.register(row.entity_type, {
-            id = row.id,
-            x = row.x, y = row.y, z = row.z, heading = row.heading,
-            model = row.model, networked = row.networked, data = row.data,
-        })
+        -- `Entity:where(...):getSync()` goes through the plain QueryBuilder,
+        -- which has no knowledge of the model's `casts` table -- only
+        -- BaseModel:decodeJsonCasts applies those, and nothing on this read
+        -- path calls it. So `data` still arrives as a raw JSON string here
+        -- (as a real MySQL driver would hand it back), not the decoded
+        -- table BaseModel-mediated reads would produce.
+        local decodedData = row.data
+        if type(decodedData) == 'string' then
+            local ok, parsed = pcall(json.decode, decodedData)
+            decodedData = (ok and type(parsed) == 'table') and parsed or {}
+        elseif type(decodedData) ~= 'table' then
+            decodedData = {}
+        end
+
+        if row.owner_type == 'shellbuilder_shell_object' and decodedData.shellId then
+            -- Shell furniture was mirrored into `entities` by
+            -- ShellObjectService.place purely for persistence -- it belongs
+            -- in the group registry, keyed by shell, not the spatial chunk
+            -- registry every other entity uses. Loading it through the
+            -- ordinary register() path would put it in the chunk at the
+            -- shared shell anchor coordinate, visible to every player in
+            -- every shell regardless of bucket.
+            --
+            -- `id = row.owner_id` (the shell_objects.id), NOT `row.id` (this
+            -- entities row's own primary key) -- registerGroupEntity mints
+            -- the runtime entityId off this id, and it must match what
+            -- ShellObjectService.remove looks up ('object_' .. shell_objects.id).
+            -- `data = decodedData` so buildEntityRecord spreads type-specific
+            -- fields (e.g. `freeze`, set by ShellObjectService.place) onto
+            -- the record the same way the live placement path does; the
+            -- reload and live paths must agree or a restart would silently
+            -- lose the freeze flag on every pre-existing piece of furniture.
+            EntityStreamerService.registerGroupEntity(
+                'shellbuilder:shell:' .. decodedData.shellId,
+                row.entity_type,
+                {
+                    id = row.owner_id, x = row.x, y = row.y, z = row.z, heading = row.heading,
+                    model = row.model, networked = row.networked, data = decodedData,
+                }
+            )
+        else
+            -- `id = row.id` keys the runtime entity id off the real DB primary key
+            -- rather than a timestamp+random pair, which collided in practice when
+            -- a whole table's worth of rows registered inside one second.
+            EntityStreamerService.register(row.entity_type, {
+                id = row.id,
+                x = row.x, y = row.y, z = row.z, heading = row.heading,
+                model = row.model, networked = row.networked, data = row.data,
+            })
+        end
     end
 
     print('[EntityStreamerService] Initialized, loaded ' .. #rows .. ' entities')
@@ -172,6 +224,36 @@ function EntityStreamerService.selectTier(currentChunk, facingChunk)
     return { currentChunk }, 3
 end
 
+--- Build the flat record `register`/`registerGroupEntity` both produce: `id`/
+--- `type`/`x`/`y`/`z`/`networked` as named fields, every other key of
+--- `entityData` (and its nested `data` json blob) shallow-copied onto the
+--- same table. Shared so the chunk and group registries stay byte-identical
+--- in shape.
+--- @param entityType string
+--- @param entityData table
+--- @param entityId string
+--- @return table
+function EntityStreamerService.buildEntityRecord(entityType, entityData, entityId)
+    local record = {}
+    for key, value in pairs(entityData) do
+        -- `data` (the json column) is spread rather than nested, so its
+        -- type-specific fields are readable at the same level as `model`.
+        if key ~= 'data' and key ~= 'id' then record[key] = value end
+    end
+    if type(entityData.data) == 'table' then
+        for key, value in pairs(entityData.data) do
+            if key ~= 'id' then record[key] = value end
+        end
+    end
+    record.id = entityId
+    record.type = entityType
+    record.x = entityData.x
+    record.y = entityData.y
+    record.z = entityData.z
+    record.networked = entityData.networked or false
+    return record
+end
+
 --- Register an entity.
 ---
 --- The stored record is FLAT: `id`/`type`/`x`/`y`/`z`/`networked` are named
@@ -202,24 +284,7 @@ function EntityStreamerService.register(entityType, entityData)
         entityId = entityType .. '_' .. os.time() .. '_' .. math.random(1000, 9999)
     end
 
-    -- Store entity data, flattened.
-    local record = {}
-    for key, value in pairs(entityData) do
-        -- `data` (the json column) is spread rather than nested, so its
-        -- type-specific fields are readable at the same level as `model`.
-        if key ~= 'data' and key ~= 'id' then record[key] = value end
-    end
-    if type(entityData.data) == 'table' then
-        for key, value in pairs(entityData.data) do
-            if key ~= 'id' then record[key] = value end
-        end
-    end
-    record.id = entityId
-    record.type = entityType
-    record.x = entityData.x
-    record.y = entityData.y
-    record.z = entityData.z
-    record.networked = entityData.networked or false
+    local record = EntityStreamerService.buildEntityRecord(entityType, entityData, entityId)
 
     EntityStreamerService.entities[entityType][entityId] = record
 
@@ -277,6 +342,103 @@ function EntityStreamerService.unregister(entityType, entityId)
     })
     
     print('[EntityStreamerService] Unregistered ' .. entityType .. ' #' .. entityId)
+end
+
+--- @param groupKey string
+--- @param entityType string
+--- @param entityData table same shape `register` accepts
+--- @param targetSources number[]|nil player sources to immediately notify
+---   via entityAdd; nil/empty registers without broadcasting (e.g. loading
+---   at boot before anyone's connected)
+--- @return string entityId
+function EntityStreamerService.registerGroupEntity(groupKey, entityType, entityData, targetSources)
+    -- Namespaced with `groupKey` so this id can never collide with a chunk
+    -- entity's id in the client's flat `EntityStreamerService.entities`
+    -- keyspace: `register()` mints `entityType_id` off an `entities.id`,
+    -- this mints off a `shell_objects.id` (or similar per-group primary
+    -- key) from a completely different table, so the two spaces overlap
+    -- once both registries are populated at runtime.
+    local entityId
+    if entityData.id ~= nil then
+        entityId = groupKey .. ':' .. entityType .. '_' .. tostring(entityData.id)
+    else
+        entityId = groupKey .. ':' .. entityType .. '_' .. os.time() .. '_' .. math.random(1000, 9999)
+    end
+
+    local record = EntityStreamerService.buildEntityRecord(entityType, entityData, entityId)
+
+    EntityStreamerService.groups[groupKey] = EntityStreamerService.groups[groupKey] or {}
+    EntityStreamerService.groups[groupKey][entityType] = EntityStreamerService.groups[groupKey][entityType] or {}
+    EntityStreamerService.groups[groupKey][entityType][entityId] = record
+
+    for _, target in ipairs(targetSources or {}) do
+        Obelisk.emitClient('core:server:streamer-entityAdd', target, {
+            entityId = entityId, entityType = entityType, data = record,
+        })
+    end
+
+    return entityId
+end
+
+--- @param groupKey string
+--- @param entityType string
+--- @param entityId string the BARE id (`entityType .. '_' .. id`, matching
+---   what a caller like ShellObjectService.remove already constructs) --
+---   NOT the full namespaced id `registerGroupEntity` returns. This function
+---   namespaces it the same way `registerGroupEntity` does, so the two stay
+---   symmetric and existing callers that already mint `entityType_id`
+---   strings need no change.
+--- @param targetSources number[]|nil player sources to notify via entityRemove
+function EntityStreamerService.unregisterGroupEntity(groupKey, entityType, entityId, targetSources)
+    local namespacedId = groupKey .. ':' .. entityId
+
+    local group = EntityStreamerService.groups[groupKey]
+    if group and group[entityType] then
+        group[entityType][namespacedId] = nil
+    end
+
+    for _, target in ipairs(targetSources or {}) do
+        Obelisk.emitClient('core:server:streamer-entityRemove', target, {
+            entityId = namespacedId, entityType = entityType,
+        })
+    end
+end
+
+--- @param groupKey string
+--- @return table[] { entityId, entityType, data }
+function EntityStreamerService.getGroupEntityRecords(groupKey)
+    local records = {}
+    for entityType, entityIds in pairs(EntityStreamerService.groups[groupKey] or {}) do
+        for entityId, record in pairs(entityIds) do
+            table.insert(records, { entityId = entityId, entityType = entityType, data = record })
+        end
+    end
+    return records
+end
+
+--- Sends every entity currently in `groupKey` to `source` as entityAdd
+--- events -- the "catch this player up" call for whenever they enter a
+--- shell that already has furniture in it.
+--- @param source number
+--- @param groupKey string
+function EntityStreamerService.sendGroupEntitiesTo(source, groupKey)
+    for _, record in ipairs(EntityStreamerService.getGroupEntityRecords(groupKey)) do
+        Obelisk.emitClient('core:server:streamer-entityAdd', source, record)
+    end
+end
+
+--- Despawns every entity currently in `groupKey` for `source` -- the
+--- counterpart to sendGroupEntitiesTo, called when a player leaves a
+--- group (e.g. exits a shell) so their client doesn't keep rendering
+--- furniture they can no longer legitimately see.
+--- @param source number
+--- @param groupKey string
+function EntityStreamerService.despawnGroupEntitiesFor(source, groupKey)
+    for _, record in ipairs(EntityStreamerService.getGroupEntityRecords(groupKey)) do
+        Obelisk.emitClient('core:server:streamer-entityRemove', source, {
+            entityId = record.entityId, entityType = record.entityType,
+        })
+    end
 end
 
 --- Drop one player's reference to a chunk, and once nobody references it,

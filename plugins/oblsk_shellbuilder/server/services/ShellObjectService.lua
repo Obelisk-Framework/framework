@@ -115,6 +115,36 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
         updated_at = Database.now(),
     })
 
+    EntityStreamerService.registerGroupEntity(
+        'shellbuilder:shell:' .. shellId,
+        'object',
+        {
+            id = id, x = x, y = y, z = z, heading = heading or 0,
+            model = item.data and item.data.shell_model, networked = false,
+            -- Without this, the client's spawnObject leaves the object
+            -- physics-enabled: it can fall/slide/be pushed, drifting from
+            -- the authoritative DB row's coordinates.
+            freeze = true,
+        },
+        InstanceService.getPlayersIn('shellbuilder:shell:' .. shellId)
+    )
+
+    QueryBuilder.new('entities'):insert({
+        entity_type = 'object',
+        model = item.data and item.data.shell_model,
+        x = x, y = y, z = z, heading = heading or 0,
+        networked = false,
+        enabled = true,
+        owner_type = 'shellbuilder_shell_object',
+        owner_id = id,
+        -- `freeze = true` here too, so the Finding-2 reload path (which
+        -- rebuilds the group entity from this row after a restart) agrees
+        -- with the live placement path above.
+        data = json.encode({ shellId = shellId, freeze = true }),
+        created_at = Database.now(),
+        updated_at = Database.now(),
+    })
+
     return true, QueryBuilder.new('shell_objects'):where('id', id):firstSync()
 end
 
@@ -142,6 +172,16 @@ function ShellObjectService.remove(source, shellId, objectId)
     end
 
     local item = ItemService.binding(object.item_key)
+
+    EntityStreamerService.unregisterGroupEntity(
+        'shellbuilder:shell:' .. shellId,
+        'object',
+        'object_' .. tostring(objectId),
+        InstanceService.getPlayersIn('shellbuilder:shell:' .. shellId)
+    )
+
+    QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', objectId):delete()
+
     QueryBuilder.new('shell_objects'):where('id', objectId):delete()
 
     -- canManageShell (server/main.lua) grants remove access to any

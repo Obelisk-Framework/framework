@@ -46,6 +46,21 @@ function CharacterService.getActiveCharacterId(source)
     return nil
 end
 
+local STREAMER_CALLS = { register = {}, unregister = {} }
+EntityStreamerService = {}
+function EntityStreamerService.registerGroupEntity(groupKey, entityType, entityData, targetSources)
+    table.insert(STREAMER_CALLS.register, { groupKey = groupKey, entityType = entityType, entityData = entityData, targetSources = targetSources })
+    return entityType .. '_' .. tostring(entityData.id)
+end
+function EntityStreamerService.unregisterGroupEntity(groupKey, entityType, entityId, targetSources)
+    table.insert(STREAMER_CALLS.unregister, { groupKey = groupKey, entityType = entityType, entityId = entityId, targetSources = targetSources })
+end
+
+InstanceService = {}
+function InstanceService.getPlayersIn(key)
+    return {}
+end
+
 dofile(scriptDir .. '../server/services/ShellObjectService.lua')
 
 local tests, failures, passed = {}, {}, 0
@@ -65,6 +80,7 @@ local function withFreshState(fn)
         ['shellbuilder.sofa_basic'] = { key = 'shellbuilder.sofa_basic', id = 2, name = 'Sofa', data = { shell_tool = 'decor', shell_category = 'Seating', shell_model = 'prop_sofa_01' } },
     }
     OWNED = { [100] = { ['shellbuilder.floor_wood'] = 5, ['shellbuilder.sofa_basic'] = 5 } }
+    STREAMER_CALLS = { register = {}, unregister = {} }
     fn()
 end
 
@@ -195,6 +211,42 @@ test('count reflects the number of placed objects', function()
         eq(ShellObjectService.count(1), 0)
         ShellObjectService.place(1, 1, 'shellbuilder.sofa_basic', 0, 0, 0, 0, 0, nil, false)
         eq(ShellObjectService.count(1), 1)
+    end)
+end)
+
+test('place inserts a matching entities row and registers a group entity', function()
+    withFreshState(function()
+        local _, obj = ShellObjectService.place(1, 1, 'shellbuilder.sofa_basic', 5.0, 6.0, 7.0, 45.0, 0, nil, false)
+        local entityRow = QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', obj.id):firstSync()
+        eq(entityRow ~= nil, true)
+        eq(entityRow.entity_type, 'object')
+        eq(entityRow.x, 5.0)
+        eq(entityRow.y, 6.0)
+        eq(entityRow.z, 7.0)
+        eq(entityRow.heading, 45.0)
+
+        eq(#STREAMER_CALLS.register, 1)
+        eq(STREAMER_CALLS.register[1].groupKey, 'shellbuilder:shell:1')
+        eq(STREAMER_CALLS.register[1].entityType, 'object')
+        eq(STREAMER_CALLS.register[1].entityData.id, obj.id)
+        eq(STREAMER_CALLS.register[1].entityData.freeze, true, 'placed furniture is registered frozen, so it cannot drift or be pushed')
+
+        local entityRow = QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', obj.id):firstSync()
+        local decoded = json.decode(entityRow.data)
+        eq(decoded.freeze, true, 'freeze is also persisted in the entities.data json blob, so a reload agrees')
+    end)
+end)
+
+test('remove deletes the matching entities row and unregisters the group entity', function()
+    withFreshState(function()
+        local _, obj = ShellObjectService.place(1, 1, 'shellbuilder.sofa_basic', 0, 0, 0, 0, 0, nil, false)
+        STREAMER_CALLS = { register = {}, unregister = {} }
+        ShellObjectService.remove(1, 1, obj.id)
+
+        local entityRow = QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', obj.id):firstSync()
+        eq(entityRow, nil)
+        eq(#STREAMER_CALLS.unregister, 1)
+        eq(STREAMER_CALLS.unregister[1].groupKey, 'shellbuilder:shell:1')
     end)
 end)
 

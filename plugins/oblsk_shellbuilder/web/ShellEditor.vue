@@ -60,6 +60,10 @@
             Lock placement
           </button>
         </div>
+        <button v-if="selectedItem || wreck" @click="startAim" class="h-[34px] px-3 rounded-[7px] text-[11px] uppercase"
+          :style="wreck ? { background: 'rgba(190,40,40,.35)', border: '1px solid #ef4444' } : { background: 'color-mix(in oklab, var(--ob-accent) 30%, transparent)', border: '1px solid var(--ob-accent)' }">
+          {{ wreck ? 'Remove (aim)' : 'Place (aim)' }}
+        </button>
         <button @click="exitEditor" class="mt-auto h-[36px] w-full rounded-[7px] text-[12px] uppercase"
           style="background:var(--ob-accent);color:#04120d">Save & exit</button>
       </div>
@@ -106,21 +110,10 @@ const budgetPct = computed(() => shell.value ? Math.min(100, (objects.value.leng
 // A staff editor placing from Construction/Style always locks the piece
 // (structural, owner-immutable); an owner in the Decorate tool always
 // places unlocked furniture they can later remove themselves.
-function place(x, y, z, heading, floorLevel) {
-  if (!selectedItem.value || !shell.value) return
-  const locked = canBuild.value && (tool.value !== 'decor' || forceLocked.value)
-  Obelisk.emit('shellbuilder:place', {
-    shellId: shell.value.id,
-    itemKey: selectedItem.value,
-    x, y, z, heading, floorLevel,
-    colorData: null,
-    locked,
-  })
-}
+const armLocked = computed(() => canBuild.value && (tool.value !== 'decor' || forceLocked.value))
 
-function removeObject(objectId) {
-  if (!shell.value) return
-  Obelisk.emit('shellbuilder:removeObject', { shellId: shell.value.id, objectId })
+function startAim() {
+  Obelisk.emit('shellbuilder:startAim', {})
 }
 
 function exitEditor() {
@@ -171,5 +164,30 @@ watch(availableTools, (tools) => {
   if (!tools.includes(tool.value)) tool.value = 'decor'
 })
 
-defineExpose({ place, removeObject })
+// Arms/disarms client/placement.lua's aim-mode raycast placement whenever
+// the selected item changes. Re-armed (rather than just once on select) so
+// a locked-state change (canBuild/tool/forceLocked) while an item stays
+// selected is picked up on the next selection, matching place()'s old
+// locked-flag derivation above.
+watch(selectedItem, (itemKey) => {
+  if (itemKey) {
+    Obelisk.emit('shellbuilder:arm', { itemKey, locked: armLocked.value })
+  } else {
+    Obelisk.emit('shellbuilder:disarm', {})
+  }
+})
+
+// Switching tools invalidates whatever was armed from the previous tool's
+// catalog (and its locked-flag derivation), so disarm on every tool change.
+watch(tool, () => {
+  Obelisk.emit('shellbuilder:disarm', {})
+})
+
+watch(wreck, (enabled) => {
+  Obelisk.emit('shellbuilder:wreck', { enabled })
+})
+
+watch(shell, (s) => {
+  Obelisk.emit('shellbuilder:setShellId', { shellId: s?.id ?? null })
+})
 </script>
