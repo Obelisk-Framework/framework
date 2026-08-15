@@ -58,6 +58,7 @@ end
 Obelisk.on('playerJoining', function()
     local source = source
     PlayerService.registry[source] = Player.new(source)
+    SpawnManagerService.markConnecting(PlayerService.registry[source])
     print('[PlayerService] Player ' .. source .. ' joined')
 end)
 

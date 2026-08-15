@@ -13,26 +13,26 @@ SpawnManagerService.stages = {} -- source -> 'connecting' | 'spawned'
 --- Called once a connecting player's account has resolved (after
 --- oblsk_accounts' playerConnecting handler runs) — signals the client to
 --- freeze the player, hide the HUD, and show its own character-selection UI.
---- @param source number
-function SpawnManagerService.markConnecting(source)
-    SpawnManagerService.stages[source] = 'connecting'
-    Obelisk.emitClient('core:server:spawn-begin', source)
+--- @param player Player
+function SpawnManagerService.markConnecting(player)
+    SpawnManagerService.stages[player:getSource()] = 'connecting'
+    player:emit('core:server:spawn-begin')
 end
 
 --- Called by a character-selection-style plugin once a character has been
 --- chosen and its appearance/position applied client-side — signals the
 --- client to unfreeze and restore the HUD.
---- @param source number
---- @param characterId number
-function SpawnManagerService.readyToSpawn(source, characterId)
-    SpawnManagerService.stages[source] = 'spawned'
-    Obelisk.emitClient('core:server:spawn-complete', source, characterId)
+--- @param player Player
+--- @param characterId any
+function SpawnManagerService.readyToSpawn(player, characterId)
+    SpawnManagerService.stages[player:getSource()] = 'spawned'
+    player:emit('core:server:spawn-complete', characterId)
 end
 
---- @param source number
+--- @param player Player
 --- @return string|nil
-function SpawnManagerService.getStage(source)
-    return SpawnManagerService.stages[source]
+function SpawnManagerService.getStage(player)
+    return SpawnManagerService.stages[player:getSource()]
 end
 
 Obelisk.on('playerDropped', function()

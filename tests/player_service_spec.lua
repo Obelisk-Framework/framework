@@ -25,6 +25,11 @@ local function freshPlayerService()
     _G.Obelisk = nil
     _G.PlayerService = nil
     dofile(ROOT .. '/core/shared/Obelisk.lua')
+    -- PlayerService's playerJoining handler calls SpawnManagerService.markConnecting;
+    -- stub it since these tests don't assert on SpawnManagerService behavior.
+    _G.SpawnManagerService = {
+        markConnecting = function(player) end,
+    }
     -- capture the two Obelisk.on registrations PlayerService installs
     local handlers = {}
     local realOn = Obelisk.on
