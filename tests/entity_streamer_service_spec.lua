@@ -18,11 +18,32 @@ local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_build
 local emitClientCalls = {}
 _G.Obelisk = _G.Obelisk or {
     on = function(eventName, callback) AddEventHandler(eventName, callback) end,
-    onServer = function() end,
+    onClient = function() end,
     emitClient = function(eventName, target, data)
         table.insert(emitClientCalls, { eventName = eventName, target = target, data = data })
     end,
 }
+
+-- broadcastToChunk resolves a raw numeric playerId into a Player via
+-- PlayerService.get before calling player:emit -- these tests never
+-- populate playerChunks in a way that exercises that path with a real
+-- player, so a stub that always reports "no such player" is enough to let
+-- register()/unregister() (which call broadcastToChunk) load without error.
+_G.PlayerService = _G.PlayerService or {
+    get = function(source) return nil end,
+}
+
+-- A minimal fake Player: source/getSource matches PlayerService's real
+-- Player, and emit forwards to Obelisk.emitClient the same way the real
+-- Player:emit (PlayerService.lua) does, so the emitClientCalls spy above
+-- still captures every send.
+local function fakePlayer(source)
+    return {
+        source = source,
+        getSource = function(self) return self.source end,
+        emit = function(self, event, ...) Obelisk.emitClient(event, self, ...) end,
+    }
+end
 
 local failures = {}
 local function test(name, fn)
@@ -176,7 +197,7 @@ test('updatePlayerChunks keeps a chunk active until the player is 15 units past 
     for i = 1, 10 do heavy['p' .. i] = true end
     Streamer.chunks['1_0'] = { ped = heavy }
 
-    Streamer.updatePlayerChunks(1, 50.0, 50.0, '1_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '1_0')
     local firstActive = {}
     for _, c in ipairs(Streamer.playerChunks[1].activeChunks) do firstActive[c] = true end
     eq(firstActive['0_0'], true, 'starts with 0_0 active')
@@ -184,13 +205,13 @@ test('updatePlayerChunks keeps a chunk active until the player is 15 units past 
 
     -- move 5 units past the x=100 boundary into chunk 1_0 -- within the
     -- 15-unit margin, so 0_0 must still be active
-    Streamer.updatePlayerChunks(1, 105.0, 50.0, '2_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 105.0, 50.0, '2_0')
     local stillActive = {}
     for _, c in ipairs(Streamer.playerChunks[1].activeChunks) do stillActive[c] = true end
     eq(stillActive['0_0'], true, '0_0 stays active within the 15-unit margin')
 
     -- move 20 units past the boundary -- now it should unload
-    Streamer.updatePlayerChunks(1, 120.0, 50.0, '2_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 120.0, 50.0, '2_0')
     local laterActive = {}
     for _, c in ipairs(Streamer.playerChunks[1].activeChunks) do laterActive[c] = true end
     eq(laterActive['0_0'], nil, '0_0 unloads once 20 units past the boundary')
@@ -203,27 +224,27 @@ test('updatePlayerChunks only changes tier after 2 consecutive ticks agree', fun
     Streamer.chunks['3_0'] = { ped = heavy }
 
     Streamer.entityBudget = 100000
-    Streamer.updatePlayerChunks(1, 50.0, 50.0, '0_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '0_0')
     eq(#Streamer.playerChunks[1].activeChunks, 9, 'starts at tier 1 (9 chunks)')
 
     -- move near the heavy chunk with a budget too small to afford it -- should
     -- NOT downgrade to tier 3 on the first tick
     Streamer.entityBudget = 5
-    Streamer.updatePlayerChunks(1, 250.0, 50.0, '3_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 250.0, 50.0, '3_0')
     eq(#Streamer.playerChunks[1].activeChunks, 9, 'a single spike does not downgrade the tier')
 
     -- second consecutive tick agreeing -- now it flips
-    Streamer.updatePlayerChunks(1, 250.0, 50.0, '3_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 250.0, 50.0, '3_0')
     eq(#Streamer.playerChunks[1].activeChunks, 1, 'two consecutive ticks downgrade to tier 3')
 end)
 
 test('chunkPlayerRefs increments when a chunk becomes active and decrements when unloaded', function()
     local Streamer = freshService({ entities = {} })
     Streamer.entityBudget = 100000
-    Streamer.updatePlayerChunks(1, 50.0, 50.0, '0_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '0_0')
     eq(Streamer.chunkPlayerRefs['0_0'], 1, 'ref count incremented for the player chunk')
 
-    Streamer.updatePlayerChunks(1, 1500.0, 1500.0, '16_15')
+    Streamer.updatePlayerChunks(fakePlayer(1), 1500.0, 1500.0, '16_15')
     eq(Streamer.chunkPlayerRefs['0_0'] or 0, 0, 'ref count decremented after moving far away')
 end)
 
@@ -334,11 +355,11 @@ test('loadChunkForPlayer sends a networked entity to only the first player who l
     local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
     local chunkKey = Streamer.getChunkKey(10, 10)
 
-    Streamer.loadChunkForPlayer(1, chunkKey)
-    Streamer.loadChunkForPlayer(2, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(1), chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(2), chunkKey)
 
     eq(#sentTo, 1, 'only one player was told to spawn the networked entity')
-    eq(sentTo[1], 1, 'the first loader became the owner')
+    eq(sentTo[1]:getSource(), 1, 'the first loader became the owner')
     eq(Streamer.networkedOwners[id], 1)
     _G.Obelisk = savedObelisk
 end)
@@ -351,8 +372,8 @@ test('loadChunkForPlayer still sends a local-only entity to every loader', funct
     Streamer.register('object', { x = 10, y = 10, z = 0, networked = false })
     local chunkKey = Streamer.getChunkKey(10, 10)
 
-    Streamer.loadChunkForPlayer(1, chunkKey)
-    Streamer.loadChunkForPlayer(2, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(1), chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(2), chunkKey)
 
     eq(#sentTo, 2, 'both players spawn their own local copy')
     _G.Obelisk = savedObelisk
@@ -367,14 +388,14 @@ test('a disconnecting owner frees the networked entity for a future owner', func
     local chunkKey = Streamer.getChunkKey(10, 10)
     Streamer.playerChunks[1] = { currentChunk = chunkKey, activeChunks = {} }
 
-    Streamer.loadChunkForPlayer(1, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(1), chunkKey)
     eq(Streamer.networkedOwners[id], 1)
 
     source = 1
     Streamer.handlePlayerDropped()
     eq(Streamer.networkedOwners[id], nil, 'owner cleared on disconnect')
 
-    Streamer.loadChunkForPlayer(2, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(2), chunkKey)
     eq(Streamer.networkedOwners[id], 2, 'a new player can become owner after the old one drops')
     _G.Obelisk = savedObelisk
 end)
@@ -389,17 +410,17 @@ test('unloading a chunk frees the networked entity for whoever loads it next', f
     local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
     local chunkKey = Streamer.getChunkKey(10, 10)
 
-    Streamer.loadChunkForPlayer(1, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(1), chunkKey)
     eq(Streamer.networkedOwners[id], 1, 'player 1 owns it after loading')
 
     -- An ordinary chunk-boundary unload (not a disconnect): player 1's client
     -- deletes the entity, so the ownership claim must be released too.
-    Streamer.unloadChunkForPlayer(1, chunkKey)
+    Streamer.unloadChunkForPlayer(fakePlayer(1), chunkKey)
     eq(Streamer.networkedOwners[id], nil, 'ownership released on ordinary unload')
 
-    Streamer.loadChunkForPlayer(2, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(2), chunkKey)
     eq(Streamer.networkedOwners[id], 2, 'player 2 becomes the new owner')
-    eq(sentTo[#sentTo], 2, 'player 2 was told to spawn it')
+    eq(sentTo[#sentTo]:getSource(), 2, 'player 2 was told to spawn it')
     _G.Obelisk = savedObelisk
 end)
 
@@ -410,8 +431,8 @@ test('unloading a chunk does not steal ownership held by a different player', fu
     local id = Streamer.register('object', { x = 10, y = 10, z = 0, networked = true })
     local chunkKey = Streamer.getChunkKey(10, 10)
 
-    Streamer.loadChunkForPlayer(1, chunkKey)
-    Streamer.unloadChunkForPlayer(2, chunkKey)
+    Streamer.loadChunkForPlayer(fakePlayer(1), chunkKey)
+    Streamer.unloadChunkForPlayer(fakePlayer(2), chunkKey)
     eq(Streamer.networkedOwners[id], 1, 'a non-owner unloading leaves the owner intact')
     _G.Obelisk = savedObelisk
 end)
@@ -424,7 +445,7 @@ test('handlePlayerDropped releases the chunk refs and budget the player held', f
     Streamer.chunks['1_0'] = { object = { c = true } }
     Streamer.chunks['-1_-1'] = { pickup = { d = true } }
 
-    Streamer.updatePlayerChunks(1, 50.0, 50.0, '1_0')
+    Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '1_0')
     local activeChunks = Streamer.playerChunks[1].activeChunks
     eq(#activeChunks, 9, 'player reached tier 1')
     eq(Streamer.globalSpawnedCount, 4, '2 peds + 1 object + 1 pickup counted')
@@ -510,11 +531,11 @@ test('sendGroupEntitiesTo emits entityAdd for every record in that group to one 
     service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
     service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 43, x = 4.0, y = 5.0, z = 6.0, model = 'b' })
     emitClientCalls = {}
-    service.sendGroupEntitiesTo(7, 'shellbuilder:shell:1')
+    service.sendGroupEntitiesTo(fakePlayer(7), 'shellbuilder:shell:1')
     eq(#emitClientCalls, 2)
     eq(emitClientCalls[1].eventName, 'core:server:streamer-entityAdd')
-    eq(emitClientCalls[1].target, 7)
-    eq(emitClientCalls[2].target, 7)
+    eq(emitClientCalls[1].target:getSource(), 7)
+    eq(emitClientCalls[2].target:getSource(), 7)
 end)
 
 test('despawnGroupEntitiesFor emits entityRemove for every record in the group, to the given source', function()
@@ -523,13 +544,13 @@ test('despawnGroupEntitiesFor emits entityRemove for every record in the group, 
     service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 43, x = 4.0, y = 5.0, z = 6.0, model = 'b' })
     emitClientCalls = {}
 
-    service.despawnGroupEntitiesFor(7, 'shellbuilder:shell:1')
+    service.despawnGroupEntitiesFor(fakePlayer(7), 'shellbuilder:shell:1')
 
     eq(#emitClientCalls, 2)
     eq(emitClientCalls[1].eventName, 'core:server:streamer-entityRemove')
-    eq(emitClientCalls[1].target, 7)
+    eq(emitClientCalls[1].target:getSource(), 7)
     eq(emitClientCalls[2].eventName, 'core:server:streamer-entityRemove')
-    eq(emitClientCalls[2].target, 7)
+    eq(emitClientCalls[2].target:getSource(), 7)
     -- the group's records still exist -- despawn only tells the client to
     -- remove its local copy, it doesn't mutate server-side group state
     eq(#service.getGroupEntityRecords('shellbuilder:shell:1'), 2)
@@ -538,7 +559,7 @@ end)
 test('despawnGroupEntitiesFor emits nothing for an empty/unknown group', function()
     local service = freshService()
     emitClientCalls = {}
-    service.despawnGroupEntitiesFor(7, 'shellbuilder:shell:does-not-exist')
+    service.despawnGroupEntitiesFor(fakePlayer(7), 'shellbuilder:shell:does-not-exist')
     eq(#emitClientCalls, 0)
 end)
 

@@ -416,26 +416,26 @@ function EntityStreamerService.getGroupEntityRecords(groupKey)
     return records
 end
 
---- Sends every entity currently in `groupKey` to `source` as entityAdd
+--- Sends every entity currently in `groupKey` to `player` as entityAdd
 --- events -- the "catch this player up" call for whenever they enter a
 --- shell that already has furniture in it.
---- @param source number
+--- @param player Player
 --- @param groupKey string
-function EntityStreamerService.sendGroupEntitiesTo(source, groupKey)
+function EntityStreamerService.sendGroupEntitiesTo(player, groupKey)
     for _, record in ipairs(EntityStreamerService.getGroupEntityRecords(groupKey)) do
-        Obelisk.emitClient('core:server:streamer-entityAdd', source, record)
+        player:emit('core:server:streamer-entityAdd', record)
     end
 end
 
---- Despawns every entity currently in `groupKey` for `source` -- the
+--- Despawns every entity currently in `groupKey` for `player` -- the
 --- counterpart to sendGroupEntitiesTo, called when a player leaves a
 --- group (e.g. exits a shell) so their client doesn't keep rendering
 --- furniture they can no longer legitimately see.
---- @param source number
+--- @param player Player
 --- @param groupKey string
-function EntityStreamerService.despawnGroupEntitiesFor(source, groupKey)
+function EntityStreamerService.despawnGroupEntitiesFor(player, groupKey)
     for _, record in ipairs(EntityStreamerService.getGroupEntityRecords(groupKey)) do
-        Obelisk.emitClient('core:server:streamer-entityRemove', source, {
+        player:emit('core:server:streamer-entityRemove', {
             entityId = record.entityId, entityType = record.entityType,
         })
     end
@@ -456,11 +456,11 @@ end
 
 --- Update player's active chunks, applying tier selection, boundary
 --- hysteresis, and tier hysteresis.
---- @param source number Player server ID
+--- @param player Player
 --- @param x number
 --- @param y number
 --- @param facingChunk string the chunk key the player is currently facing
-function EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
+function EntityStreamerService.updatePlayerChunks(player, x, y, facingChunk)
     local currentChunk = EntityStreamerService.getChunkKey(x, y)
 
     -- facingChunk is nil until Task 4 wires the real caller (which computes
@@ -468,15 +468,15 @@ function EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
     -- set is still a safe, well-formed chunk pair rather than a nil key.
     facingChunk = facingChunk or currentChunk
 
-    if not EntityStreamerService.playerChunks[source] then
-        EntityStreamerService.playerChunks[source] = {
+    if not EntityStreamerService.playerChunks[player:getSource()] then
+        EntityStreamerService.playerChunks[player:getSource()] = {
             currentChunk = currentChunk,
             activeChunks = {},
             pendingTier = nil,
             pendingTierTicks = 0,
         }
     end
-    local playerData = EntityStreamerService.playerChunks[source]
+    local playerData = EntityStreamerService.playerChunks[player:getSource()]
 
     local candidateChunks, candidateTier = EntityStreamerService.selectTier(currentChunk, facingChunk)
 
@@ -527,12 +527,12 @@ function EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
             EntityStreamerService.globalSpawnedCount = EntityStreamerService.globalSpawnedCount +
                 EntityStreamerService.countBudgetEntitiesInChunk(chunk)
         end
-        EntityStreamerService.loadChunkForPlayer(source, chunk)
+        EntityStreamerService.loadChunkForPlayer(player, chunk)
     end
 
     for _, chunk in ipairs(chunksToUnload) do
         EntityStreamerService.releaseChunkRef(chunk)
-        EntityStreamerService.unloadChunkForPlayer(source, chunk)
+        EntityStreamerService.unloadChunkForPlayer(player, chunk)
     end
 
     -- Rebuild the active set: kept-old (not unloaded) + newly loaded.
@@ -568,9 +568,9 @@ end
 --- whichever player becomes their owner (first loader), relying on
 --- OneSync to replicate the resulting networked game entity to everyone
 --- else nearby.
---- @param source number
+--- @param player Player
 --- @param chunkKey string
-function EntityStreamerService.loadChunkForPlayer(source, chunkKey)
+function EntityStreamerService.loadChunkForPlayer(player, chunkKey)
     local chunk = EntityStreamerService.chunks[chunkKey]
 
     if not chunk then return end
@@ -585,12 +585,12 @@ function EntityStreamerService.loadChunkForPlayer(source, chunkKey)
                     if EntityStreamerService.networkedOwners[entityId] then
                         shouldSend = false
                     else
-                        EntityStreamerService.networkedOwners[entityId] = source
+                        EntityStreamerService.networkedOwners[entityId] = player:getSource()
                     end
                 end
 
                 if shouldSend then
-                    Obelisk.emitClient('core:server:streamer-entityAdd', source, {
+                    player:emit('core:server:streamer-entityAdd', {
                         entityId = entityId,
                         entityType = entityType,
                         data = entityData
@@ -606,9 +606,9 @@ end
 --- everyone -- so ownership must be released here too, otherwise the
 --- spawn-once gate in loadChunkForPlayer would keep pointing at a player who
 --- no longer has the entity and nobody could ever respawn it.
---- @param source number
+--- @param player Player
 --- @param chunkKey string
-function EntityStreamerService.unloadChunkForPlayer(source, chunkKey)
+function EntityStreamerService.unloadChunkForPlayer(player, chunkKey)
     local chunk = EntityStreamerService.chunks[chunkKey]
 
     if not chunk then return end
@@ -616,11 +616,11 @@ function EntityStreamerService.unloadChunkForPlayer(source, chunkKey)
     -- Tell client to remove entities from this chunk
     for entityType, entities in pairs(chunk) do
         for entityId, _ in pairs(entities) do
-            if EntityStreamerService.networkedOwners[entityId] == source then
+            if EntityStreamerService.networkedOwners[entityId] == player:getSource() then
                 EntityStreamerService.networkedOwners[entityId] = nil
             end
 
-            Obelisk.emitClient('core:server:streamer-entityRemove', source, {
+            player:emit('core:server:streamer-entityRemove', {
                 entityId = entityId,
                 entityType = entityType
             })
@@ -636,7 +636,10 @@ function EntityStreamerService.broadcastToChunk(chunkKey, eventName, data)
     for playerId, playerData in pairs(EntityStreamerService.playerChunks) do
         for _, activeChunk in ipairs(playerData.activeChunks) do
             if activeChunk == chunkKey then
-                Obelisk.emitClient(eventName, playerId, data)
+                local player = PlayerService.get(playerId)
+                if player then
+                    player:emit(eventName, data)
+                end
                 break
             end
         end
@@ -693,14 +696,13 @@ end
 Obelisk.on('playerDropped', EntityStreamerService.handlePlayerDropped)
 
 --- Net events
-Obelisk.onServer('core:client:streamer-updatePosition', function(x, y, heading)
-    local source = source
+Obelisk.onClient('core:client:streamer-updatePosition', function(player, x, y, heading)
     local currentChunk = EntityStreamerService.getChunkKey(x, y)
     local facingChunk, lookaheadChunk = EntityStreamerService.getPrecacheChunk(currentChunk, heading or 0.0)
 
-    EntityStreamerService.updatePlayerChunks(source, x, y, facingChunk)
+    EntityStreamerService.updatePlayerChunks(player, x, y, facingChunk)
 
-    Obelisk.emitClient('core:server:streamer-precache', source, {
+    player:emit('core:server:streamer-precache', {
         chunkKey = lookaheadChunk,
         entities = EntityStreamerService.getChunkEntityRecords(lookaheadChunk),
     })
