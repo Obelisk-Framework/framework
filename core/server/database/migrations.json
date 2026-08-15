@@ -10,6 +10,7 @@
     "2026_08_10_041318_fix_keybinds_action_id_type",
     "2026_08_11_070000_create_permissions_table",
     "2026_08_12_070000_create_entities_table",
-    "2026_08_13_000000_drop_keybinds_table"
+    "2026_08_13_000000_drop_keybinds_table",
+    "2026_08_15_095900_create_instance_buckets_table"
   ]
 }
