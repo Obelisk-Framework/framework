@@ -2,5 +2,6 @@ node_modules
 .worktrees
 modules/*
 plugins/*
+!plugins/oblsk_shellbuilder/
 .superpowers/
 storage/
