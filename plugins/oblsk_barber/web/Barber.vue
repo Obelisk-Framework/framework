@@ -169,6 +169,15 @@
       </div>
     </div>
 
+    <!-- charge failure banner — deliberately NOT nested inside the payment
+         sheet, so it's still visible on the owned/free path (which never
+         opens that sheet) and stays up after the sheet auto-closes. -->
+    <div v-if="chargeError" class="absolute left-1/2 top-5 z-50 -translate-x-1/2 flex items-center gap-2 rounded-[6px] px-3 h-[38px] max-w-[520px]"
+      style="background:rgba(56,10,10,.92);border:1px solid rgba(255,120,120,.5)">
+      <span class="text-[12px] text-white/90">{{ chargeError }}</span>
+      <button @click="chargeError = null" class="ob-mono text-[11px] text-white/60 hover:text-white/90 transition">×</button>
+    </div>
+
     <!-- receipt -->
     <div v-if="done" class="absolute inset-0 z-40 grid place-items-center" style="background:rgba(0,0,0,.6)" @click="done = null">
       <div class="rounded-[10px] p-7 text-center w-[330px]" style="background:rgba(10,14,18,.92);border:1px solid rgba(255,255,255,.12)" @click.stop>
@@ -222,23 +231,12 @@ const allSections = computed(() => [
 
 // --- picks / colours / touched -------------------------------------------
 const open = ref('hair')
-const closing = ref(null)
-const OUT = 420
+// Synchronous, matching the JSX reference's setOpen(...) — there's no exit
+// animation in this port that would need a delayed close (an earlier
+// revision here had a dead `closing` ref + setTimeout doing nothing but
+// adding an unrequested ~420ms lag to switching sections).
 function toggle(id) {
-  if (open.value === id) {
-    closing.value = id
-    open.value = null
-    setTimeout(() => { closing.value = null }, OUT)
-    return
-  }
-  if (open.value) {
-    const prev = open.value
-    closing.value = prev
-    open.value = null
-    setTimeout(() => { closing.value = null; open.value = id }, OUT)
-    return
-  }
-  open.value = id
+  open.value = open.value === id ? null : id
 }
 
 // Style-section picks (0-based UI option index; 0 = 'None'). Hair keeps the
@@ -334,9 +332,19 @@ function appearanceChangesFromTouched() {
 const pay = ref(null) // null | 'method'
 const pendingMethod = ref(null)
 const pendingCardId = ref(null)
+// Set on a failed barber:chargeResult (see onChargeResult below). A failed
+// charge must never look identical to a successful one — this is rendered
+// as a standalone banner (not nested inside the payment sheet) so it's
+// still visible even on the owned/free path, which never opens that sheet.
+// Worst case here is the CARD path: payment.requestPayment() may have
+// already billed the card before barber:charge was even emitted, so a
+// later server-side failure (e.g. persistence) needs a loud, visible
+// warning, not a silently-closed sheet.
+const chargeError = ref(null)
 
 function onFooterClick() {
   if (!total.value) return
+  chargeError.value = null
   if (owned.value) {
     pendingMethod.value = 'free'
     pendingCardId.value = null
@@ -347,6 +355,7 @@ function onFooterClick() {
 }
 
 async function payByCard() {
+  chargeError.value = null
   const result = await payment.requestPayment({ amount: total.value, description: 'Barber shop' })
   if (!result.ok) return
   pendingMethod.value = 'card'
@@ -355,6 +364,7 @@ async function payByCard() {
 }
 
 function payByCash() {
+  chargeError.value = null
   pendingMethod.value = 'cash'
   pendingCardId.value = null
   emitCharge('cash', null)
@@ -377,7 +387,8 @@ const receiptSubtitle = computed(() => {
   if (!done.value) return ''
   if (done.value.method === 'cash') return 'Paid in cash'
   if (done.value.method === 'card') return `Card ${done.value.cardId != null ? '#' + done.value.cardId : ''}`.trim()
-  return 'No charge (player owned)'
+  if (done.value.method === 'free') return 'No charge (player owned)'
+  return ''
 })
 
 // --- NUI wiring ----------------------------------------------------------
@@ -389,10 +400,22 @@ function onSync(payload) {
   hairPrice.value = payload.hairPrice || 0
 }
 
+// Single shared completion handler for BOTH the paid path
+// (barber:client:charge on the server) and the owned/free path
+// (barber:client:applyFree) — server/main.lua emits the same
+// barber:server:chargeResult event (relayed here as barber:chargeResult)
+// from both handlers on success, so there's no separate "free cut done"
+// event to listen for; pendingMethod (set right before each emit, incl.
+// the 'free' case in onFooterClick) is what tells the receipt/error UI
+// which path just completed.
 function onChargeResult(result) {
   pay.value = null
-  if (!result || !result.ok) return
-  done.value = { total: result.total, method: pendingMethod.value, cardId: pendingCardId.value }
+  if (!result || !result.ok) {
+    chargeError.value = 'Something went wrong — you were not charged again, but please check with staff if a card payment did go through.'
+    return
+  }
+  chargeError.value = null
+  done.value = { total: result.total ?? 0, method: pendingMethod.value, cardId: pendingCardId.value }
   // A successful cut has been paid for and persisted — clear touched state
   // so the footer/price resets and the same picks aren't charged again.
   for (const key of Object.keys(touched)) delete touched[key]
