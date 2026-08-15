@@ -108,7 +108,7 @@ test('createCharacter resolves preset indices to native ids and derives ped_mode
         eq(stored.hairColor, Appearance.HAIR_COLORS[8].colorId)
         eq(stored.hairHighlight, Appearance.HAIR_COLORS[8].highlightId)
         eq(stored.eyeColor, Appearance.EYE_COLORS[7].index)
-        eq(stored.hairStyle, Appearance.HAIR_STYLES[4].drawable)
+        eq(stored.hairStyle, Appearance.HAIR_STYLES.female[4].drawable)
         eq(stored.headBlend.skinFirst, Appearance.SKIN_TONES[8].skinFirst)
         eq(tables.character_appearances[1].ped_model, 'mp_f_freemode_01')
         -- Wardrobe resolution itself is asserted in appearance_spec.lua, on the
