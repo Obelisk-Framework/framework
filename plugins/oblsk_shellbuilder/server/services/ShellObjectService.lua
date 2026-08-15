@@ -162,7 +162,6 @@ function ShellObjectService.remove(source, shellId, objectId)
     end
 
     local item = ItemService.binding(object.item_key)
-    QueryBuilder.new('shell_objects'):where('id', objectId):delete()
 
     EntityStreamerService.unregisterGroupEntity(
         'shellbuilder:shell:' .. shellId,
@@ -172,6 +171,8 @@ function ShellObjectService.remove(source, shellId, objectId)
     )
 
     QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', objectId):delete()
+
+    QueryBuilder.new('shell_objects'):where('id', objectId):delete()
 
     -- canManageShell (server/main.lua) grants remove access to any
     -- build-permission staff member, not just the shell's owner - refunding
