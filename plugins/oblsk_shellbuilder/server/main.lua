@@ -83,12 +83,26 @@ Obelisk.onServer('shellbuilder:client:enter', function(shellId)
         return
     end
 
-    InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
     local shell = ShellService.get(shellId)
+    if not shell then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = 'Unknown shell' })
+        return
+    end
+
+    InstanceService.enter(source, 'shellbuilder:shell:' .. shellId)
     SetEntityCoords(GetPlayerPed(source), Config.Anchor.x, Config.Anchor.y, Config.Anchor.z, false, false, false, false)
     SetEntityHeading(GetPlayerPed(source), shell.interior_heading)
-    WebView.hide(source)
-    Obelisk.emitClient('shellbuilder:server:entered', source, { shellId = shellId, mode = 'walk' })
+    WebView.openPage(source, '/ShellEditor')
+    WebView.focus(source)
+    Obelisk.emitClient('shellbuilder:server:entered', source, { shellId = shellId, mode = 'edit' })
+    Obelisk.emitClient('shellbuilder:server:editSync', source, {
+        shell = shell,
+        objects = ShellObjectService.list(shellId),
+        catalogBuild = ShellObjectService.catalog('build'),
+        catalogStyle = ShellObjectService.catalog('style'),
+        catalogDecor = ShellObjectService.catalog('decor'),
+        canBuild = false,
+    })
 end)
 
 Obelisk.onServer('shellbuilder:client:edit', function(shellId)
@@ -117,6 +131,7 @@ Obelisk.onServer('shellbuilder:client:edit', function(shellId)
         catalogBuild = ShellObjectService.catalog('build'),
         catalogStyle = ShellObjectService.catalog('style'),
         catalogDecor = ShellObjectService.catalog('decor'),
+        canBuild = true,
     })
 end)
 
