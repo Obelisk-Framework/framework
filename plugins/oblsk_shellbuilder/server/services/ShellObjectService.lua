@@ -86,6 +86,11 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
 
     local characterId = CharacterService.getActiveCharacterId(source)
 
+    local placedByCharacterId = nil
+    if not locked then
+        placedByCharacterId = characterId
+    end
+
     local id = QueryBuilder.new('shell_objects'):insert({
         shell_id = shellId,
         item_key = itemKey,
@@ -95,7 +100,7 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
         heading = heading or 0,
         floor_level = floorLevel or 0,
         locked = locked and true or false,
-        placed_by_character_id = locked and nil or characterId,
+        placed_by_character_id = placedByCharacterId,
         color_data = colorData or {},
         created_at = Database.now(),
         updated_at = Database.now(),
