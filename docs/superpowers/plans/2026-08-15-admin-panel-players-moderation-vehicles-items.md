@@ -27,14 +27,14 @@
 **New files:**
 - `modules/oblsk_accounts/server/migrations/2026_08_15_120000_create_moderation_logs_table.lua` — new table
 - `modules/oblsk_accounts/server/models/ModerationLog.lua` — model for the new table
-- `oblsk_admin/server/players.lua` — Players tab handlers
-- `oblsk_admin/server/moderation.lua` — Moderation tab handlers
-- `oblsk_admin/server/vehicles.lua` — Vehicles tab handlers
-- `oblsk_admin/server/items.lua` — Items tab handlers
-- `oblsk_admin/web/PlayersTab.vue`
-- `oblsk_admin/web/ModerationTab.vue`
-- `oblsk_admin/web/VehiclesTab.vue`
-- `oblsk_admin/web/ItemsTab.vue`
+- `plugins/oblsk_admin/server/players.lua` — Players tab handlers
+- `plugins/oblsk_admin/server/moderation.lua` — Moderation tab handlers
+- `plugins/oblsk_admin/server/vehicles.lua` — Vehicles tab handlers
+- `plugins/oblsk_admin/server/items.lua` — Items tab handlers
+- `plugins/oblsk_admin/web/PlayersTab.vue`
+- `plugins/oblsk_admin/web/ModerationTab.vue`
+- `plugins/oblsk_admin/web/VehiclesTab.vue`
+- `plugins/oblsk_admin/web/ItemsTab.vue`
 - `modules/oblsk_accounts/tests/account_service_moderation_spec.lua`
 - `modules/oblsk_vehicles/tests/vehicle_service_admin_spec.lua`
 - `modules/oblsk_items/tests/item_service_admin_spec.lua`
@@ -45,20 +45,20 @@
 - `modules/oblsk_accounts/server/services/AccountService.lua` — add `listBans`, `listModerationLogs`, `warn`, `logKick`
 - `modules/oblsk_vehicles/server/services/VehicleService.lua` — add `listAll`, `deleteById`, `teleportToCoords`
 - `modules/oblsk_items/server/services/ItemService.lua` — add `listBaseItems`, `updateBaseItem`, `createBaseItem`, `giveToPlayer`
-- `oblsk_admin/client/main.lua` — relay wiring for the four new tabs
-- `oblsk_admin/web/AdminPanel.vue` — render the four new tab components instead of `ComingSoon`
+- `plugins/oblsk_admin/client/main.lua` — relay wiring for the four new tabs
+- `plugins/oblsk_admin/web/AdminPanel.vue` — render the four new tab components instead of `ComingSoon`
 
-Paths above under `modules/` and `oblsk_admin/`/`core/` are relative to `core/` (the framework repo root); `oblsk_admin` is `core/plugins/oblsk_admin`.
+**All paths in this plan (including every task's Files: section) are relative to the repo root you run commands from — the `core` repo's top level, where `modules/`, `plugins/`, `docs/`, `tests/` live directly.** Do not prepend `core/` to any path — there happens to also be an unrelated tracked subdirectory literally named `core/` inside this same repo (the FXServer resource payload, e.g. `core/server/ORM/BaseModel.lua`) which is a different thing entirely; confusing the two creates a phantom `core/modules/...`/`core/plugins/...` tree that doesn't match where the real, editable `oblsk_accounts`/`oblsk_admin` code lives.
 
 ---
 
 ### Task 1: `moderation_logs` migration + model
 
 **Files:**
-- Create: `core/modules/oblsk_accounts/server/migrations/2026_08_15_120000_create_moderation_logs_table.lua`
-- Modify: `core/modules/oblsk_accounts/server/migrations.json`
-- Create: `core/modules/oblsk_accounts/server/models/ModerationLog.lua`
-- Test: `core/modules/oblsk_accounts/tests/moderation_logs_migration_spec.lua`
+- Create: `modules/oblsk_accounts/server/migrations/2026_08_15_120000_create_moderation_logs_table.lua`
+- Modify: `modules/oblsk_accounts/server/migrations.json`
+- Create: `modules/oblsk_accounts/server/models/ModerationLog.lua`
+- Test: `modules/oblsk_accounts/tests/moderation_logs_migration_spec.lua`
 
 **Interfaces:**
 - Produces: table `moderation_logs(id, account_id, type, reason, issued_by, created_at, updated_at)`; model `ModerationLog` (fillable: `account_id`, `type`, `reason`, `issued_by`), consumed by Task 2.
@@ -194,8 +194,8 @@ git commit -m "feat(accounts): add moderation_logs table for warn/kick history"
 ### Task 2: `AccountService` moderation methods
 
 **Files:**
-- Modify: `core/modules/oblsk_accounts/server/services/AccountService.lua`
-- Test: `core/modules/oblsk_accounts/tests/account_service_moderation_spec.lua`
+- Modify: `modules/oblsk_accounts/server/services/AccountService.lua`
+- Test: `modules/oblsk_accounts/tests/account_service_moderation_spec.lua`
 
 **Interfaces:**
 - Consumes: `Ban` model, `ModerationLog` model (Task 1), `Character` model (`Character.fillable` includes `first_name`/`last_name`; `Character:where('account_id', id):firstSync()` returns the first matching row or nil).
@@ -397,8 +397,8 @@ git commit -m "feat(accounts): add listBans/listModerationLogs/warn/logKick to A
 ### Task 3: `VehicleService` admin methods
 
 **Files:**
-- Modify: `core/modules/oblsk_vehicles/server/services/VehicleService.lua`
-- Test: `core/modules/oblsk_vehicles/tests/vehicle_service_admin_spec.lua`
+- Modify: `modules/oblsk_vehicles/server/services/VehicleService.lua`
+- Test: `modules/oblsk_vehicles/tests/vehicle_service_admin_spec.lua`
 
 **Interfaces:**
 - Consumes: `VehicleService.activeNetIds` (existing, `vehicleId -> netId`), `Vehicle`/`BaseVehicle` models.
@@ -621,8 +621,8 @@ git commit -m "feat(vehicles): add listAll/deleteById/teleportToCoords to Vehicl
 ### Task 4: `ItemService` admin methods
 
 **Files:**
-- Modify: `core/modules/oblsk_items/server/services/ItemService.lua`
-- Test: `core/modules/oblsk_items/tests/item_service_admin_spec.lua`
+- Modify: `modules/oblsk_items/server/services/ItemService.lua`
+- Test: `modules/oblsk_items/tests/item_service_admin_spec.lua`
 
 **Interfaces:**
 - Consumes: `BaseItem` model, `ItemService.add(source, baseItem, amount)` (existing — `baseItem` is a plain attributes table, not a model instance, per `ItemService.binding`'s existing convention).
@@ -832,7 +832,7 @@ git commit -m "feat(items): add listBaseItems/updateBaseItem/createBaseItem/give
 ### Task 5: Players tab server handlers
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/server/players.lua`
+- Create: `plugins/oblsk_admin/server/players.lua`
 
 **Interfaces:**
 - Consumes: `CharacterService.sessionCharacters` (existing, `source -> characterId`), `Character:findSync`, `AccountService.getAccountId`, `AccountService.logKick` (Task 2), `NotificationService.info/error` (existing, `core/server/Services/NotificationService.lua`).
@@ -926,7 +926,7 @@ git commit -m "feat(admin): add Players tab server handlers"
 ### Task 6: Moderation tab server handlers
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/server/moderation.lua`
+- Create: `plugins/oblsk_admin/server/moderation.lua`
 
 **Interfaces:**
 - Consumes: `AccountService.listBans/listModerationLogs/ban/unban/warn/logKick` (existing + Task 2), `NotificationService.info` (existing).
@@ -1029,7 +1029,7 @@ git commit -m "feat(admin): add Moderation tab server handlers"
 ### Task 7: Vehicles tab server handlers
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/server/vehicles.lua`
+- Create: `plugins/oblsk_admin/server/vehicles.lua`
 
 **Interfaces:**
 - Consumes: `VehicleService.listAll/deleteById/teleportToCoords` (Task 3).
@@ -1085,7 +1085,7 @@ git commit -m "feat(admin): add Vehicles tab server handlers"
 ### Task 8: Items tab server handlers
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/server/items.lua`
+- Create: `plugins/oblsk_admin/server/items.lua`
 
 **Interfaces:**
 - Consumes: `ItemService.listBaseItems/updateBaseItem/createBaseItem/giveToPlayer` (Task 4).
@@ -1153,7 +1153,7 @@ git commit -m "feat(admin): add Items tab server handlers"
 ### Task 9: Client relay wiring for all four tabs
 
 **Files:**
-- Modify: `core/plugins/oblsk_admin/client/main.lua`
+- Modify: `plugins/oblsk_admin/client/main.lua`
 
 **Interfaces:**
 - Consumes: existing `WebView.on`/`Obelisk.onClient`/`Obelisk.emitServer`/`SendNUIMessage` (already used by the `ORG_RELAYS` block in this file).
@@ -1199,8 +1199,8 @@ git commit -m "feat(admin): relay Players/Moderation/Vehicles/Items NUI events c
 ### Task 10: Players tab Vue component
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/web/PlayersTab.vue`
-- Modify: `core/plugins/oblsk_admin/web/AdminPanel.vue`
+- Create: `plugins/oblsk_admin/web/PlayersTab.vue`
+- Modify: `plugins/oblsk_admin/web/AdminPanel.vue`
 
 **Interfaces:**
 - Consumes: `admin:client:players-list` (emit), `admin:client:players-reply` (on) — payload `{ players: [{ source, name, characterName, ping, coords }] }`, matching Task 5's `listPlayers()`.
@@ -1313,8 +1313,8 @@ git commit -m "feat(admin): add Players tab UI"
 ### Task 11: Moderation tab Vue component
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/web/ModerationTab.vue`
-- Modify: `core/plugins/oblsk_admin/web/AdminPanel.vue`
+- Create: `plugins/oblsk_admin/web/ModerationTab.vue`
+- Modify: `plugins/oblsk_admin/web/AdminPanel.vue`
 
 **Interfaces:**
 - Consumes: `admin:client:moderation-list` (emit), `admin:client:moderation-reply` (on) — payload `{ bans: [...], logs: [...] }`, matching Task 6.
@@ -1455,8 +1455,8 @@ git commit -m "feat(admin): add Moderation tab UI"
 ### Task 12: Vehicles tab Vue component
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/web/VehiclesTab.vue`
-- Modify: `core/plugins/oblsk_admin/web/AdminPanel.vue`
+- Create: `plugins/oblsk_admin/web/VehiclesTab.vue`
+- Modify: `plugins/oblsk_admin/web/AdminPanel.vue`
 
 **Interfaces:**
 - Consumes: `admin:client:vehicles-list` (emit), `admin:client:vehicles-reply` (on) — payload `{ vehicles: [{ id, plate, display_name, model, name, owner_type, owner_id, stored, garage_id, fuel_level, net_id }] }`, matching Task 3's `listAll()` shape.
@@ -1546,8 +1546,8 @@ git commit -m "feat(admin): add Vehicles tab UI"
 ### Task 13: Items tab Vue component
 
 **Files:**
-- Create: `core/plugins/oblsk_admin/web/ItemsTab.vue`
-- Modify: `core/plugins/oblsk_admin/web/AdminPanel.vue`
+- Create: `plugins/oblsk_admin/web/ItemsTab.vue`
+- Modify: `plugins/oblsk_admin/web/AdminPanel.vue`
 
 **Interfaces:**
 - Consumes: `admin:client:items-list` (emit), `admin:client:items-reply` (on) — payload `{ items: [...base_items rows] }`, matching Task 4's `listBaseItems()`.
