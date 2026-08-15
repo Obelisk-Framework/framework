@@ -4,12 +4,12 @@
 BarberService = {}
 
 --- @param sectionId string
---- @return number|nil price, nil if sectionId is neither 'hair' nor a Config.Sections entry
+--- @return number|nil price, nil if sectionId is neither 'hair' nor a BarberConfig.Sections entry
 function BarberService.priceFor(sectionId)
     if sectionId == 'hair' then
-        return Config.HairPrice
+        return BarberConfig.HairPrice
     end
-    for _, section in ipairs(Config.Sections) do
+    for _, section in ipairs(BarberConfig.Sections) do
         if section.id == sectionId then
             return section.price
         end
@@ -76,6 +76,64 @@ function BarberService.charge(source, touchedSectionIds, method, cardId, mult)
 
     return true, total
 end
+
+--- Maps each appearanceChanges top-level key (and each overlays sub-key)
+--- to the section id(s) whose purchase would legitimately produce it.
+--- Mirrors web/Barber.vue's OVERLAY_TARGETS/appearanceChangesFromTouched
+--- mapping -- kept as an authorization allowlist, not a full price
+--- derivation: it proves every applied change corresponds to SOME paid-for
+--- section, without attempting fine-grained per-section price attribution.
+local CHANGE_KEY_SECTIONS = {
+    hairStyle = { 'hair' },
+    hairColor = { 'haircol' },
+    hairHighlight = { 'hl' },
+}
+local OVERLAY_KEY_SECTIONS = {
+    facial_hair = { 'beard', 'beardcol' },
+    eyebrows = { 'brows', 'browcol' },
+    chest_hair = { 'chest', 'chestcol' },
+    makeup = { 'makeup' },
+    blush = { 'blush' },
+    lipstick = { 'lipstick' },
+}
+
+--- @param appearanceChanges table
+--- @param touchedSectionIds string[]
+--- @return boolean ok
+--- @return string|nil reason
+local function validateAppearanceChanges(appearanceChanges, touchedSectionIds)
+    local touched = {}
+    for _, id in ipairs(touchedSectionIds or {}) do
+        touched[id] = true
+    end
+
+    local function anyTouched(sectionIds)
+        for _, id in ipairs(sectionIds) do
+            if touched[id] then return true end
+        end
+        return false
+    end
+
+    for key in pairs(appearanceChanges or {}) do
+        if key == 'overlays' then
+            for overlayKey in pairs(appearanceChanges.overlays) do
+                local sections = OVERLAY_KEY_SECTIONS[overlayKey]
+                if not sections or not anyTouched(sections) then
+                    return false, 'Unpaid change: ' .. tostring(overlayKey)
+                end
+            end
+        else
+            local sections = CHANGE_KEY_SECTIONS[key]
+            if not sections or not anyTouched(sections) then
+                return false, 'Unpaid change: ' .. tostring(key)
+            end
+        end
+    end
+
+    return true
+end
+
+BarberService.validateAppearanceChanges = validateAppearanceChanges
 
 --- Merges the given appearance keys into the active character's
 --- character_appearances.data row and returns the fully resolved appearance

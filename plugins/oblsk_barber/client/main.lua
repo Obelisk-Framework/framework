@@ -19,7 +19,11 @@ Obelisk.onClient('barber:server:sync', function(data)
     currentChairId = data.chairId
     currentGender = currentPlayerGender()
     currentAppearance = data.appearance or {}
-    local hairStyles = exports['oblsk_character-selection']:getHairStyles(currentGender)
+    -- Appearance is oblsk_character-selection's shared/appearance.lua
+    -- global: every plugin is globbed into one Lua state by
+    -- core/fxmanifest.lua (AGENTS.md), so it's directly readable here --
+    -- barber never keeps its own copy of the hair catalog.
+    local hairStyles = Appearance.HAIR_STYLES[currentGender]
     WebView.emit('barber:sync', {
         chairId = data.chairId,
         gender = currentGender,
@@ -29,7 +33,15 @@ Obelisk.onClient('barber:server:sync', function(data)
     })
 end)
 
+--- Applies the server's authoritative, freshly-persisted appearance to the
+--- live ped before relaying to the NUI. Without this, non-hair purchases
+--- (and any pick the server clamped/rejected) were charged and stored but
+--- never actually shown on the player until the next respawn.
 Obelisk.onClient('barber:server:chargeResult', function(result)
+    if result and result.ok and result.appearance then
+        currentAppearance = result.appearance
+        CharacterAppearanceService.apply(PlayerPedId(), currentAppearance, currentGender)
+    end
     WebView.emit('barber:chargeResult', result)
 end)
 
@@ -41,7 +53,7 @@ WebView.on('barber:preview', function(data)
     for key, value in pairs(partial) do
         currentAppearance[key] = value
     end
-    exports['oblsk_character-selection']:applyAppearance(ped, currentAppearance, currentGender)
+    CharacterAppearanceService.apply(ped, currentAppearance, currentGender)
 end)
 
 WebView.on('barber:charge', function(data)

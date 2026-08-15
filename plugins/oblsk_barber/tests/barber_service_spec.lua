@@ -74,7 +74,7 @@ local function withFakeDb(fn)
 end
 
 test('priceFor returns the configured price for hair and for a non-hair section', function()
-    eq(BarberService.priceFor('hair'), Config.HairPrice)
+    eq(BarberService.priceFor('hair'), BarberConfig.HairPrice)
     eq(BarberService.priceFor('beard'), 70)
 end)
 
@@ -84,7 +84,7 @@ end)
 
 test('total sums only the touched sections, ignoring unknown ids', function()
     local total = BarberService.total({ 'hair', 'beard', 'not-a-section' })
-    eq(total, Config.HairPrice + 70)
+    eq(total, BarberConfig.HairPrice + 70)
 end)
 
 test('total is 0 for an empty selection', function()
@@ -103,7 +103,7 @@ test('charge succeeds via cash and removes the right amount', function()
     withFakeDb(function()
         local ok, total = BarberService.charge(1, { 'hair', 'beard' }, 'cash', nil)
         eq(ok, true)
-        eq(total, Config.HairPrice + 70)
+        eq(total, BarberConfig.HairPrice + 70)
     end)
 end)
 
@@ -120,7 +120,7 @@ test('charge succeeds via card', function()
     withFakeDb(function()
         local ok, total = BarberService.charge(1, { 'hair' }, 'card', 42)
         eq(ok, true)
-        eq(total, Config.HairPrice)
+        eq(total, BarberConfig.HairPrice)
     end)
 end)
 
@@ -145,7 +145,7 @@ test('charge applies the clipper minigame quality multiplier to the total charge
     withFakeDb(function()
         local ok = BarberService.charge(1, { 'hair' }, 'cash', nil, 0.7)
         eq(ok, true)
-        eq(LAST_CASH_REMOVED, math.floor(Config.HairPrice * 0.7 + 0.5), 'the discounted amount should be removed, not the full price')
+        eq(LAST_CASH_REMOVED, math.floor(BarberConfig.HairPrice * 0.7 + 0.5), 'the discounted amount should be removed, not the full price')
     end)
 end)
 
@@ -153,7 +153,7 @@ test('charge clamps an out-of-range multiplier to the valid floor (0.45)', funct
     withFakeDb(function()
         local ok = BarberService.charge(1, { 'hair' }, 'cash', nil, 0.1)
         eq(ok, true)
-        eq(LAST_CASH_REMOVED, math.floor(Config.HairPrice * 0.45 + 0.5), 'a below-floor multiplier should clamp to 0.45, not pass through as 0.1')
+        eq(LAST_CASH_REMOVED, math.floor(BarberConfig.HairPrice * 0.45 + 0.5), 'a below-floor multiplier should clamp to 0.45, not pass through as 0.1')
     end)
 end)
 
@@ -164,6 +164,49 @@ test('applyAndPersist merges the given keys into the existing appearance row', f
         eq(resolved.hairStyle, 12)
         eq(resolved.hairColor, 3)
     end)
+end)
+
+test('validateAppearanceChanges accepts changes that match the touched sections', function()
+    local ok = BarberService.validateAppearanceChanges({
+        hairStyle = 12,
+        hairColor = 3,
+        overlays = { facial_hair = { overlayId = 1, styleIndex = 2, opacity = 1 } },
+    }, { 'hair', 'haircol', 'beard' })
+    eq(ok, true)
+end)
+
+test('validateAppearanceChanges rejects a top-level change with no matching touched section', function()
+    local ok, reason = BarberService.validateAppearanceChanges({
+        hairStyle = 12,
+        hairColor = 3, -- 'haircol' was never paid for
+    }, { 'hair' })
+    eq(ok, false)
+    eq(reason, 'Unpaid change: hairColor')
+end)
+
+test('validateAppearanceChanges rejects an overlay whose section was not touched', function()
+    local ok, reason = BarberService.validateAppearanceChanges({
+        overlays = { lipstick = { overlayId = 8, colorId = 3, colorType = 2 } },
+    }, { 'hair' })
+    eq(ok, false)
+    eq(reason, 'Unpaid change: lipstick')
+end)
+
+test('validateAppearanceChanges accepts an overlay bought via either its style or its colour section', function()
+    local ok = BarberService.validateAppearanceChanges({
+        overlays = { eyebrows = { overlayId = 2, colorId = 4, colorType = 1, styleIndex = 0 } },
+    }, { 'browcol' })
+    eq(ok, true)
+end)
+
+test('validateAppearanceChanges rejects an entirely unknown change key', function()
+    local ok, reason = BarberService.validateAppearanceChanges({ pedModel = 'a_m_m_bevhills_01' }, { 'hair' })
+    eq(ok, false)
+    eq(reason, 'Unpaid change: pedModel')
+end)
+
+test('validateAppearanceChanges accepts an empty changeset', function()
+    eq(BarberService.validateAppearanceChanges({}, {}), true)
 end)
 
 test('applyAndPersist fails when the source has no active character', function()

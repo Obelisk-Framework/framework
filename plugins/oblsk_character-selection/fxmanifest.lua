@@ -9,11 +9,6 @@ dependencies {
     'obelisk'
 }
 
-client_exports {
-    'getHairStyles',
-    'applyAppearance'
-}
-
 shared_scripts {
     'shared/**/*.lua'
 }
