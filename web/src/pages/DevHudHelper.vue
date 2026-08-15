@@ -40,7 +40,7 @@ import { inject, onMounted, computed } from 'vue'
 const STORAGE_PREFIX = 'obelisk:dev-hud-helper:'
 
 const registry = inject('obelisk:globalElementsRegistry')
-const entries = computed(() => registry ? Array.from(registry.entries()).filter(([, entry]) => entry.devHudHelper) : [])
+const entries = computed(() => registry ? Array.from(registry.entries()) : [])
 
 function toggle(name, entry, visible) {
   entry.visible = visible

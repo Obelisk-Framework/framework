@@ -1,7 +1,7 @@
 --- Client WebView - owns NUI focus/cursor state and the webview's lifecycle.
 --- Absorbs what core/client/bootstrap.lua used to do for NUI directly.
 WebView = {}
-WebView.state = { focus = false, cursor = false, closeGuard = false }
+WebView.state = { focus = false, cursor = false }
 
 local function setFocus(focus, cursor)
     SetNuiFocus(focus, cursor)
@@ -39,17 +39,6 @@ end
 --- lifetime; this never tears down the actual browser instance.
 function WebView.destroy()
     SendNUIMessage({ eventname = 'core:client:webview-destroy', args = {} })
-    setFocus(false, false)
-end
-
---- Closes whatever dismissible global element is currently open (e.g.
---- keybinds, radial menu) and releases focus. Unlike destroy(), this leaves
---- non-dismissible elements (e.g. the death screen) alone - see the
---- `dismissible` flag on globalElements.js entries. This is the shared path
---- behind both the generic 'core:client:close' NUI callback and the ESC
---- watcher below, so ESC and every plugin's X button behave the same way.
-function WebView.closeAll()
-    SendNUIMessage({ eventname = 'core:client:webview-closeAll', args = {} })
     setFocus(false, false)
 end
 
@@ -111,26 +100,15 @@ WebView.on('core:client:navigate', function(data)
 end)
 
 WebView.on('core:client:close', function()
-    WebView.closeAll()
+    WebView.hide()
 end)
 
---- Lets a screen suppress the ESC watcher below while it's mid-capture of
---- its own Escape keypress (e.g. Keybinds cancelling a "press a key to
---- rebind" listen instead of the whole panel closing underneath it).
-WebView.on('core:client:setCloseGuard', function(data)
-    WebView.state.closeGuard = not not (data and data.enabled)
-end)
-
---- ESC closes whatever's open when the webview currently has focus. Routed
---- through closeAll() (not hide()) so pressing ESC actually hides any open
---- global element instead of just releasing focus - previously ESC left the
---- panel rendered but unfocused, making it look "stuck" since clicks no
---- longer reached its own X button either.
+--- ESC closes the webview when it currently has focus.
 Citizen.CreateThread(function()
     while true do
         Citizen.Wait(0)
-        if IsControlJustPressed(0, 322) and IsNuiFocused() and not WebView.state.closeGuard then
-            WebView.closeAll()
+        if IsControlJustPressed(0, 322) and IsNuiFocused() then
+            WebView.hide()
         end
     end
 end)
