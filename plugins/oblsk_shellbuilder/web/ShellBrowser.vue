@@ -57,9 +57,9 @@
             <div v-if="permissions.canBuild && selected" class="mt-4 pt-4" style="border-top:1px solid color-mix(in oklab, var(--ob-accent) 25%, transparent)">
               <div class="text-[12px] font-semibold uppercase tracking-wide mb-2">Manage owners</div>
               <div class="flex flex-col gap-1 mb-2">
-                <div v-for="ownerId in currentOwners" :key="ownerId" class="flex items-center justify-between text-[12px] py-1">
-                  <span>Character #{{ ownerId }}</span>
-                  <button @click="removeOwner(ownerId)" class="text-[11px] px-2 py-0.5 rounded" style="border:1px solid rgba(239,68,68,.4);color:#fca5a5">Remove</button>
+                <div v-for="owner in currentOwners" :key="owner.id" class="flex items-center justify-between text-[12px] py-1">
+                  <span>{{ owner.first_name }} {{ owner.last_name }}</span>
+                  <button @click="removeOwner(owner.id)" class="text-[11px] px-2 py-0.5 rounded" style="border:1px solid rgba(239,68,68,.4);color:#fca5a5">Remove</button>
                 </div>
               </div>
               <input v-model="ownerSearch" @input="searchOwners" placeholder="Search character name..."
@@ -114,15 +114,20 @@ const ownerSearchResults = ref([])
 
 const selected = computed(() => shells.value.find(s => s.id === selectedId.value) || null)
 
-// The sync payload doesn't carry each shell's owner list, so there's no
-// source to populate currentOwners from when a shell is first selected.
-// Keeping this minimal: reset to empty on selection and let it fill in as
-// add/remove roundtrips arrive via shellbuilder:ownersUpdated, rather than
-// adding a dedicated "fetch owners" event for a staff panel this small.
-watch(selectedId, () => {
+// The sync payload doesn't carry each shell's owner list, so reset first,
+// then actively fetch it -- previously this only reset to [] and relied on
+// an add/remove roundtrip to ever populate it, so staff opening a shell
+// they hadn't just modified saw an empty (and unfixable-looking) owner
+// list. shellbuilder:listOwners replies on the SAME shellbuilder:ownersUpdated
+// event the add/remove handlers already emit, so onOwnersUpdated below
+// needs no change.
+watch(selectedId, (shellId) => {
   currentOwners.value = []
   ownerSearch.value = ''
   ownerSearchResults.value = []
+  if (shellId != null) {
+    Obelisk.emit('shellbuilder:listOwners', { shellId })
+  }
 })
 
 function isOwner(shellId) {
@@ -156,8 +161,25 @@ function close() {
   Obelisk.emit('core:client:close', {})
 }
 
+// Debounced (~250ms) and length-gated so a search fires at most once per
+// pause in typing, not once per keystroke -- searchCharactersByName scans
+// every character row with no index, and the server enforces the same
+// 2-character minimum independently, since client-side throttling alone
+// isn't trustworthy.
+let searchDebounceTimer = null
+
 function searchOwners() {
-  Obelisk.emit('shellbuilder:searchCharacters', { query: ownerSearch.value })
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+
+  const query = ownerSearch.value.trim()
+  if (query.length < 2) {
+    ownerSearchResults.value = []
+    return
+  }
+
+  searchDebounceTimer = setTimeout(() => {
+    Obelisk.emit('shellbuilder:searchCharacters', { query })
+  }, 250)
 }
 
 function addOwner(characterId) {
@@ -200,5 +222,6 @@ onUnmounted(() => {
   Obelisk.off('shellbuilder:sync', onShellSync)
   Obelisk.off('shellbuilder:characterSearchResults', onCharacterSearchResults)
   Obelisk.off('shellbuilder:ownersUpdated', onOwnersUpdated)
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 })
 </script>

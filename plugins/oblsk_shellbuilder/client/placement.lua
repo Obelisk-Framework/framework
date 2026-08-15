@@ -70,14 +70,18 @@ function Placement.cancelAim()
 end
 
 --- Resolves a hit entity handle back to its shell_objects id via the
---- client EntityStreamerService's spawned-entity map (entityId "object_<id>"
---- -> handle). See EntityStreamerService.entities on the client (keyed by
---- the same entityId strings ShellObjectService/EntityStreamerService mint
---- server-side, "object_<shell_objects.id>").
+--- client EntityStreamerService's spawned-entity map (entityId
+--- "<groupKey>:object_<id>" -> handle). See EntityStreamerService.entities
+--- on the client (keyed by the same entityId strings
+--- EntityStreamerService.registerGroupEntity mints server-side,
+--- "<groupKey>:object_<shell_objects.id>" -- namespaced by the shell's group
+--- key so it can never collide with an ordinary world object's id in the
+--- same flat client-side table). The group key prefix varies per shell, so
+--- match the suffix rather than anchoring the whole string.
 local function resolveShellObjectId(entityHandle)
     for entityId, entry in pairs(EntityStreamerService.entities) do
         if entry.handle == entityHandle then
-            local numericId = entityId:match('^object_(%d+)$')
+            local numericId = entityId:match(':object_(%d+)$')
             if numericId then return tonumber(numericId) end
         end
     end

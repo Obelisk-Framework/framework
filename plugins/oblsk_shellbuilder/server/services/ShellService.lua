@@ -105,6 +105,32 @@ function ShellService.listOwners(shellId)
     return ids
 end
 
+--- Owning character ids resolved to display names. The fake QueryBuilder
+--- used by this plugin's tests (tests/support/fake_query_builder.lua) has
+--- no `whereIn` support, so this filters in Lua after a full `getSync()`,
+--- matching searchCharactersByName's existing convention rather than
+--- relying on a query-builder feature that doesn't exist yet in this repo's
+--- test double.
+--- @param shellId number
+--- @return table[] { id, first_name, last_name } for every owner, in no
+---   particular order
+function ShellService.listOwnersWithNames(shellId)
+    local ownerIds = {}
+    for _, id in ipairs(ShellService.listOwners(shellId)) do
+        ownerIds[id] = true
+    end
+
+    local results = {}
+    if next(ownerIds) == nil then return results end
+
+    for _, row in ipairs(QueryBuilder.new('characters'):getSync()) do
+        if ownerIds[row.id] then
+            table.insert(results, { id = row.id, first_name = row.first_name, last_name = row.last_name })
+        end
+    end
+    return results
+end
+
 --- All shell ids owned by a given character, in a single query. Used by
 --- server/main.lua's permissionsFor/openBrowser to avoid an N+1
 --- ShellService.list() + per-shell isOwner() loop.
@@ -126,6 +152,14 @@ end
 --- @param query string
 --- @return table[] up to 20 { id, first_name, last_name } rows
 function ShellService.searchCharactersByName(query)
+    -- Belt-and-suspenders alongside the client-side debounce/length guard
+    -- (ShellBrowser.vue) -- the server must not trust client throttling
+    -- alone. A query this short would otherwise scan every character row on
+    -- essentially every keystroke.
+    if type(query) ~= 'string' or #(query:gsub('^%s+', ''):gsub('%s+$', '')) < 2 then
+        return {}
+    end
+
     local needle = query:lower()
     local rows = QueryBuilder.new('characters'):getSync()
     local results = {}

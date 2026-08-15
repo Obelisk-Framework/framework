@@ -118,7 +118,14 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
     EntityStreamerService.registerGroupEntity(
         'shellbuilder:shell:' .. shellId,
         'object',
-        { id = id, x = x, y = y, z = z, heading = heading or 0, model = item.data and item.data.shell_model, networked = false },
+        {
+            id = id, x = x, y = y, z = z, heading = heading or 0,
+            model = item.data and item.data.shell_model, networked = false,
+            -- Without this, the client's spawnObject leaves the object
+            -- physics-enabled: it can fall/slide/be pushed, drifting from
+            -- the authoritative DB row's coordinates.
+            freeze = true,
+        },
         InstanceService.getPlayersIn('shellbuilder:shell:' .. shellId)
     )
 
@@ -130,7 +137,10 @@ function ShellObjectService.place(source, shellId, itemKey, x, y, z, heading, fl
         enabled = true,
         owner_type = 'shellbuilder_shell_object',
         owner_id = id,
-        data = json.encode({ shellId = shellId }),
+        -- `freeze = true` here too, so the Finding-2 reload path (which
+        -- rebuilds the group entity from this row after a restart) agrees
+        -- with the live placement path above.
+        data = json.encode({ shellId = shellId, freeze = true }),
         created_at = Database.now(),
         updated_at = Database.now(),
     })

@@ -482,16 +482,26 @@ test('different groupKeys keep entirely separate entity lists', function()
     eq(#service.getGroupEntityRecords('shellbuilder:shell:2'), 1)
 end)
 
+test('registerGroupEntity namespaces its entityId with the groupKey so it cannot collide with a chunk entityId', function()
+    local service = freshService()
+    local entityId = service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
+    eq(entityId, 'shellbuilder:shell:1:object_42')
+end)
+
 test('unregisterGroupEntity removes the record and broadcasts entityRemove', function()
     emitClientCalls = {}
     local service = freshService()
-    local entityId = service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
     emitClientCalls = {}
-    service.unregisterGroupEntity('shellbuilder:shell:1', 'object', entityId, { 7 })
+    -- unregisterGroupEntity takes the BARE id (entityType_id), the same
+    -- format ShellObjectService.remove already constructs -- it namespaces
+    -- internally to match what registerGroupEntity minted.
+    service.unregisterGroupEntity('shellbuilder:shell:1', 'object', 'object_42', { 7 })
     eq(#service.getGroupEntityRecords('shellbuilder:shell:1'), 0)
     eq(#emitClientCalls, 1)
     eq(emitClientCalls[1].eventName, 'core:server:streamer-entityRemove')
     eq(emitClientCalls[1].target, 7)
+    eq(emitClientCalls[1].data.entityId, 'shellbuilder:shell:1:object_42')
 end)
 
 test('sendGroupEntitiesTo emits entityAdd for every record in that group to one source', function()
@@ -504,6 +514,59 @@ test('sendGroupEntitiesTo emits entityAdd for every record in that group to one 
     eq(emitClientCalls[1].eventName, 'core:server:streamer-entityAdd')
     eq(emitClientCalls[1].target, 7)
     eq(emitClientCalls[2].target, 7)
+end)
+
+test('despawnGroupEntitiesFor emits entityRemove for every record in the group, to the given source', function()
+    local service = freshService()
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 42, x = 1.0, y = 2.0, z = 3.0, model = 'a' })
+    service.registerGroupEntity('shellbuilder:shell:1', 'object', { id = 43, x = 4.0, y = 5.0, z = 6.0, model = 'b' })
+    emitClientCalls = {}
+
+    service.despawnGroupEntitiesFor(7, 'shellbuilder:shell:1')
+
+    eq(#emitClientCalls, 2)
+    eq(emitClientCalls[1].eventName, 'core:server:streamer-entityRemove')
+    eq(emitClientCalls[1].target, 7)
+    eq(emitClientCalls[2].eventName, 'core:server:streamer-entityRemove')
+    eq(emitClientCalls[2].target, 7)
+    -- the group's records still exist -- despawn only tells the client to
+    -- remove its local copy, it doesn't mutate server-side group state
+    eq(#service.getGroupEntityRecords('shellbuilder:shell:1'), 2)
+end)
+
+test('despawnGroupEntitiesFor emits nothing for an empty/unknown group', function()
+    local service = freshService()
+    emitClientCalls = {}
+    service.despawnGroupEntitiesFor(7, 'shellbuilder:shell:does-not-exist')
+    eq(#emitClientCalls, 0)
+end)
+
+test('init() reloads a persisted shellbuilder_shell_object row into the group registry, keyed by owner_id, not the chunk registry', function()
+    local tables = {
+        entities = {
+            {
+                id = 5, entity_type = 'object', model = 'prop_sofa_01',
+                x = 100.0, y = 200.0, z = 30.0, heading = 0.0,
+                networked = false, enabled = true,
+                owner_type = 'shellbuilder_shell_object', owner_id = 42,
+                data = json.encode({ shellId = 7, freeze = true }),
+            },
+        }
+    }
+    local Streamer = freshService(tables)
+
+    Streamer.init()
+
+    local records = Streamer.getGroupEntityRecords('shellbuilder:shell:7')
+    eq(#records, 1, 'reloaded row appears in the shell group')
+    eq(records[1].entityId, 'shellbuilder:shell:7:object_42', 'entityId minted off owner_id, namespaced by group')
+    eq(records[1].data.model, 'prop_sofa_01')
+    eq(records[1].data.freeze, true, 'freeze flag survives a reload, matching the live placement path')
+
+    -- must NOT also land in the chunk registry at the shared anchor chunk
+    local chunkKey = Streamer.getChunkKey(100.0, 200.0)
+    eq(Streamer.chunks[chunkKey], nil, 'reloaded shell object never registers into the chunk registry')
+    eq(Streamer.entities.object['object_42'], nil, 'reloaded shell object never keys into the flat chunk entities table')
 end)
 
 if #failures > 0 then

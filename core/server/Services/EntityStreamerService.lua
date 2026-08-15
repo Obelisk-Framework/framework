@@ -28,17 +28,60 @@ function EntityStreamerService.init()
         EntityStreamerService.entities[entityType] = {}
     end
     EntityStreamerService.chunks = {}
+    EntityStreamerService.groups = {}
 
     local rows = Entity:where('enabled', true):getSync()
     for _, row in ipairs(rows) do
-        -- `id = row.id` keys the runtime entity id off the real DB primary key
-        -- rather than a timestamp+random pair, which collided in practice when
-        -- a whole table's worth of rows registered inside one second.
-        EntityStreamerService.register(row.entity_type, {
-            id = row.id,
-            x = row.x, y = row.y, z = row.z, heading = row.heading,
-            model = row.model, networked = row.networked, data = row.data,
-        })
+        -- `Entity:where(...):getSync()` goes through the plain QueryBuilder,
+        -- which has no knowledge of the model's `casts` table -- only
+        -- BaseModel:decodeJsonCasts applies those, and nothing on this read
+        -- path calls it. So `data` still arrives as a raw JSON string here
+        -- (as a real MySQL driver would hand it back), not the decoded
+        -- table BaseModel-mediated reads would produce.
+        local decodedData = row.data
+        if type(decodedData) == 'string' then
+            local ok, parsed = pcall(json.decode, decodedData)
+            decodedData = (ok and type(parsed) == 'table') and parsed or {}
+        elseif type(decodedData) ~= 'table' then
+            decodedData = {}
+        end
+
+        if row.owner_type == 'shellbuilder_shell_object' and decodedData.shellId then
+            -- Shell furniture was mirrored into `entities` by
+            -- ShellObjectService.place purely for persistence -- it belongs
+            -- in the group registry, keyed by shell, not the spatial chunk
+            -- registry every other entity uses. Loading it through the
+            -- ordinary register() path would put it in the chunk at the
+            -- shared shell anchor coordinate, visible to every player in
+            -- every shell regardless of bucket.
+            --
+            -- `id = row.owner_id` (the shell_objects.id), NOT `row.id` (this
+            -- entities row's own primary key) -- registerGroupEntity mints
+            -- the runtime entityId off this id, and it must match what
+            -- ShellObjectService.remove looks up ('object_' .. shell_objects.id).
+            -- `data = decodedData` so buildEntityRecord spreads type-specific
+            -- fields (e.g. `freeze`, set by ShellObjectService.place) onto
+            -- the record the same way the live placement path does; the
+            -- reload and live paths must agree or a restart would silently
+            -- lose the freeze flag on every pre-existing piece of furniture.
+            EntityStreamerService.registerGroupEntity(
+                'shellbuilder:shell:' .. decodedData.shellId,
+                row.entity_type,
+                {
+                    id = row.owner_id, x = row.x, y = row.y, z = row.z, heading = row.heading,
+                    model = row.model, networked = row.networked, data = decodedData,
+                }
+            )
+        else
+            -- `id = row.id` keys the runtime entity id off the real DB primary key
+            -- rather than a timestamp+random pair, which collided in practice when
+            -- a whole table's worth of rows registered inside one second.
+            EntityStreamerService.register(row.entity_type, {
+                id = row.id,
+                x = row.x, y = row.y, z = row.z, heading = row.heading,
+                model = row.model, networked = row.networked, data = row.data,
+            })
+        end
     end
 
     print('[EntityStreamerService] Initialized, loaded ' .. #rows .. ' entities')
@@ -309,11 +352,17 @@ end
 ---   at boot before anyone's connected)
 --- @return string entityId
 function EntityStreamerService.registerGroupEntity(groupKey, entityType, entityData, targetSources)
+    -- Namespaced with `groupKey` so this id can never collide with a chunk
+    -- entity's id in the client's flat `EntityStreamerService.entities`
+    -- keyspace: `register()` mints `entityType_id` off an `entities.id`,
+    -- this mints off a `shell_objects.id` (or similar per-group primary
+    -- key) from a completely different table, so the two spaces overlap
+    -- once both registries are populated at runtime.
     local entityId
     if entityData.id ~= nil then
-        entityId = entityType .. '_' .. tostring(entityData.id)
+        entityId = groupKey .. ':' .. entityType .. '_' .. tostring(entityData.id)
     else
-        entityId = entityType .. '_' .. os.time() .. '_' .. math.random(1000, 9999)
+        entityId = groupKey .. ':' .. entityType .. '_' .. os.time() .. '_' .. math.random(1000, 9999)
     end
 
     local record = EntityStreamerService.buildEntityRecord(entityType, entityData, entityId)
@@ -333,17 +382,24 @@ end
 
 --- @param groupKey string
 --- @param entityType string
---- @param entityId string
+--- @param entityId string the BARE id (`entityType .. '_' .. id`, matching
+---   what a caller like ShellObjectService.remove already constructs) --
+---   NOT the full namespaced id `registerGroupEntity` returns. This function
+---   namespaces it the same way `registerGroupEntity` does, so the two stay
+---   symmetric and existing callers that already mint `entityType_id`
+---   strings need no change.
 --- @param targetSources number[]|nil player sources to notify via entityRemove
 function EntityStreamerService.unregisterGroupEntity(groupKey, entityType, entityId, targetSources)
+    local namespacedId = groupKey .. ':' .. entityId
+
     local group = EntityStreamerService.groups[groupKey]
     if group and group[entityType] then
-        group[entityType][entityId] = nil
+        group[entityType][namespacedId] = nil
     end
 
     for _, target in ipairs(targetSources or {}) do
         Obelisk.emitClient('core:server:streamer-entityRemove', target, {
-            entityId = entityId, entityType = entityType,
+            entityId = namespacedId, entityType = entityType,
         })
     end
 end
@@ -368,6 +424,20 @@ end
 function EntityStreamerService.sendGroupEntitiesTo(source, groupKey)
     for _, record in ipairs(EntityStreamerService.getGroupEntityRecords(groupKey)) do
         Obelisk.emitClient('core:server:streamer-entityAdd', source, record)
+    end
+end
+
+--- Despawns every entity currently in `groupKey` for `source` -- the
+--- counterpart to sendGroupEntitiesTo, called when a player leaves a
+--- group (e.g. exits a shell) so their client doesn't keep rendering
+--- furniture they can no longer legitimately see.
+--- @param source number
+--- @param groupKey string
+function EntityStreamerService.despawnGroupEntitiesFor(source, groupKey)
+    for _, record in ipairs(EntityStreamerService.getGroupEntityRecords(groupKey)) do
+        Obelisk.emitClient('core:server:streamer-entityRemove', source, {
+            entityId = record.entityId, entityType = record.entityType,
+        })
     end
 end
 

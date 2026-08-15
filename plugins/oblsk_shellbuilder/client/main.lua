@@ -58,6 +58,10 @@ WebView.on('shellbuilder:removeOwner', function(data)
     WebView.emitServer('shellbuilder:client:removeOwner', data.shellId, data.characterId)
 end)
 
+WebView.on('shellbuilder:listOwners', function(data)
+    WebView.emitServer('shellbuilder:client:listOwners', data.shellId)
+end)
+
 Obelisk.onClient('shellbuilder:server:sync', function(payload)
     WebView.emit('shellbuilder:sync', payload)
 end)

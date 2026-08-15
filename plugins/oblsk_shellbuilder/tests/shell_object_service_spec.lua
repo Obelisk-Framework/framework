@@ -229,6 +229,11 @@ test('place inserts a matching entities row and registers a group entity', funct
         eq(STREAMER_CALLS.register[1].groupKey, 'shellbuilder:shell:1')
         eq(STREAMER_CALLS.register[1].entityType, 'object')
         eq(STREAMER_CALLS.register[1].entityData.id, obj.id)
+        eq(STREAMER_CALLS.register[1].entityData.freeze, true, 'placed furniture is registered frozen, so it cannot drift or be pushed')
+
+        local entityRow = QueryBuilder.new('entities'):where('owner_type', 'shellbuilder_shell_object'):where('owner_id', obj.id):firstSync()
+        local decoded = json.decode(entityRow.data)
+        eq(decoded.freeze, true, 'freeze is also persisted in the entities.data json blob, so a reload agrees')
     end)
 end)
 

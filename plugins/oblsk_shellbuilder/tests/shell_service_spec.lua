@@ -195,6 +195,43 @@ test('searchCharactersByName caps results at 20', function()
     end)
 end)
 
+test('searchCharactersByName returns {} for a query shorter than 2 characters, without scanning', function()
+    withFreshState(function()
+        QueryBuilder.new('characters'):insert({ id = 1, first_name = 'John', last_name = 'Smith' })
+        eq(#ShellService.searchCharactersByName('j'), 0)
+        eq(#ShellService.searchCharactersByName(''), 0)
+        eq(#ShellService.searchCharactersByName('  '), 0, 'whitespace-only trims to under 2 chars')
+        eq(#ShellService.searchCharactersByName(nil), 0)
+    end)
+end)
+
+test('listOwnersWithNames resolves owning character ids to first/last names', function()
+    withFreshState(function()
+        local shell = ShellService.create(100, 'Test')
+        QueryBuilder.new('characters'):insert({ id = 200, first_name = 'John', last_name = 'Smith' })
+        QueryBuilder.new('characters'):insert({ id = 300, first_name = 'Jane', last_name = 'Doe' })
+        ShellService.addOwner(shell.id, 200)
+        ShellService.addOwner(shell.id, 300)
+
+        local owners = ShellService.listOwnersWithNames(shell.id)
+        table.sort(owners, function(a, b) return a.id < b.id end)
+
+        eq(#owners, 2)
+        eq(owners[1].id, 200)
+        eq(owners[1].first_name, 'John')
+        eq(owners[1].last_name, 'Smith')
+        eq(owners[2].id, 300)
+        eq(owners[2].first_name, 'Jane')
+    end)
+end)
+
+test('listOwnersWithNames returns an empty list for a shell with no owners', function()
+    withFreshState(function()
+        local shell = ShellService.create(100, 'Test')
+        eq(#ShellService.listOwnersWithNames(shell.id), 0)
+    end)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then

@@ -174,6 +174,11 @@ Obelisk.onServer('shellbuilder:client:exit', function(shellId)
     local shell = ShellService.get(shellId)
     local allowed = shell ~= nil and select(1, canManageShell(source, shellId))
 
+    -- Furniture is spawned client-LOCAL (CreateObject's networked flag is
+    -- false), so routing buckets don't despawn it on their own -- without
+    -- this, a player who exits shell A and enters shell B would see BOTH
+    -- shells' furniture at once, at the shared anchor coordinate.
+    EntityStreamerService.despawnGroupEntitiesFor(source, 'shellbuilder:shell:' .. shellId)
     InstanceService.leave(source)
     if shell and allowed then
         SetEntityCoords(GetPlayerPed(source), shell.entry_x, shell.entry_y, shell.entry_z, false, false, false, false)
@@ -194,6 +199,13 @@ end)
 -- position guard is still a follow-up item.
 RegisterCommand('leaveshell', function(source)
     if source == 0 then return end
+    -- No shellId is supplied to this command -- resolve whatever key the
+    -- player's currently tracked as being inside so their client-local
+    -- furniture is despawned too, the same as the ordinary exit handler.
+    local currentKey = InstanceService.getCurrentKey(source)
+    if currentKey then
+        EntityStreamerService.despawnGroupEntitiesFor(source, currentKey)
+    end
     InstanceService.leave(source)
     SetEntityCoords(GetPlayerPed(source), ShellBuilderConfig.EntryPoint.x, ShellBuilderConfig.EntryPoint.y, ShellBuilderConfig.EntryPoint.z, false, false, false, false)
     WebView.hide(source)
@@ -259,7 +271,7 @@ Obelisk.onServer('shellbuilder:client:addOwner', function(shellId, characterId)
         return
     end
     ShellService.addOwner(shellId, characterId)
-    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwners(shellId) })
+    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwnersWithNames(shellId) })
 end)
 
 Obelisk.onServer('shellbuilder:client:removeOwner', function(shellId, characterId)
@@ -270,7 +282,22 @@ Obelisk.onServer('shellbuilder:client:removeOwner', function(shellId, characterI
         return
     end
     ShellService.removeOwner(shellId, characterId)
-    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwners(shellId) })
+    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwnersWithNames(shellId) })
+end)
+
+-- Staff open a shell they didn't just add/remove an owner on and previously
+-- saw an empty owner panel forever -- the sync payload never carried
+-- owners, and nothing fetched them on selection. Reuses the SAME
+-- ownersUpdated event/shape the add/remove handlers above emit, so the Vue
+-- side needs no new listener.
+Obelisk.onServer('shellbuilder:client:listOwners', function(shellId)
+    local source = source
+    local ok, reason = PolicyService.checkSync(source, 'action', 'shellbuilder:edit')
+    if not ok then
+        NotificationService.notify(source, { type = 'error', title = 'Access denied', description = reason })
+        return
+    end
+    Obelisk.emitClient('shellbuilder:server:ownersUpdated', source, { shellId = shellId, owners = ShellService.listOwnersWithNames(shellId) })
 end)
 
 Citizen.CreateThread(function()
