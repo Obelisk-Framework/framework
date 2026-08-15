@@ -156,4 +156,11 @@ Obelisk.onClient('character-selection:selected', function(characterId, result)
     spawnAsSelectedCharacter(result)
 end)
 
+--- @param ped number
+--- @param appearance table shaped per Appearance.DEFAULT_APPEARANCE
+--- @param gender string 'male' | 'female'
+exports('applyAppearance', function(ped, appearance, gender)
+    CharacterAppearanceService.apply(ped, appearance, gender)
+end)
+
 print('[oblsk_character-selection] Client loaded successfully!')
