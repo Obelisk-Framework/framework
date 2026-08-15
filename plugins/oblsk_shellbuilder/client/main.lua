@@ -26,6 +26,26 @@ WebView.on('shellbuilder:removeObject', function(data)
     WebView.emitServer('shellbuilder:client:removeObject', data.shellId, data.objectId)
 end)
 
+WebView.on('shellbuilder:arm', function(data)
+    Placement.arm(data.itemKey, data.locked)
+end)
+
+WebView.on('shellbuilder:disarm', function(data)
+    Placement.disarm()
+end)
+
+WebView.on('shellbuilder:wreck', function(data)
+    Placement.setWreckMode(data.enabled)
+end)
+
+WebView.on('shellbuilder:setShellId', function(data)
+    Placement.setShellId(data.shellId)
+end)
+
+WebView.on('shellbuilder:startAim', function()
+    Placement.startAim()
+end)
+
 Obelisk.onClient('shellbuilder:server:sync', function(payload)
     WebView.emit('shellbuilder:sync', payload)
 end)
