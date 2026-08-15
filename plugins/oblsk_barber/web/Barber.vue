@@ -127,6 +127,15 @@
               </button>
             </div>
 
+            <!-- beard: opacity slider, bundled into the same purchase as the style pick -->
+            <div v-if="sec.id === 'beard'" class="flex items-center gap-3 mt-3 px-0.5">
+              <span class="ob-mono text-[10px] text-white/50 w-[38px]">SHEER</span>
+              <input type="range" min="0" max="100" step="5" :value="beardOpacity"
+                @input="pickBeardOpacity($event.target.value)"
+                class="flex-1 accent-current" style="color:var(--ob-accent)" />
+              <span class="ob-mono text-[10px] text-white/50 w-[34px] text-right">{{ beardOpacity }}%</span>
+            </div>
+
             <!-- 'colour' sections: swatch grid -->
             <div v-else class="grid grid-cols-8 gap-2 overflow-y-auto overscroll-contain ob-no-scroll pr-0.5" style="max-height:240px">
               <button v-for="i in sec.count" :key="i - 1" @click="pickColour(sec, i - 1)"
@@ -231,10 +240,12 @@ function tone(i) {
 
 // hair is not part of Config.Sections (its real per-gender count comes from
 // hairStyles, not a static count) — the UI re-adds it as the rail's first
-// section, same slot the design's BB_SECTIONS gave it.
+// section, same slot the design's BB_SECTIONS gave it. Beard/beard-colour
+// are male-only: GTA's female freemode model has no facial-hair overlay
+// content, so those two sections never make sense to offer.
 const allSections = computed(() => [
   { id: 'hair', label: 'Hair', kind: 'style', price: hairPrice.value },
-  ...sections.value,
+  ...sections.value.filter(s => gender.value !== 'female' || (s.id !== 'beard' && s.id !== 'beardcol')),
 ])
 
 // --- picks / colours / touched -------------------------------------------
@@ -251,6 +262,11 @@ function toggle(id) {
 // native drawable id directly (that's what pickHair/the thumbnail grid
 // already work in).
 const picks = reactive({ hair: 0, beard: 0, brows: 0, chest: 0, makeup: 0 })
+// Beard opacity, 0-100 (%) for the slider; converted to the native 0-1
+// range in appearanceChangesFromTouched(). Only the beard section has a
+// player-adjustable opacity today -- other overlay categories still send
+// the fixed native opacity 1 they always have.
+const beardOpacity = ref(100)
 // Colour-section picks: 0-based index into BB_TONES/the section's swatch
 // grid.
 const cols = reactive({ haircol: 0, hl: 0, beardcol: 0, browcol: 0, chestcol: 0, blush: 0, lipstick: 0 })
@@ -278,6 +294,14 @@ function pickStyle(sec, n) {
 function pickColour(sec, i) {
   cols[sec.id] = i
   touched[sec.id] = true
+  emitPreview()
+}
+
+// Adjusting sheerness is bundled into the beard purchase (touched.beard),
+// same price bucket as the style pick -- not a separately charged section.
+function pickBeardOpacity(value) {
+  beardOpacity.value = Number(value)
+  touched.beard = true
   emitPreview()
 }
 
@@ -343,7 +367,10 @@ function appearanceChangesFromTouched() {
       const styleSection = OVERLAY_STYLE_SECTION[key]
       overlays[key] = {
         overlayId,
-        opacity: 1,
+        // Only the beard overlay has a player-adjustable opacity today;
+        // every other overlay category keeps the fixed native opacity 1
+        // it always had.
+        opacity: key === 'facial_hair' ? beardOpacity.value / 100 : 1,
         styleIndex: styleSection ? overlayNativeStyle(picks[styleSection]) : 0,
       }
     }
