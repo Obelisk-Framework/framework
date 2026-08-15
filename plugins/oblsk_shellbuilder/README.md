@@ -34,6 +34,41 @@ core's `CharacterService` for character-scoped shell ownership. Neither is
 enforced defensively in code — `server/main.lua` and
 `server/services/ShellObjectService.lua` call into both unguarded.
 
+## Object rendering and placement
+
+Objects placed in a shell are streamed to all players currently inside that
+shell via `EntityStreamerService` (see `core/server/Services/EntityStreamerService.lua`).
+Each shell registers its objects in a bucket-isolated group keyed by shell ID,
+so occupants of different shells never see or collide with each other's
+furnishings — the same routing-bucket isolation that keeps shells' anchors
+apart.
+
+**Placement and removal** happen via camera-raycast aim mode. When an owner or
+staff member with `shellbuilder.build` selects a placeable item and clicks
+**Place (aim)**, the camera releases and enters aim mode. Left-click confirms
+placement; right-click or ESC cancels. The item's heading can be rotated while
+aiming using Q and E. Once placed, the object appears immediately for the
+placing player and is broadcast to all other occupants of that shell.
+
+**Removal** uses the same aim-mode flow: toggle wreck mode (if applicable), aim
+at an unlocked object, and left-click to remove it. Locked objects cannot be
+removed via wreck mode — `ShellObjectService.remove`'s server-side locked check
+prevents deletion (see `server/services/ShellObjectService.lua`).
+
+## Ownership management
+
+Within a shell's detail pane in the shell browser, staff and players with
+`shellbuilder.build` permission can search for and grant ownership. The
+**Management** section allows:
+
+- Searching for characters by partial name
+- Adding a character as a shell owner
+- Removing existing owners
+
+Ownership is stored in the `shell_owners` table, keyed by shell ID and character ID.
+Owners see an **Enter** button in the shell browser for shells they own; staff and
+`shellbuilder.build` players can enter any shell to edit it.
+
 ## Placeable catalog
 Placeable objects are `oblsk_items` bindings whose key is prefixed
 `shellbuilder.` (e.g. `shellbuilder.floor_wood`, `shellbuilder.sofa_basic`).
