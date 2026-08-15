@@ -12,6 +12,8 @@
 
 ## Global Constraints
 
+- **Repo topology:** `core`'s `modules/*` and `plugins/*` are gitignored — every module and plugin (including `oblsk_vehicles` and the new `oblsk_tuner`) is its own separate git repository living on disk at `modules/<name>/` or `plugins/<name>/`, with its own GitHub remote (`git@github.com:Obelisk-Framework/<name>.git`), not tracked by `core`'s git history at all. This plan's commits land in **three separate repos**: `core` (the spec/plan docs only, already committed), `modules/oblsk_vehicles` (Tasks 2-3), and the new `plugins/oblsk_tuner` (Tasks 1, 4-13). Never run `git add`/`git commit` for a plugin/module file from inside `core`'s own repo — it silently no-ops (the path is gitignored) or, if force-added, corrupts `core`'s history with someone else's repo's files. Each task's dispatch states which repo its commit belongs to.
+- **Worktree isolation applies only to `modules/oblsk_vehicles`** (an existing repo with history worth protecting). `plugins/oblsk_tuner` is built directly inside the main `core` checkout at `core/plugins/oblsk_tuner/` — not in a separate worktree — for two reasons: it is a brand-new repo with nothing yet to protect, and every one of its Lua spec files resolves `core`'s ORM (`ROOT .. '/core/server/ORM/...'`) and `tests/support/fake_query_builder.lua` via a relative path that only exists when `plugins/oblsk_tuner/` sits on disk next to `core/` and `tests/` — exactly where every other existing plugin (`oblsk_shop`, `oblsk_garage`, etc.) already lives. Isolating it in its own worktree would break every relative `dofile()` in Tasks 4-9's spec files.
 - Plugin directory name: `oblsk_tuner` (lowercase-with-underscore, matching every existing plugin — **not** the PascalCase the `obelisk make-plugin` CLI generator produces; hand-author files to match `oblsk_shop`'s layout instead of running that generator).
 - Never trust a client-sent price, stock count, or catalog id — every purchase/work-order function re-resolves against the DB, exactly like `ShopService.resolveLines`.
 - All Lua spec files run standalone via `lua5.4 <path> `from the repo root (`/home/andi/Projects/obelisk-framework/core`) and must `os.exit(1)` on any failure — copy the harness boilerplate (`test`/`eq`/runner loop) from `plugins/oblsk_shop/tests/shop_service_purchase_spec.lua` verbatim.
@@ -401,13 +403,22 @@ Self-serve mod shop (`Tuner`) and staff work-order tablet (`Tuner Tablet`) for t
 See [Tuner plugin design](../../docs/superpowers/specs/2026-08-13-tuner-plugin-design.md) for the full architecture.
 ```
 
-- [ ] **Step 8: registry + commit**
+- [ ] **Step 8: init the plugin's own repo, commit, regenerate the registry**
+
+`plugins/oblsk_tuner` is its own git repository (see Global Constraints — every plugin is), not part of `core`'s history. Initialize and commit inside it, then regenerate `core`'s gitignored `plugins/registry.json` (a local build artifact, not committed — matches every other plugin, whose entries also only exist in the gitignored file) from `core`'s own checkout:
 
 ```bash
-cd core && node cli/index.js registry:generate
-git add plugins/oblsk_tuner plugins/registry.json docs/superpowers/specs/2026-08-13-tuner-plugin-design.md docs/superpowers/plans/2026-08-13-tuner-plugin-plan.md
+# inside plugins/oblsk_tuner/ (its own repo — git init has NOT been run yet)
+git init
+git add -A
 git commit -m "feat(tuner): scaffold oblsk_tuner plugin, migrations, permission seeder"
+
+# from core/ (the framework's own repo) — regenerates the gitignored registry.json
+# so core picks up the new plugin at boot; this file is never committed
+node cli/index.js registry:generate
 ```
+
+Do not push `plugins/oblsk_tuner` to a remote — no GitHub repo has been created for it, and creating one is a separate, explicit step for later, not part of this task.
 
 ---
 
@@ -683,7 +694,7 @@ After Task 9/10 land and a test `tuner_shops` row exists, spawn a vehicle, apply
 - [ ] **Step 6: commit**
 
 ```bash
-git add core/modules/oblsk_vehicles/client/services/VehicleTuningService.lua core/modules/oblsk_vehicles/tests/vehicle_tuning_spec.lua
+git add client/services/VehicleTuningService.lua tests/vehicle_tuning_spec.lua
 git commit -m "fix(vehicles): correct spoiler mod type, add full tuner native registry"
 ```
 
@@ -766,7 +777,7 @@ Expected: `2 passed, 0 failed`
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/modules/oblsk_vehicles/server/services/VehicleService.lua core/modules/oblsk_vehicles/tests/vehicle_service_find_by_net_id_spec.lua
+git add server/services/VehicleService.lua tests/vehicle_service_find_by_net_id_spec.lua
 git commit -m "feat(vehicles): add VehicleService.findVehicleIdByNetId reverse lookup"
 ```
 
@@ -893,7 +904,7 @@ Expected: `3 passed, 0 failed`
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/server/services/TunerCatalogService.lua core/plugins/oblsk_tuner/tests/tuner_catalog_service_spec.lua
+git add server/services/TunerCatalogService.lua tests/tuner_catalog_service_spec.lua
 git commit -m "feat(tuner): add TunerCatalogService catalog/parts/service listings"
 ```
 
@@ -1134,7 +1145,7 @@ Expected: `6 passed, 0 failed`. If the fake `QueryBuilder`'s `insert`/`update` s
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/server/services/TunerService.lua core/plugins/oblsk_tuner/tests/tuner_service_purchase_spec.lua
+git add server/services/TunerService.lua tests/tuner_service_purchase_spec.lua
 git commit -m "feat(tuner): add TunerService self-serve mod purchase"
 ```
 
@@ -1147,7 +1158,7 @@ git commit -m "feat(tuner): add TunerService self-serve mod purchase"
 - Create: `core/plugins/oblsk_tuner/tests/tuner_wear_service_spec.lua`
 
 **Interfaces:**
-- Produces: `TunerWearService.get(vehicleId, key) -> number` (100 if no row), `TunerWearService.getAll(vehicleId, keys) -> table<key, number>` — Task 9's `tunertablet:open` sync payload and Task 13's Vue page use `getAll` to fill the condition tab; Task 7's `settle` writes wear back to 100 directly via `QueryBuilder` (not through this service, which is read-only by design — matches `TunerCatalogService` being read-only and purchase/write logic living in the mutating services).
+- Produces: `TunerWearService.get(vehicleId, key) -> number` (100 if no row), `TunerWearService.getAll(vehicleId, keys) -> table<key, number>` — Task 9's `tunertablet:client:connectVehicle` handler calls `getAll` when a crew member connects the tablet to a vehicle, so Task 13's Service tab shows real condition data; Task 7's `settle` writes wear back to 100 directly via `QueryBuilder` (not through this service, which is read-only by design — matches `TunerCatalogService` being read-only and purchase/write logic living in the mutating services).
 
 - [ ] **Step 1: write the failing test**
 
@@ -1241,7 +1252,7 @@ Expected: `3 passed, 0 failed`
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/server/services/TunerWearService.lua core/plugins/oblsk_tuner/tests/tuner_wear_service_spec.lua
+git add server/services/TunerWearService.lua tests/tuner_wear_service_spec.lua
 git commit -m "feat(tuner): add TunerWearService lazy-default wear reads"
 ```
 
@@ -1625,7 +1636,7 @@ Expected: `8 passed, 0 failed`. As in Task 5, if `insert`/`update` on the fake `
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/server/services/TunerWorkOrderService.lua core/plugins/oblsk_tuner/tests/tuner_work_order_service_spec.lua
+git add server/services/TunerWorkOrderService.lua tests/tuner_work_order_service_spec.lua
 git commit -m "feat(tuner): add TunerWorkOrderService raise/assign/complete/settle lifecycle"
 ```
 
@@ -1744,7 +1755,7 @@ Expected: `2 passed, 0 failed`
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/server/services/TunerCrewService.lua core/plugins/oblsk_tuner/tests/tuner_crew_service_spec.lua
+git add server/services/TunerCrewService.lua tests/tuner_crew_service_spec.lua
 git commit -m "feat(tuner): add TunerCrewService org-backed roster with busy check"
 ```
 
@@ -1914,6 +1925,35 @@ Obelisk.onServer('tunertablet:client:requestCards', function()
     Obelisk.emitClient('tunertablet:server:cardsSync', source, { cards = BankingService.listCardsForCharacter(characterId) })
 end)
 
+--- The tablet is handheld, not fixed at a bay, so "which vehicle" is
+--- resolved the same way the self-serve Tuner resolves it: the client
+--- finds the nearest vehicle's netId (client/main.lua's
+--- nearestVehicleNetId, reused for the tablet) and sends it here. Also
+--- resolves and returns this vehicle's wear so the tablet's Service tab
+--- has real data instead of TunerWearService sitting unused.
+Obelisk.onServer('tunertablet:client:connectVehicle', function(shopId, netId)
+    local source = source
+    local vehicleId = VehicleService.findVehicleIdByNetId(netId)
+    if not vehicleId then
+        notifyFailure(source, 'Tuner Tablet', 'No vehicle in range')
+        return
+    end
+
+    local vehicle = QueryBuilder.new('vehicles'):where('id', vehicleId):firstSync()
+    local baseVehicle = vehicle and QueryBuilder.new('base_vehicles'):where('id', vehicle.base_vehicle_id):firstSync()
+
+    local serviceItems = TunerCatalogService.listServiceItems(shopId)
+    local wearKeys = {}
+    for _, item in ipairs(serviceItems) do table.insert(wearKeys, item.key) end
+
+    Obelisk.emitClient('tunertablet:server:vehicleConnected', source, {
+        vehicleId = vehicleId,
+        name = baseVehicle and baseVehicle.name or 'Unknown vehicle',
+        plate = vehicle and vehicle.plate or '',
+        wear = TunerWearService.getAll(vehicleId, wearKeys),
+    })
+end)
+
 --------------------------------------------------------------------------------
 -- Boot: register every shop's world interactions
 --------------------------------------------------------------------------------
@@ -1957,7 +1997,7 @@ Run: `lua5.4 -e "dofile('plugins/oblsk_tuner/server/main.lua')"` from `core/` an
 - [ ] **Step 3: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/server/main.lua
+git add server/main.lua
 git commit -m "feat(tuner): wire ActionService/InteractionService/event handlers for tuner + tablet"
 ```
 
@@ -2077,6 +2117,20 @@ Obelisk.onServer('tuner:client:openWithVehicle', function(interactionId, netId)
 end)
 ```
 
+Add one more client→server relay, for the Tuner Tablet's "connect to nearest vehicle" step (Task 9's `tunertablet:client:connectVehicle` handler consumes it — see Ruling on Tuner Tablet vehicle connection in the ledger):
+
+```lua
+WebView.on('tunertablet:connectVehicle', function(data)
+    local netId = nearestVehicleNetId()
+    if not netId then return end
+    Obelisk.emitServer('tunertablet:client:connectVehicle', data.shopId, netId)
+end)
+
+Obelisk.onClient('tunertablet:server:vehicleConnected', function(payload)
+    WebView.emit('tunertablet:vehicleConnected', payload)
+end)
+```
+
 - [ ] **Step 2: manual smoke check**
 
 Run: `lua5.4 -e "dofile('plugins/oblsk_tuner/client/main.lua')"` from `core/` and confirm it fails only on undefined FiveM natives, not a syntax error.
@@ -2084,7 +2138,7 @@ Run: `lua5.4 -e "dofile('plugins/oblsk_tuner/client/main.lua')"` from `core/` an
 - [ ] **Step 3: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/client/main.lua core/plugins/oblsk_tuner/server/main.lua
+git add client/main.lua server/main.lua
 git commit -m "feat(tuner): client NUI relay + nearest-vehicle resolution for tuner:open"
 ```
 
@@ -2265,7 +2319,7 @@ Confirm: opening `/Tuner` with a mocked `Obelisk.emit('tuner:sync', {...})` rend
 - [ ] **Step 3: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/web/Tuner.vue core/plugins/oblsk_tuner/web/routes.js
+git add web/Tuner.vue web/routes.js
 git commit -m "feat(tuner): port Tuner shop prototype to Tuner.vue"
 ```
 
@@ -2469,7 +2523,7 @@ Confirm each glyph kind renders (spot-check a few in a Vue dev server or Storybo
 - [ ] **Step 5: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/web/tuner/
+git add web/tuner/
 git commit -m "feat(tuner): port shared tuner tablet glyph/wheel/service-row components"
 ```
 
@@ -2534,17 +2588,13 @@ git commit -m "feat(tuner): port shared tuner tablet glyph/wheel/service-row com
             </div>
           </div>
 
-          <div v-if="!car" class="flex-1 min-h-0 overflow-y-auto ob-no-scroll px-3 pb-3">
-            <div class="ob-mono text-[9px] tracking-[0.2em] text-white/35 mb-2">NEARBY VEHICLES</div>
+          <div v-if="!car" class="flex-1 min-h-0 overflow-y-auto ob-no-scroll px-3 pb-3 flex flex-col items-center justify-center gap-3">
+            <div class="ob-mono text-[9px] tracking-[0.2em] text-white/35">STAND NEXT TO THE VEHICLE</div>
             <button
-              v-for="v in nearbyVehicles" :key="v.vehicleId"
-              @click="connect(v)"
-              class="w-full rounded-[8px] p-2.5 text-left mb-1.5"
-              style="background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.1)"
-            >
-              <span class="block text-[12.5px] font-semibold truncate">{{ v.name }}</span>
-              <span class="block ob-mono text-[9.5px] text-white/35 mt-0.5">{{ v.plate }}</span>
-            </button>
+              @click="connect"
+              class="h-[42px] px-5 rounded-[8px] tt-d text-[12.5px]"
+              style="background:var(--ob-accent);color:#04120d"
+            >Connect to nearest vehicle</button>
           </div>
 
           <template v-else>
@@ -2580,7 +2630,7 @@ git commit -m "feat(tuner): port shared tuner tablet glyph/wheel/service-row com
               <div class="flex flex-col gap-1.5">
                 <TtServiceRow
                   v-for="s in serviceItems" :key="s.id"
-                  :s="{ id: s.key, label: s.label, part: s.part_key, labour: s.labour_price, glyph: s.key }"
+                  :s="{ id: s.key, label: s.label, part: s.part_key, labour: s.labour_price, glyph: s.glyph || 'engine' }"
                   :v="wear[s.key] ?? 100"
                   :stock="stockView"
                   :queued="isQueued('service', s.key)"
@@ -2655,7 +2705,6 @@ const wear = ref({})
 const myCharacterId = ref(null)
 
 const car = ref(null)          // { vehicleId, name, plate }
-const nearbyVehicles = ref([]) // populated by the client's vehicle scan, relayed via a future sync payload
 const tab = ref('parts')
 const activePartCategory = ref(null)
 const cart = ref([])           // [{ kind, refKey, stockPartKey, label, price }]
@@ -2709,8 +2758,12 @@ function orderService(s) {
 }
 function removeFromCart(kind, refKey) { cart.value = cart.value.filter(c => !(c.kind === kind && c.refKey === refKey)) }
 
-function connect(v) { car.value = v }
-function disconnect() { car.value = null; cart.value = []; tab.value = 'parts' }
+function connect() { Obelisk.emit('tunertablet:connectVehicle', { shopId: shop.value.id }) }
+function disconnect() { car.value = null; cart.value = []; tab.value = 'parts'; wear.value = {} }
+function handleVehicleConnected(payload) {
+  car.value = { vehicleId: payload.vehicleId, name: payload.name, plate: payload.plate }
+  wear.value = payload.wear
+}
 
 function raise() {
   Obelisk.emit('tunertablet:raise', {
@@ -2746,15 +2799,17 @@ function handleCardsSync(payload) { cards.value = payload.cards }
 onMounted(() => {
   Obelisk.on('tunertablet:sync', handleSync)
   Obelisk.on('tunertablet:cardsSync', handleCardsSync)
+  Obelisk.on('tunertablet:vehicleConnected', handleVehicleConnected)
 })
 onUnmounted(() => {
   Obelisk.off('tunertablet:sync', handleSync)
   Obelisk.off('tunertablet:cardsSync', handleCardsSync)
+  Obelisk.off('tunertablet:vehicleConnected', handleVehicleConnected)
 })
 </script>
 ```
 
-Note for the implementer: `nearbyVehicles` (the "connect to a vehicle" list) is left as an empty ref with a documented TODO wiring point — the prototype's `TT_BAYS` mock has no real-world equivalent decided yet (unlike the self-serve Tuner's "nearest vehicle in the bay" resolution in Task 10, the tablet is picked up and carried, so "nearby" is ambiguous — parked bay vs. whatever's close when opened). **Before shipping, decide and wire**: either (a) reuse Task 10's `nearestVehicleNetId()` pattern but scanning multiple vehicles within a wider radius and pushing them through a new `tunertablet:server:nearbyVehicles` sync, or (b) require the crew member to be standing at a fixed per-shop bay coordinate (simpler, matches how `oblsk_garage` already treats spawn points as fixed coordinates). This is flagged rather than guessed because it changes a client Lua file (Task 10) already written — pick the approach with the user before implementing, then extend Task 10 accordingly.
+Note for the implementer: the tablet's "connect to a vehicle" step reuses Task 10's `nearestVehicleNetId()` — the crew member stands next to the car they're servicing and taps "Connect to nearest vehicle" (see the ledger's ruling on Tuner Tablet vehicle connection for why the prototype's mocked `TT_BAYS` picker list was replaced with this single-action flow, and Task 9/10 for the `tunertablet:client:connectVehicle` round trip this button triggers).
 
 - [ ] **Step 2: manual verification**
 
@@ -2763,7 +2818,7 @@ Confirm: mocked `tunertablet:sync` renders the shop, tab switching works, pickin
 - [ ] **Step 3: commit**
 
 ```bash
-git add core/plugins/oblsk_tuner/web/TunerTablet.vue
+git add web/TunerTablet.vue
 git commit -m "feat(tuner): port Tuner Tablet prototype to TunerTablet.vue"
 ```
 

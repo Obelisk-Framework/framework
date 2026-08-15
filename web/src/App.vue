@@ -52,12 +52,20 @@ for (const entry of [...coreGlobalElements, ...contributedGlobalElements]) {
   }
   const defaultVisible = !!entry.defaultVisible
   const positionable = !!entry.positionable
+  const dismissible = entry.dismissible !== false
+  // Some entries (spawn-flow screens driven entirely by server payloads,
+  // or internal always-mounted logic components with no visible toggle of
+  // their own) aren't meaningful to flip on/off from the Dev HUD Helper
+  // checklist. Default true; set devHudHelper: false to hide from it.
+  const devHudHelper = entry.devHudHelper !== false
   const defaultLayout = entry.defaultLayout || { x: 0, y: 0, width: 300, align: 'left' }
   registry.set(entry.name, {
     component: entry.component,
     defaultVisible,
     visible: defaultVisible,
     positionable,
+    dismissible,
+    devHudHelper,
     defaultLayout,
     layout: reactive({
       x: defaultLayout.x, y: defaultLayout.y, width: defaultLayout.width, align: defaultLayout.align,
@@ -132,6 +140,18 @@ onMounted(() => {
   })
 
   Obelisk.on('core:client:webview-hide', () => {
+    hudEditMode.value = false
+  })
+
+  // Closes whatever dismissible global element is open (Keybinds, radial
+  // menu, ...) without touching non-dismissible ones (e.g. the death
+  // screen). This is the shared path behind both the generic
+  // 'core:client:close' NUI callback and the client's ESC watcher - see
+  // WebView.closeAll() - so ESC and every plugin's X button behave the same.
+  Obelisk.on('core:client:webview-closeAll', () => {
+    for (const entry of registry.values()) {
+      if (entry.dismissible) entry.visible = entry.defaultVisible
+    }
     hudEditMode.value = false
   })
 
