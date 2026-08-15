@@ -64,4 +64,11 @@ Obelisk.onServer('character-selection:select', function(characterId)
     SpawnManagerService.readyToSpawn(source, characterId)
 end)
 
+--- @param gender string 'male' | 'female'
+--- @return table[] Appearance.HAIR_STYLES[gender], or the male list if gender is neither
+exports('getHairStyles', function(gender)
+    gender = gender == 'female' and 'female' or 'male'
+    return Appearance.HAIR_STYLES[gender]
+end)
+
 print('[oblsk_character-selection] Loaded successfully!')
