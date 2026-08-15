@@ -9,6 +9,7 @@ local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_build
 _G.Obelisk = _G.Obelisk or {
     on = function(eventName, callback) AddEventHandler(eventName, callback) end,
     onServer = function() end,
+    onClient = function() end,
     emitClient = function() end,
 }
 
