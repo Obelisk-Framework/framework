@@ -45,7 +45,7 @@ WebView.on('barber:preview', function(data)
 end)
 
 WebView.on('barber:charge', function(data)
-    WebView.emitServer('barber:client:charge', data.touchedSectionIds, data.method, data.cardId, currentGender, data.appearanceChanges)
+    WebView.emitServer('barber:client:charge', data.touchedSectionIds, data.method, data.cardId, currentGender, data.appearanceChanges, data.mult)
 end)
 
 WebView.on('barber:applyFree', function(data)
