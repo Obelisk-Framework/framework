@@ -1525,7 +1525,7 @@ site from Tasks 1-7 and must be fixed before this task is considered done.
       the spec's Rollout section:
 
 ```bash
-grep -rln 'getSync\|firstSync\|findSync\|allSync\|createSync\|saveSync\|deleteSync\|loadSync\|countSync\|querySync\|insertSync\|updateSync\|deleteSync\|executeSync\|\.get(key)\|:get(''' \
+grep -rln 'getSync\|firstSync\|findSync\|allSync\|createSync\|saveSync\|deleteSync\|loadSync\|countSync\|querySync\|insertSync\|updateSync\|deleteSync\|executeSync' \
   modules/ plugins/ 2>/dev/null
 ```
 
