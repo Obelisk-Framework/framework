@@ -6,7 +6,23 @@ FakeQueryBuilder.__index = FakeQueryBuilder
 
 local function rowMatches(row, wheres, whereNulls)
     for _, w in ipairs(wheres) do
-        if row[w.column] ~= w.value then return false end
+        local val = row[w.column]
+        if w.operator == '=' or w.operator == '==' then
+            if val ~= w.value then return false end
+        elseif w.operator == '<' then
+            if not (val < w.value) then return false end
+        elseif w.operator == '<=' then
+            if not (val <= w.value) then return false end
+        elseif w.operator == '>' then
+            if not (val > w.value) then return false end
+        elseif w.operator == '>=' then
+            if not (val >= w.value) then return false end
+        elseif w.operator == '~=' or w.operator == '!=' then
+            if not (val ~= w.value) then return false end
+        else
+            -- default to equality for backward compatibility
+            if val ~= w.value then return false end
+        end
     end
     for _, col in ipairs(whereNulls) do
         if row[col] ~= nil then return false end
@@ -15,8 +31,15 @@ local function rowMatches(row, wheres, whereNulls)
 end
 
 function FakeQueryBuilder:where(column, a, b)
-    local value = b ~= nil and b or a
-    table.insert(self.wheres, { column = column, value = value })
+    local operator, value
+    if b ~= nil then
+        operator = a
+        value = b
+    else
+        operator = '='
+        value = a
+    end
+    table.insert(self.wheres, { column = column, operator = operator, value = value })
     return self
 end
 
@@ -148,7 +171,7 @@ function FakeQueryBuilder:delete()
 end
 
 --- @param tables table tableName -> array of row tables (shared, mutated in place across calls)
---- @return table a QueryBuilder-shaped module (has .new(tableName))
+--- @return table a QueryBuilder-shaped module (has .new(tableName) and .tables())
 local function makeFakeQueryBuilderModule(tables)
     local nextIds = {}
     local Module = {}
@@ -161,6 +184,9 @@ local function makeFakeQueryBuilderModule(tables)
             wheres = {},
             whereNulls = {},
         }, FakeQueryBuilder)
+    end
+    function Module.tables()
+        return tables
     end
     return Module
 end
