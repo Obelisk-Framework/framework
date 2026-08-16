@@ -1,4 +1,4 @@
--- core/plugins/oblsk_reflexcheck/server/services/ReflexCheckService.lua
+-- plugins/oblsk_reflexcheck/server/services/ReflexCheckService.lua
 --- ReflexCheckService - server-authoritative reflex-dial skill check.
 --- Every random decision (zone angle) and every timing judgement (has the
 --- needle reached the zone) happens here, driven only by GetGameTimer()
@@ -15,10 +15,15 @@ ReflexCheckService.sessions = {} -- source -> session table
 -- ReflexCheckConfig may not exist yet when this file's top-level code
 -- runs. Same idiom as FishingChallengeService's BITE_WINDOW_MS fallback.
 local DEFAULT_PRESETS = {
-    easy = { zoneWidth = 48, needleSpeed = 170, maxMisses = 4 },
-    medium = { zoneWidth = 34, needleSpeed = 230, maxMisses = 3 },
-    hard = { zoneWidth = 22, needleSpeed = 300, maxMisses = 2 },
+    easy = { zoneWidth = 48, needleSpeed = 170, maxMisses = 4, timeoutMs = 8000 },
+    medium = { zoneWidth = 34, needleSpeed = 230, maxMisses = 3, timeoutMs = 6000 },
+    hard = { zoneWidth = 22, needleSpeed = 300, maxMisses = 2, timeoutMs = 4500 },
 }
+
+-- Used only when neither opts.timeoutMs nor the resolved preset provide one
+-- (e.g. an unrecognized difficulty falling back past presets.medium, which
+-- always has its own timeoutMs in practice - this is a last-resort floor).
+local DEFAULT_TIMEOUT_MS = 6000
 
 --- @return table presets keyed by difficulty name
 local function resolvePresets()
@@ -31,10 +36,13 @@ end
 local function resolveCount(count)
     if type(count) == 'table' then
         local lo, hi = count[1], count[2]
+        if hi == nil then hi = lo end
         if hi < lo then hi = lo end
-        return math.random(lo, hi)
+        local resolved = math.random(lo, hi)
+        return resolved <= 0 and 1 or resolved
     end
-    return count or 1
+    local resolved = count or 1
+    return resolved <= 0 and 1 or resolved
 end
 
 --- Current needle angle, derived purely from server-side elapsed time —
@@ -71,6 +79,7 @@ function ReflexCheckService.start(source, opts, onDone)
     local zoneWidth = opts.zoneWidth or preset.zoneWidth
     local needleSpeed = opts.needleSpeed or preset.needleSpeed
     local maxMisses = opts.maxMisses or preset.maxMisses
+    local timeoutMs = opts.timeoutMs or preset.timeoutMs or DEFAULT_TIMEOUT_MS
     local requiredHits = resolveCount(opts.count)
     local zoneAngle = math.random(0, 359)
 
@@ -78,6 +87,7 @@ function ReflexCheckService.start(source, opts, onDone)
         zoneAngle = zoneAngle,
         needleSpeed = needleSpeed,
         zoneWidth = zoneWidth,
+        timeoutMs = timeoutMs,
         startServerTime = GetGameTimer(),
         hits = 0,
         misses = 0,
@@ -138,6 +148,25 @@ function ReflexCheckService.attempt(source)
     session.zoneAngle = (angle + offset) % 360
 
     return (hit and 'hit' or 'miss'), { zoneAngle = session.zoneAngle }
+end
+
+--- Force-fails a session that has outlived its timeoutMs (e.g. the player
+--- ESC'd the NUI away, or simply never pressed). No-op - and returns false -
+--- if the source has no session (already resolved naturally, or this is a
+--- stale timer from a session that already finished) or hasn't actually
+--- timed out yet.
+--- @param source number
+--- @return boolean timedOut
+function ReflexCheckService.checkTimeout(source)
+    local session = ReflexCheckService.sessions[source]
+    if not session then
+        return false
+    end
+    if GetGameTimer() - session.startServerTime < session.timeoutMs then
+        return false
+    end
+    ReflexCheckService.finish(source, false)
+    return true
 end
 
 --- Force-fails an in-progress session (e.g. on disconnect). No-op if the

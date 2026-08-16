@@ -1,4 +1,4 @@
-<!-- core/plugins/oblsk_reflexcheck/web/ReflexCheck.vue -->
+<!-- plugins/oblsk_reflexcheck/web/ReflexCheck.vue -->
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import Obelisk from '@/obelisk.js'
@@ -34,34 +34,49 @@ function onKeydown(e) {
   attempt()
 }
 
+function onZone(payload) {
+  zoneAngle.value = payload.zoneAngle
+  needleSpeed.value = payload.needleSpeed
+  zoneWidth.value = payload.zoneWidth
+  requiredHits.value = payload.requiredHits
+  hits.value = 0
+  flash.value = null
+  done.value = null
+  startedAtMs.value = performance.now()
+}
+
+function onFeedback(payload) {
+  zoneAngle.value = payload.zoneAngle
+  flash.value = payload.result
+  if (payload.result === 'hit') hits.value += 1
+  setTimeout(() => { flash.value = null }, 260)
+}
+
+function onResult(payload) {
+  done.value = payload.passed ? 'passed' : 'failed'
+  if (rafId) cancelAnimationFrame(rafId)
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   rafId = requestAnimationFrame(tick)
 
-  Obelisk.on('reflexcheck:zone', (payload) => {
-    zoneAngle.value = payload.zoneAngle
-    needleSpeed.value = payload.needleSpeed
-    zoneWidth.value = payload.zoneWidth
-    requiredHits.value = payload.requiredHits
-    startedAtMs.value = performance.now()
-  })
+  Obelisk.on('reflexcheck:zone', onZone)
+  Obelisk.on('reflexcheck:feedback', onFeedback)
+  Obelisk.on('reflexcheck:result', onResult)
 
-  Obelisk.on('reflexcheck:feedback', (payload) => {
-    zoneAngle.value = payload.zoneAngle
-    flash.value = payload.result
-    if (payload.result === 'hit') hits.value += 1
-    setTimeout(() => { flash.value = null }, 260)
-  })
-
-  Obelisk.on('reflexcheck:result', (payload) => {
-    done.value = payload.passed ? 'passed' : 'failed'
-    if (rafId) cancelAnimationFrame(rafId)
-  })
+  // Tell the client Lua the NUI listeners are registered and it's now safe
+  // to push the zone info - must be sent AFTER the listeners above, or the
+  // server's reply could race ahead of registration and get dropped.
+  Obelisk.emit('reflexcheck:ready', {})
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   if (rafId) cancelAnimationFrame(rafId)
+  Obelisk.off('reflexcheck:zone', onZone)
+  Obelisk.off('reflexcheck:feedback', onFeedback)
+  Obelisk.off('reflexcheck:result', onResult)
 })
 
 function pol(r, deg) {

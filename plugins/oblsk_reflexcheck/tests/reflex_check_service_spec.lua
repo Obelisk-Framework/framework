@@ -1,14 +1,10 @@
--- core/plugins/oblsk_reflexcheck/tests/reflex_check_service_spec.lua
+-- plugins/oblsk_reflexcheck/tests/reflex_check_service_spec.lua
 -- Run from the repository root:  lua5.4 plugins/oblsk_reflexcheck/tests/reflex_check_service_spec.lua
 local scriptDir = arg[0]:match('(.*/)') or './'
--- NOTE: deviates from the brief's literal '../../..' — this plugin lives one
--- level deeper (core/plugins/<name>/tests/) than the sibling plugin the
--- brief's snippet was copied from (plugins/<name>/tests/), so an extra '..'
--- is required to actually reach the repository root where tests/support/
--- lives. Verified empirically: 3 levels left ROOT pointing at core/plugins/
--- oblsk_reflexcheck's parent 'core/' dir, and dofile could not find
--- tests/support/fivem_stubs.lua there.
-local ROOT = scriptDir .. '../../../..'
+-- This file lives at plugins/oblsk_reflexcheck/tests/, 3 directory levels
+-- below the repository root (tests/ -> oblsk_reflexcheck/ -> plugins/ ->
+-- root), so 3 '..' reach it.
+local ROOT = scriptDir .. '../../..'
 
 dofile(ROOT .. '/tests/support/fivem_stubs.lua')
 
@@ -198,6 +194,34 @@ test('start: rejecting a busy source does not touch the existing session or call
     eq(ok2, false)
     eq(calledWith, nil)
     truthy(ReflexCheckService.getSession(1) ~= nil)
+end)
+
+test('checkTimeout: a session past timeoutMs resolves failed and calls onDone(false)', function()
+    reset()
+    REFLEXCHECK_RANDOM_OVERRIDE = 40
+    local calledWith
+    ReflexCheckService.start(1, { difficulty = 'medium', count = 1 }, function(passed) calledWith = passed end)
+    -- medium preset's timeoutMs is 6000
+    fakeNow = 1000 + 6000
+
+    local timedOut = ReflexCheckService.checkTimeout(1)
+
+    truthy(timedOut)
+    eq(calledWith, false)
+    eq(ReflexCheckService.getSession(1), nil)
+end)
+
+test('checkTimeout: is a no-op when there is no session for the source', function()
+    reset()
+    local timedOut = ReflexCheckService.checkTimeout(99)
+    eq(timedOut, false)
+end)
+
+test('start: a count={2} table (no second element) does not error and resolves to 2', function()
+    reset()
+    local ok, err, info = ReflexCheckService.start(1, { difficulty = 'medium', count = { 2 } }, function() end)
+    truthy(ok)
+    eq(info.requiredHits, 2)
 end)
 
 for _, t in ipairs(tests) do

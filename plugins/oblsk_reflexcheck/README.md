@@ -27,9 +27,22 @@ One session per player at a time. A second `Start` call for a player who
 already has a running session returns `false, 'busy'` synchronously —
 `onDone` is not invoked for the rejected call. Callers must not double-start.
 
+`Start` itself returns `true` synchronously on success, or `false, err`
+synchronously on a busy rejection — it does NOT wait for the check to
+resolve. The actual pass/fail outcome only ever arrives later via the
+`onDone` callback, exactly once. `onDone(false)` fires not just on a normal
+failed check, but also if the player disconnects mid-check, or if the
+session outlives its `timeoutMs` (e.g. the player never presses, or ESCs
+the NUI away). Calling `Start` has the side effect of opening the NUI page
+and taking the player's focus/cursor immediately (`WebView.openPage` +
+`WebView.focus`), before `onDone` is ever called.
+
 ## Configuring difficulty presets
 
 `shared/config.lua`'s `ReflexCheckConfig.Presets` — see the file for the
 three built-in presets (`easy`/`medium`/`hard`). Add more or edit the
 existing ones; any `opts` field on a `Start` call overrides that preset
-field for that call only.
+field for that call only. Preset units: `zoneWidth` in degrees, `needleSpeed`
+in degrees/sec, `maxMisses` as a plain count, and `timeoutMs` in
+milliseconds (how long a session may stay open with no resolution before
+it's force-failed).
