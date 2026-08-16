@@ -81,15 +81,15 @@ test('clock sequence increments when two calls land in the same second', functio
     -- Pin os.time to a fixed value so both calls appear to be in the same second.
     UniqueIdService._getTime = function() return 1000000 end
 
-    local id1 = UniqueIdService.generate('XXXXXXXXAA')
-    local id2 = UniqueIdService.generate('XXXXXXXXAA')
+    local id1 = UniqueIdService.generate('XXXXXXXX')
+    local id2 = UniqueIdService.generate('XXXXXXXX')
 
     -- Restore real clock
     UniqueIdService._getTime = os.time
 
     -- Both IDs are valid alphanum/letter strings of the right length
-    eq(#id1, 10)
-    eq(#id2, 10)
+    eq(#id1, 8)
+    eq(#id2, 8)
     -- They differ — clock sequence bumped the UUID between calls
     assert_(id1 ~= id2, 'same-second calls produced identical IDs: ' .. id1)
 end)
