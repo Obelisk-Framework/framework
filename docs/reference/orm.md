@@ -156,6 +156,9 @@ Sync internals `toSql()` composes from. Each returns the SQL fragment for its cl
 **`:get()`** / **`:getAsync(callback)`**
 Sync / async. Runs the built query. Returns (or passes to `callback`) the raw result rows, not model instances.
 
+**`:with(path)`**
+Sync. Returns `self`. Appends `path` to `self.withPaths` (chainable, so `:with('a'):with('b')` accumulates two independent paths rather than overwriting). Only meaningful on a query opened off a model (`self.model` set, e.g. via `BaseModel:newQuery()` or a model's `with`/query-proxy methods) — a bare `QueryBuilder.new(tableName)` has nothing to resolve relation names against. Once the query resolves via `get()`/`getAsync()` and returns model instances, every recorded path is eager-loaded via `BaseModel:eagerLoad`, one batched query per path segment across the whole result set, before the result is returned. `path` may be dot-separated (`'a.b.c'`) to eager-load a chain of nested relations.
+
 **`:first()`** / **`:firstAsync(callback)`**
 Sync / async. Same as `get`, but with `limit(1)` applied first, returning a single row (or `nil`) instead of a list.
 
@@ -188,7 +191,7 @@ local recent = QueryBuilder.new('inventories')
 Table creation and migration helpers. All functions below are static, called as `Schema.x(...)`.
 
 **`Schema.create(tableName, callback)`**
-Sync. Returns `table` (the result of the last statement run). `callback(blueprint)` populates a `Blueprint`; every statement `blueprint:toSql()` produces (the `CREATE TABLE` plus any standalone `CREATE INDEX` statements a dialect needs) runs in order via `Database.querySync`.
+Sync. Returns `table` (the result of the last statement run). `callback(blueprint)` populates a `Blueprint`; every statement `blueprint:toSql()` produces (the `CREATE TABLE` plus any standalone `CREATE INDEX` statements a dialect needs) runs in order via `Database.query`.
 
 **`Schema.table(tableName, callback)`**
 Sync. No meaningful return. Same `callback(blueprint)` pattern as `create`, but every new column becomes an `ALTER TABLE ... ADD COLUMN ...` statement and every index becomes the dialect's `ALTER`-time index statement, for adding columns/indexes to an existing table. A column marked with `:change()` is altered instead of added — see [Altering an existing column](#altering-an-existing-column).
@@ -419,7 +422,7 @@ Sync / async. Looks up a row by primary key. Returns the wrapped model instance,
 Sync / async. Returns every row in the table as an array of model instances. (This replaces the old `all()`/`allSync()` methods.)
 
 **`:newFromQuery(attributes)`**
-Sync. Returns a model instance built from a raw result row, marked `exists = true` with `original` set to a copy of `attributes`. Used internally by `find`/`all`/relationship loaders; rarely called directly.
+Sync. Returns a model instance built from a raw result row, marked `exists = true` with `original` set to a copy of `attributes`. Used internally by `find`/`get`/relationship loaders; rarely called directly.
 
 ### Saving and deleting
 
@@ -449,10 +452,13 @@ Sync. Returns a `table`, a deep copy of `attributes` with every key listed in `s
 **`:copyTable(t)`**
 Sync helper. Returns a deep copy of `t`. Used internally by `toTable` and elsewhere; safe to call directly if you need a deep copy of a plain table.
 
+**`.field` direct access**
+Every model instance's metatable `__index` (set in `BaseModel.__index`/the per-subclass `__index` built by `extend`) is a function, not a plain table, that checks `attributes[key]`, then `relations[key]`, then falls through to the class's method table (`BaseModel[key]` or `child[key]`). So `instance.name` reads `instance.attributes.name` (or, if not an attribute, a loaded `instance.relations.name`) without an explicit `.attributes`/`.relations` lookup. `instance.attributes.field` and `instance.relations.name` still work unchanged; `.field` is a transparent read-only fallback on top of them, not a separate storage location. An attribute takes precedence over a same-named relation.
+
 ### Relationships
 
 **`:hasOne(relatedModel, foreignKey, localKey)`** / **`:hasMany(relatedModel, foreignKey, localKey)`**
-Sync. Return a relationship descriptor (a plain table, not a query) for `load`/`loadSync` to resolve later. `localKey` defaults to `self.primaryKey`.
+Sync. Return a relationship descriptor (a plain table, not a query) for `load`/`loadAsync` to resolve later. `localKey` defaults to `self.primaryKey`.
 
 **`:belongsTo(relatedModel, foreignKey, ownerKey)`**
 Sync. Returns a relationship descriptor. `ownerKey` defaults to `relatedModel.primaryKey`.
@@ -462,6 +468,12 @@ Sync. Returns a relationship descriptor for a many-to-many relation through `piv
 
 **`:load(relationName)`** / **`:loadAsync(relationName, callback)`**
 Sync / async. Resolves the relationship method named `relationName` on the model (e.g. `self:owner()`), runs the appropriate query for its type, caches the result on `self.relations[relationName]`, and returns it. Returns the cached value directly on a repeat call, without re-querying. `relationName` must name a method defined on the model that returns one of the four descriptors above.
+
+**`BaseModel:with(path)`**
+Sync. Returns a `QueryBuilder` — sugar for `self:newQuery():with(path)`, so it opens a fresh model-bound query and forwards straight to `QueryBuilder:with` (see [QueryBuilder: `:with(path)`](#building-and-executing)). Chainable ahead of a terminal `get()`/`getAsync()`; each call records another independent path rather than replacing the previous one.
+
+**`BaseModel:eagerLoad(instances, path)`**
+Sync. No return; mutates `instances` in place. The engine `get()`/`getAsync()` call once per recorded `with()` path once the initial fetch resolves. Splits `path` into its first segment and the remaining dot-separated `rest`, resolves the relationship descriptor for that segment off `instances[1]`, and runs one batched query (`whereIn` on the relevant key across every instance) to fetch every related row in a single round trip, instead of one query per instance. Populates `inst.relations[segment]` on every instance in `instances` from that one query's results. For a `belongsToMany` segment, related rows sharing the same primary key across different owners are interned to one shared model instance (rather than one distinct instance per pivot row), so a nested path continues to populate correctly for every owner. If `rest` is non-empty, recurses into `related:eagerLoad(nextLevelInstances, rest)` against the deduplicated set of related instances just populated, to resolve the next segment of the path.
 
 **`:attach(relationName, id, pivotData)`** / **`:attachAsync(relationName, id, pivotData, callback)`**
 Dual mode (delegates to `QueryBuilder:insert`/`:insertAsync`, so omit `callback` for sync returning the pivot row's insert id, pass `callback` for async). Inserts a pivot row linking the current instance to `id`, merging in any extra `pivotData`. Only valid on a `belongsToMany` relationship; throws otherwise.

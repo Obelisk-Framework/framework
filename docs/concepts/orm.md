@@ -87,11 +87,25 @@ item:delete()                                      -- sync
 item:deleteAsync(function(ok) ... end)            -- async
 ```
 
-`save`/`saveSync` decide insert vs. update from `instance.exists`: a freshly-`new`'d instance inserts (and then has its primary key set from the insert id), while an instance loaded via `find`/`all`/`create` updates in place.
+`save`/`saveAsync` decide insert vs. update from `instance.exists`: a freshly-`new`'d instance inserts (and then has its primary key set from the insert id), while an instance loaded via `find`/`get`/`create` updates in place.
+
+### Attribute access
+
+A model instance's metatable `__index` falls back through `attributes`, then loaded `relations`, then the class's own method table, so you can read a column or a loaded relation directly off the instance instead of going through `instance.attributes`:
+
+```lua
+local item = Inventory:find(id)
+print(item.item, item.count)          -- same as item.attributes.item, item.attributes.count
+
+local character = item:load('owner')
+print(item.owner.name)                -- reads the loaded `owner` relation off item.relations
+```
+
+`instance.attributes.field` still works unchanged — `.field` is a convenience fallback, not a replacement; nothing stops you from using either form. If an attribute and a relation share a name, the attribute wins (the lookup checks `attributes` first). If nothing matches in `attributes` or `relations`, the lookup falls through to the model's class methods, which is how instance calls like `item:save()` resolve in the first place.
 
 ### Relationships
 
-`BaseModel` implements four relationship helpers — `hasOne`, `hasMany`, `belongsTo`, and `belongsToMany` — each returning a relationship descriptor consumed by `load`/`loadSync`:
+`BaseModel` implements four relationship helpers — `hasOne`, `hasMany`, `belongsTo`, and `belongsToMany` — each returning a relationship descriptor consumed by `load`/`loadAsync`:
 
 ```lua
 function Inventory:owner()
@@ -106,6 +120,32 @@ item:loadAsync('owner', function(character) ... end)       -- async
 ```
 
 `belongsToMany(relatedModel, pivotTable, foreignPivotKey, relatedPivotKey)` relationships also get `attach(relationName, id, pivotData, callback)` and `detach(relationName, id, callback)` for managing pivot-table rows.
+
+#### Eager loading with `with()`
+
+`load`/`loadAsync` resolve one relation on one already-fetched instance at a time. For a list of instances, calling `load` in a loop means one query per instance — the classic N+1 pattern. `Model:with(path)` avoids that: it records a relation path to eager-load once the terminal `get()`/`getAsync()` fetch resolves, then loads it for the whole result set in one batched query per path segment, not one per instance:
+
+```lua
+-- One query for the inventories, one more for every owner they reference
+local items = Inventory:with('owner'):get()
+for _, item in ipairs(items) do
+    print(item.relations.owner.name)   -- already loaded, no extra query
+end
+```
+
+`path` can be dot-separated to eager-load a chain of nested relations (`'a.b.c'`), one additional batched query per segment:
+
+```lua
+local items = Inventory:with('owner.faction'):get()
+```
+
+Multiple `with()` calls chain and accumulate independent paths rather than overwriting each other:
+
+```lua
+Inventory:with('owner'):with('owner.faction'):get()
+```
+
+For `belongsToMany` relations specifically, a related row shared by more than one owner (e.g. the same faction on two characters) is interned to a single shared model instance rather than one distinct instance per pivot row, so a nested path through it populates correctly for every owner that references it.
 
 ## Query Builder
 
