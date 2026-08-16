@@ -55,6 +55,9 @@ local function eq(actual, expected, msg)
         error((msg or 'mismatch') .. ' -- expected ' .. tostring(expected) .. ', got ' .. tostring(actual))
     end
 end
+local function assert_(cond, msg)
+    if not cond then error(msg or 'assertion failed') end
+end
 
 local function freshService(tables)
     _G.QueryBuilder = makeFakeQueryBuilderModule(tables or {})
@@ -92,7 +95,7 @@ test('init() loads enabled entities from the Entity model and registers each one
     eq(Streamer.chunks[disabledChunk], nil, 'disabled entity #3 never registered')
 end)
 
-test('countBudgetEntitiesInChunk sums ped/object/pickup but ignores marker/blip', function()
+test('countEntitiesInChunkByType sums ped/object/pickup per type but ignores marker/blip', function()
     local Streamer = freshService({ entities = {} })
     Streamer.chunks['0_0'] = {
         ped = { a = true, b = true },
@@ -100,12 +103,17 @@ test('countBudgetEntitiesInChunk sums ped/object/pickup but ignores marker/blip'
         marker = { d = true, e = true, f = true },
         blip = { g = true },
     }
-    eq(Streamer.countBudgetEntitiesInChunk('0_0'), 3, 'only 2 peds + 1 object counted')
+    local counts = Streamer.countEntitiesInChunkByType('0_0')
+    eq(counts.ped,    2, '2 peds counted')
+    eq(counts.object, 1, '1 object counted')
+    eq(counts.pickup, 0, '0 pickups')
+    eq(counts.marker, nil, 'marker not tracked')
+    eq(counts.blip,   nil, 'blip not tracked')
 end)
 
 test('selectTier returns tier 1 (9 chunks) when the budget comfortably fits', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 300
+    Streamer.globalBudgets = { ped = 300, object = 300, pickup = 300 }
     Streamer.chunks['0_0'] = { ped = { a = true } }
     local chunks, tier = Streamer.selectTier('0_0', '1_0')
     eq(tier, 1)
@@ -114,7 +122,7 @@ end)
 
 test('selectTier degrades to tier 2 (current+facing) when tier 1 would exceed budget', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 5
+    Streamer.globalBudgets = { ped = 5, object = 5, pickup = 5 }
     -- 9 surrounding chunks, one of them (a neighbor, not current/facing) has 10 peds
     Streamer.chunks['0_0'] = { ped = { a = true } }
     Streamer.chunks['1_0'] = { ped = { a = true } }
@@ -130,7 +138,7 @@ end)
 
 test('selectTier falls back to tier 3 (current chunk only) when even tier 2 exceeds budget', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 1
+    Streamer.globalBudgets = { ped = 1, object = 1, pickup = 1 }
     Streamer.chunks['0_0'] = { ped = { a = true } }
     local heavy = {}
     for i = 1, 10 do heavy['p' .. i] = true end
@@ -143,7 +151,7 @@ end)
 
 test('selectTier never rejects tier 3 even at zero budget', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 0
+    Streamer.globalBudgets = { ped = 0, object = 0, pickup = 0 }
     local heavy = {}
     for i = 1, 5 do heavy['p' .. i] = true end
     Streamer.chunks['0_0'] = { ped = heavy }
@@ -153,14 +161,14 @@ end)
 
 test('selectTier does not double-count a chunk already referenced by another player', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 12
+    Streamer.globalBudgets = { ped = 12, object = 12, pickup = 12 }
     local heavy = {}
     for i = 1, 10 do heavy['p' .. i] = true end
     Streamer.chunks['1_1'] = { ped = heavy }
     -- another player already has this chunk loaded, so it must not count
     -- again toward THIS player's projected budget check
     Streamer.chunkPlayerRefs['1_1'] = 1
-    Streamer.globalSpawnedCount = 10
+    Streamer.globalSpawnedCounts.ped = 10
     Streamer.chunks['0_0'] = { ped = { a = true } }
     local chunks, tier = Streamer.selectTier('0_0', '1_0')
     eq(tier, 1, 'tier 1 fits because 1_1 is already loaded, not counted again')
@@ -192,7 +200,7 @@ test('updatePlayerChunks keeps a chunk active until the player is 15 units past 
     -- heavy neighbor chunk, so a chunk actually leaving the (single-chunk)
     -- active set is reachable, and boundary hysteresis on that transition
     -- is what's under test
-    Streamer.entityBudget = 1
+    Streamer.globalBudgets = { ped = 1, object = 1, pickup = 1 }
     local heavy = {}
     for i = 1, 10 do heavy['p' .. i] = true end
     Streamer.chunks['1_0'] = { ped = heavy }
@@ -223,13 +231,13 @@ test('updatePlayerChunks only changes tier after 2 consecutive ticks agree', fun
     for i = 1, 10 do heavy['p' .. i] = true end
     Streamer.chunks['3_0'] = { ped = heavy }
 
-    Streamer.entityBudget = 100000
+    Streamer.globalBudgets = { ped = 100000, object = 100000, pickup = 100000 }
     Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '0_0')
     eq(#Streamer.playerChunks[1].activeChunks, 9, 'starts at tier 1 (9 chunks)')
 
     -- move near the heavy chunk with a budget too small to afford it -- should
     -- NOT downgrade to tier 3 on the first tick
-    Streamer.entityBudget = 5
+    Streamer.globalBudgets = { ped = 5, object = 5, pickup = 5 }
     Streamer.updatePlayerChunks(fakePlayer(1), 250.0, 50.0, '3_0')
     eq(#Streamer.playerChunks[1].activeChunks, 9, 'a single spike does not downgrade the tier')
 
@@ -240,7 +248,7 @@ end)
 
 test('chunkPlayerRefs increments when a chunk becomes active and decrements when unloaded', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 100000
+    Streamer.globalBudgets = { ped = 100000, object = 100000, pickup = 100000 }
     Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '0_0')
     eq(Streamer.chunkPlayerRefs['0_0'], 1, 'ref count incremented for the player chunk')
 
@@ -439,7 +447,7 @@ end)
 
 test('handlePlayerDropped releases the chunk refs and budget the player held', function()
     local Streamer = freshService({ entities = {} })
-    Streamer.entityBudget = 100000
+    Streamer.globalBudgets = { ped = 100000, object = 100000, pickup = 100000 }
     -- put budget-countable entities in a few of the 9 tier-1 chunks
     Streamer.chunks['0_0'] = { ped = { a = true, b = true } }
     Streamer.chunks['1_0'] = { object = { c = true } }
@@ -448,7 +456,9 @@ test('handlePlayerDropped releases the chunk refs and budget the player held', f
     Streamer.updatePlayerChunks(fakePlayer(1), 50.0, 50.0, '1_0')
     local activeChunks = Streamer.playerChunks[1].activeChunks
     eq(#activeChunks, 9, 'player reached tier 1')
-    eq(Streamer.globalSpawnedCount, 4, '2 peds + 1 object + 1 pickup counted')
+    eq(Streamer.globalSpawnedCounts.ped,    2, '2 peds counted')
+    eq(Streamer.globalSpawnedCounts.object, 1, '1 object counted')
+    eq(Streamer.globalSpawnedCounts.pickup, 1, '1 pickup counted')
     for _, chunkKey in ipairs(activeChunks) do
         eq(Streamer.chunkPlayerRefs[chunkKey], 1, 'ref held for ' .. chunkKey)
     end
@@ -459,7 +469,9 @@ test('handlePlayerDropped releases the chunk refs and budget the player held', f
     source = 1
     Streamer.handlePlayerDropped()
 
-    eq(Streamer.globalSpawnedCount, 0, 'budget fully returned on disconnect')
+    eq(Streamer.globalSpawnedCounts.ped,    0, 'ped budget fully returned on disconnect')
+    eq(Streamer.globalSpawnedCounts.object, 0, 'object budget fully returned on disconnect')
+    eq(Streamer.globalSpawnedCounts.pickup, 0, 'pickup budget fully returned on disconnect')
     for _, chunkKey in ipairs(held) do
         eq(Streamer.chunkPlayerRefs[chunkKey] or 0, 0, 'ref released for ' .. chunkKey)
     end
@@ -589,6 +601,75 @@ test('init() reloads a persisted shellbuilder_shell_object row into the group re
     local chunkKey = Streamer.getChunkKey(100.0, 200.0)
     eq(Streamer.chunks[chunkKey], nil, 'reloaded shell object never registers into the chunk registry')
     eq(Streamer.entities.object['object_42'], nil, 'reloaded shell object never keys into the flat chunk entities table')
+end)
+
+-- ── per-type global budget ────────────────────────────────────────────────────
+
+test('perPlayerCaps has correct values for ped / object / pickup', function()
+    local Streamer = freshService()
+    eq(Streamer.perPlayerCaps.ped,    256,  'ped cap')
+    eq(Streamer.perPlayerCaps.object, 2048, 'object cap')
+    eq(Streamer.perPlayerCaps.pickup, 70,   'pickup cap')
+end)
+
+test('globalBudgets has correct defaults', function()
+    local Streamer = freshService()
+    eq(Streamer.globalBudgets.ped,    2048,  'ped global')
+    eq(Streamer.globalBudgets.object, 16384, 'object global')
+    eq(Streamer.globalBudgets.pickup, 700,   'pickup global')
+end)
+
+test('countEntitiesInChunkByType returns per-type counts', function()
+    local Streamer = freshService()
+    Streamer.register('ped',    { x=0, y=0, z=0, heading=0, model='a', networked=false })
+    Streamer.register('ped',    { x=0, y=0, z=0, heading=0, model='b', networked=false })
+    Streamer.register('object', { x=0, y=0, z=0, heading=0, model='c', networked=false })
+    Streamer.register('pickup', { x=0, y=0, z=0, heading=0, model='d', networked=false })
+    local counts = Streamer.countEntitiesInChunkByType('0_0')
+    eq(counts.ped,    2, 'ped count')
+    eq(counts.object, 1, 'object count')
+    eq(counts.pickup, 1, 'pickup count')
+end)
+
+test('globalSpawnedCounts increments per type when chunk first referenced', function()
+    local Streamer = freshService()
+    Streamer.register('ped',    { x=0, y=0, z=0, heading=0, model='a', networked=false })
+    Streamer.register('object', { x=0, y=0, z=0, heading=0, model='b', networked=false })
+    eq(Streamer.globalSpawnedCounts.ped,    0, 'initial ped')
+    eq(Streamer.globalSpawnedCounts.object, 0, 'initial object')
+    Streamer.chunkPlayerRefs['0_0'] = 1
+    -- simulate what updatePlayerChunks does on first-ref of a chunk:
+    local added = Streamer.countEntitiesInChunkByType('0_0')
+    for t, n in pairs(added) do
+        Streamer.globalSpawnedCounts[t] = (Streamer.globalSpawnedCounts[t] or 0) + n
+    end
+    eq(Streamer.globalSpawnedCounts.ped,    1, 'ped after ref')
+    eq(Streamer.globalSpawnedCounts.object, 1, 'object after ref')
+end)
+
+test('releaseChunkRef decrements globalSpawnedCounts per type at zero refs', function()
+    local Streamer = freshService()
+    Streamer.register('ped', { x=0, y=0, z=0, heading=0, model='a', networked=false })
+    -- seed state as if chunk was loaded
+    Streamer.chunkPlayerRefs['0_0'] = 1
+    Streamer.globalSpawnedCounts.ped = 1
+    Streamer.releaseChunkRef('0_0')
+    eq(Streamer.chunkPlayerRefs['0_0'], 0,    'ref reaches zero')
+    eq(Streamer.globalSpawnedCounts.ped, 0,   'ped count decremented')
+end)
+
+test('selectTier downgrades when global budget for a type is at cap', function()
+    local Streamer = freshService()
+    -- Fill global ped budget to cap
+    Streamer.globalSpawnedCounts.ped = Streamer.globalBudgets.ped
+    -- Register enough peds in chunk '0_0' that tier1 would exceed ped global budget
+    for i = 1, 3 do
+        Streamer.register('ped', { x=0, y=0, z=0, heading=0, model='p'..i, networked=false })
+    end
+    -- tier1 = 3x3 grid around '0_0', projected ped addition > 0, global already at cap
+    -- selectTier must not return tier 1
+    local _, tier = Streamer.selectTier('0_0', '0_0', 1) -- source=1, Task2 adds per-player gate
+    assert_(tier > 1, 'expected tier downgrade, got tier ' .. tier)
 end)
 
 if #failures > 0 then
