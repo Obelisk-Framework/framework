@@ -215,6 +215,66 @@ test('delete: builds DELETE with where params', function()
 end)
 
 --------------------------------------------------------------------------------
+-- QueryBuilder insert / update / delete sync + ...Async split
+--------------------------------------------------------------------------------
+test('QueryBuilder.insert: sync form returns insertId with no callback', function()
+    local original = Database.insert
+    Database.insert = function(sql, values) return 42 end
+    local id = QueryBuilder.new('widgets'):insert({name = 'a'})
+    Database.insert = original
+    eq(id, 42, 'insert: sync insertId')
+end)
+
+test('QueryBuilder.insertAsync: calls back with insertId', function()
+    local original = Database.insertAsync
+    local capturedCallback
+    Database.insertAsync = function(sql, values, callback) capturedCallback = callback end
+    local received
+    QueryBuilder.new('widgets'):insertAsync({name = 'a'}, function(id) received = id end)
+    capturedCallback(7)
+    Database.insertAsync = original
+    eq(received, 7, 'insertAsync: callback receives insertId')
+end)
+
+test('QueryBuilder.update: sync form returns affectedRows with no callback', function()
+    local original = Database.update
+    Database.update = function(sql, values) return 3 end
+    local affected = QueryBuilder.new('widgets'):where('id', 1):update({name = 'b'})
+    Database.update = original
+    eq(affected, 3, 'update: sync affectedRows')
+end)
+
+test('QueryBuilder.updateAsync: calls back with affectedRows', function()
+    local original = Database.updateAsync
+    local capturedCallback
+    Database.updateAsync = function(sql, values, callback) capturedCallback = callback end
+    local received
+    QueryBuilder.new('widgets'):where('id', 1):updateAsync({name = 'b'}, function(affected) received = affected end)
+    capturedCallback(1)
+    Database.updateAsync = original
+    eq(received, 1, 'updateAsync: callback receives affectedRows')
+end)
+
+test('QueryBuilder.delete: sync form returns affectedRows with no callback', function()
+    local original = Database.update
+    Database.update = function(sql, values) return 1 end
+    local affected = QueryBuilder.new('widgets'):where('id', 1):delete()
+    Database.update = original
+    eq(affected, 1, 'delete: sync affectedRows')
+end)
+
+test('QueryBuilder.deleteAsync: calls back with affectedRows', function()
+    local original = Database.updateAsync
+    local capturedCallback
+    Database.updateAsync = function(sql, values, callback) capturedCallback = callback end
+    local received
+    QueryBuilder.new('widgets'):where('id', 1):deleteAsync(function(affected) received = affected end)
+    capturedCallback(2)
+    Database.updateAsync = original
+    eq(received, 2, 'deleteAsync: callback receives affectedRows')
+end)
+
+--------------------------------------------------------------------------------
 -- Identifier hardening (SQL-injection defence)
 --------------------------------------------------------------------------------
 test('quoteIdentifier: bare, qualified and star', function()

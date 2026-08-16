@@ -450,14 +450,30 @@ function QueryBuilder:countAsync(callback)
     end)
 end
 
---- Insert data
+--- Insert data (sync)
+--- @param data table Key-value pairs
+--- @return number insertId
+function QueryBuilder:insert(data)
+    local sql, values = self:buildInsertSql(data)
+    return Database.insert(sql, values)
+end
+
+--- Insert data (async)
 --- @param data table Key-value pairs
 --- @param callback function Receives insertId
-function QueryBuilder:insert(data, callback)
+function QueryBuilder:insertAsync(data, callback)
+    local sql, values = self:buildInsertSql(data)
+    Database.insertAsync(sql, values, callback)
+end
+
+--- Build the INSERT SQL + values, shared by insert()/insertAsync()
+--- @param data table
+--- @return string sql, table values
+function QueryBuilder:buildInsertSql(data)
     local columns = {}
     local placeholders = {}
     local values = {}
-    
+
     for column, value in pairs(data) do
         table.insert(columns, QueryBuilder.quoteIdentifier(column))
         table.insert(placeholders, '?')
@@ -469,20 +485,32 @@ function QueryBuilder:insert(data, callback)
                 table.concat(placeholders, ', ') .. ')' ..
                 Database.dialect.insertReturningClause(self.primaryKey)
 
-    if callback then
-        Database.insert(sql, values, callback)
-    else
-        return Database.insert(sql, values)
-    end
+    return sql, values
 end
 
---- Update data
+--- Update data (sync)
+--- @param data table Key-value pairs
+--- @return number affectedRows
+function QueryBuilder:update(data)
+    local sql, values = self:buildUpdateSql(data)
+    return Database.update(sql, values)
+end
+
+--- Update data (async)
 --- @param data table Key-value pairs
 --- @param callback function Receives affectedRows
-function QueryBuilder:update(data, callback)
+function QueryBuilder:updateAsync(data, callback)
+    local sql, values = self:buildUpdateSql(data)
+    Database.updateAsync(sql, values, callback)
+end
+
+--- Build the UPDATE SQL + values, shared by update()/updateAsync()
+--- @param data table
+--- @return string sql, table values
+function QueryBuilder:buildUpdateSql(data)
     local setClauses = {}
     local values = {}
-    
+
     for column, value in pairs(data) do
         if value == Database.NULL then
             table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = NULL')
@@ -493,7 +521,7 @@ function QueryBuilder:update(data, callback)
     end
 
     local sql = 'UPDATE ' .. QueryBuilder.quoteIdentifier(self.tableName) .. ' SET ' .. table.concat(setClauses, ', ')
-    
+
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
         sql = sql .. ' ' .. whereClause
@@ -501,29 +529,35 @@ function QueryBuilder:update(data, callback)
             table.insert(values, param)
         end
     end
-    
-    if callback then
-        Database.update(sql, values, callback)
-    else
-        return Database.update(sql, values)
-    end
+
+    return sql, values
 end
 
---- Delete records
+--- Delete records (sync)
+--- @return number affectedRows
+function QueryBuilder:delete()
+    local sql = self:buildDeleteSql()
+    return Database.update(sql, self.params)
+end
+
+--- Delete records (async)
 --- @param callback function
-function QueryBuilder:delete(callback)
+function QueryBuilder:deleteAsync(callback)
+    local sql = self:buildDeleteSql()
+    Database.updateAsync(sql, self.params, callback)
+end
+
+--- Build the DELETE SQL, shared by delete()/deleteAsync()
+--- @return string sql
+function QueryBuilder:buildDeleteSql()
     local sql = 'DELETE FROM ' .. QueryBuilder.quoteIdentifier(self.tableName)
-    
+
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
         sql = sql .. ' ' .. whereClause
     end
-    
-    if callback then
-        Database.update(sql, self.params, callback)
-    else
-        return Database.update(sql, self.params)
-    end
+
+    return sql
 end
 
 --- Paginate results
