@@ -169,7 +169,12 @@ Citizen.CreateThread(function()
     end, { label = 'Interact', default_key = 'E' })
     
     print('[Obelisk] Core actions registered')
-    
+
+    -- Start the scheduler's poll loop last, once every other boot step
+    -- (migrations, seeders, core actions) has completed -- scheduled jobs
+    -- may reference actions that were only just registered above.
+    SchedulerService.startTickLoop()
+
     print([[
   
   ╔═══════════════════════════════════════╗

@@ -77,4 +77,23 @@ function SchedulerService.tick(now)
     end
 end
 
+local TICK_INTERVAL_MS = 30000
+
+--- Starts the persistent scheduler poll loop. Call exactly once, from
+--- bootstrap.lua after the database and core actions are ready -- never
+--- call this from a test (see this task's note in the implementation
+--- plan for why: the CreateThread test stub runs synchronously, so an
+--- infinite loop here would hang any test that dofiles this file).
+function SchedulerService.startTickLoop()
+    Citizen.CreateThread(function()
+        while not Database.isReady() do
+            Citizen.Wait(200)
+        end
+        while true do
+            SchedulerService.tick(os.time())
+            Citizen.Wait(TICK_INTERVAL_MS)
+        end
+    end)
+end
+
 return SchedulerService
