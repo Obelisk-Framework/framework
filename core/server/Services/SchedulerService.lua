@@ -39,4 +39,42 @@ function SchedulerService.list()
     return QueryBuilder.new('scheduled_jobs'):getSync()
 end
 
+--- @param row table scheduled_jobs row
+--- @param now number unix epoch seconds
+--- @return boolean
+function SchedulerService.isDue(row, now)
+    if row.schedule_type == 'interval' then
+        if not row.last_run_at then
+            return true
+        end
+        return (now - row.last_run_at) >= row.interval_seconds
+    elseif row.schedule_type == 'cron' then
+        if not CronExpression.matches(row.cron_expression, now) then
+            return false
+        end
+        if not row.last_run_at then
+            return true
+        end
+        -- Don't re-fire within the same matching minute: compare against
+        -- the start of "now"'s minute.
+        local nowMinuteStart = now - (now % 60)
+        return row.last_run_at < nowMinuteStart
+    end
+    return false
+end
+
+--- @param now number unix epoch seconds
+function SchedulerService.tick(now)
+    local rows = QueryBuilder.new('scheduled_jobs'):where('enabled', 1):getSync()
+    for _, row in ipairs(rows) do
+        if SchedulerService.isDue(row, now) then
+            ActionService.execute(nil, row.action_id, {})
+            QueryBuilder.new('scheduled_jobs'):where('id', row.id):update({
+                last_run_at = now,
+                updated_at = Database.now(),
+            })
+        end
+    end
+end
+
 return SchedulerService
