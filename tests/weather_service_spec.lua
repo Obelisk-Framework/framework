@@ -100,6 +100,40 @@ test('tick: no-op when window still valid', function()
     eq(#synced, syncedAfterPrime, 'should not sync again for same window')
 end)
 
+test('emitExposure: emits cold event when temp below threshold and raining', function()
+    local events = {}
+    _G.TriggerEvent = function(name, src, units)
+        events[#events+1] = { name=name, src=src, units=units }
+    end
+    _G.PlayerService = { getAll = function() return {{ getSource = function() return 1 end }} end }
+
+    local window = {
+        weather_type  = 'RAIN',
+        temperature   = 5,   -- below cold_threshold_c = 10
+        precipitation = 0.8,
+    }
+    WeatherService.emitExposure(window, 1.0)
+
+    eq(#events, 1)
+    eq(events[1].name, 'oblsk:weather:cold_exposure_tick')
+    eq(events[1].src, 1)
+    eq(events[1].units, WeatherConfig.exposure.cold_rate * WeatherConfig.exposure.rain_multiplier)
+end)
+
+test('emitExposure: emits heat event when temp above threshold', function()
+    local events = {}
+    _G.TriggerEvent = function(name, src, units)
+        events[#events+1] = { name=name, src=src, units=units }
+    end
+    _G.PlayerService = { getAll = function() return {{ getSource = function() return 2 end }} end }
+
+    local window = { weather_type='CLEAR', temperature=40, precipitation=0 }
+    WeatherService.emitExposure(window, 1.0)
+
+    eq(#events, 1)
+    eq(events[1].name, 'oblsk:weather:heat_exposure_tick')
+end)
+
 -- runner
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
