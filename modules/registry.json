@@ -1,0 +1,13 @@
+{
+  "modules": [
+    "oblsk_accounts",
+    "oblsk_characters",
+    "oblsk_doors",
+    "oblsk_items",
+    "oblsk_jobs",
+    "oblsk_organizations",
+    "oblsk_preferences",
+    "oblsk_vehicles",
+    "oblsk_voice"
+  ]
+}

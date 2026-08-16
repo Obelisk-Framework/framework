@@ -1,6 +1,7 @@
 node_modules
 .worktrees
 modules/*
+!modules/registry.json
 plugins/*
 !plugins/oblsk_propattach/
 !plugins/oblsk_tattoo/
