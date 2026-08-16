@@ -700,6 +700,83 @@ test('selectTier downgrades when global budget for a type is at cap', function()
     assert_(tier > 1, 'expected tier downgrade, got tier ' .. tier)
 end)
 
+-- ── per-player load tracking ──────────────────────────────────────────────────
+
+test('playerLoad initialised to zero counts when player first updates position', function()
+    local Streamer = freshService()
+    local p = fakePlayer(1)
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    assert_(Streamer.playerLoad[1] ~= nil, 'playerLoad[1] missing')
+    eq(Streamer.playerLoad[1].ped,    0, 'ped')
+    eq(Streamer.playerLoad[1].object, 0, 'object')
+    eq(Streamer.playerLoad[1].pickup, 0, 'pickup')
+end)
+
+test('playerLoad accumulates entity counts from active chunks', function()
+    local Streamer = freshService()
+    Streamer.register('ped',    { x=0, y=0, z=0, heading=0, model='a', networked=false })
+    Streamer.register('object', { x=0, y=0, z=0, heading=0, model='b', networked=false })
+    local p = fakePlayer(1)
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    assert_(Streamer.playerLoad[1].ped >= 1,    'ped in load')
+    assert_(Streamer.playerLoad[1].object >= 1, 'object in load')
+end)
+
+test('playerLoad decrements when chunk unloaded (player moves away)', function()
+    local Streamer = freshService()
+    Streamer.register('ped', { x=0, y=0, z=0, heading=0, model='a', networked=false })
+    local p = fakePlayer(1)
+    -- Move player into chunk 0_0
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    local pedBefore = Streamer.playerLoad[1].ped
+    assert_(pedBefore >= 1, 'ped loaded')
+    -- Move player far away so chunk 0_0 drops out of any tier
+    -- Use a distance large enough to clear boundary hysteresis (>15 units past boundary)
+    Streamer.updatePlayerChunks(p, 5000, 5000, '50_50')
+    Streamer.updatePlayerChunks(p, 5000, 5000, '50_50') -- second tick commits tier
+    eq(Streamer.playerLoad[1].ped, 0, 'ped after unload')
+end)
+
+test('playerLoad cleaned up on player disconnect', function()
+    local Streamer = freshService()
+    local p = fakePlayer(42)
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    assert_(Streamer.playerLoad[42] ~= nil, 'present before drop')
+    -- simulate playerDropped with source = 42
+    local savedSource = source
+    source = 42
+    Streamer.handlePlayerDropped()
+    source = savedSource
+    assert_(Streamer.playerLoad[42] == nil, 'removed after drop')
+end)
+
+test('selectTier downgrades when per-player ped cap would be exceeded', function()
+    local Streamer = freshService()
+    -- Register peds filling chunk 0_0 to just below per-player ped cap
+    -- Use a small cap override so we don't need 256 registered peds
+    Streamer.perPlayerCaps.ped = 2
+    for i = 1, 3 do
+        Streamer.register('ped', { x=0, y=0, z=0, heading=0, model='p'..i, networked=false })
+    end
+    -- player 1 has 2 peds already in load (at cap)
+    Streamer.playerLoad[1] = { ped = 2, object = 0, pickup = 0 }
+    -- tier1 projected addition includes these 3 peds → would push to 5 > cap of 2
+    local _, tier = Streamer.selectTier('0_0', '0_0', 1)
+    assert_(tier > 1, 'expected tier downgrade at player ped cap, got ' .. tier)
+end)
+
+test('two players sharing a chunk: globalSpawnedCounts increments once, playerLoad increments for both', function()
+    local Streamer = freshService()
+    Streamer.register('object', { x=0, y=0, z=0, heading=0, model='o', networked=false })
+    local p1 = fakePlayer(1)
+    local p2 = fakePlayer(2)
+    Streamer.updatePlayerChunks(p1, 0, 0, '0_0')
+    Streamer.updatePlayerChunks(p2, 0, 0, '0_0')
+    eq(Streamer.globalSpawnedCounts.object, 1, 'global count is 1 (shared chunk)')
+    assert_(Streamer.playerLoad[1].object >= 1, 'p1 load')
+    assert_(Streamer.playerLoad[2].object >= 1, 'p2 load')
+end)
+
 if #failures > 0 then
     for _, f in ipairs(failures) do print('FAIL: ' .. f) end
     os.exit(1)
