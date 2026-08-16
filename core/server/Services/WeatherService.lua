@@ -58,10 +58,11 @@ end
 --- Generate full 14-day forecast starting at `now`, writing to DB.
 --- Each 2-hour window is inserted as its own row.
 --- @param now number unix epoch seconds
-function WeatherService.generateForecast(now)
+--- @param startType string|nil optional starting weather type for Markov continuity
+function WeatherService.generateForecast(now, startType)
     local cfg = WeatherConfig
     local totalWindows = cfg.lookahead_days * (86400 / cfg.window_duration)
-    local prevType = 'CLEAR'
+    local prevType = startType or 'CLEAR'
     for i = 0, totalWindows - 1 do
         local wStart = now + i * cfg.window_duration
         local wEnd   = wStart + cfg.window_duration
@@ -138,7 +139,7 @@ function WeatherService.tick(now)
         :orderBy('window_end', 'desc')
         :firstSync()
     if farthest and farthest.window_end < now + 86400 then
-        WeatherService.generateForecast(farthest.window_end)
+        WeatherService.generateForecast(farthest.window_end, farthest.weather_type)
     end
 end
 
@@ -156,6 +157,10 @@ end
 --- @param window table current weather window
 --- @param tickMinutes number how many minutes this tick represents
 function WeatherService.emitExposure(window, tickMinutes)
+    if not PlayerService or not PlayerService.getAll then return end
+    local players = PlayerService.getAll()
+    if not players then return end
+
     local cfg = WeatherConfig
     local isCold = window.temperature < cfg.climate.cold_threshold_c
     local isHot  = window.temperature > cfg.climate.hot_threshold_c
@@ -163,7 +168,7 @@ function WeatherService.emitExposure(window, tickMinutes)
 
     if not isCold and not isHot then return end
 
-    for _, player in ipairs(PlayerService.getAll()) do
+    for _, player in ipairs(players) do
         local src = player:getSource()
         if isCold then
             local rate = cfg.exposure.cold_rate * (isRain and cfg.exposure.rain_multiplier or 1.0)
