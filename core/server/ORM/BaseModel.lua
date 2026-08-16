@@ -121,25 +121,17 @@ end
 --- @param id any
 --- @return BaseModel|nil
 function BaseModel:find(id)
-    local result = self:newQuery():where(self.primaryKey, id):first()
-    if result then
-        return self:newFromQuery(result)
-    end
-    return nil
+    -- newQuery() attaches `.model`, so `first()` already decodes JSON casts
+    -- and returns a wrapped model instance (or nil) -- do not re-wrap it.
+    return self:newQuery():where(self.primaryKey, id):first()
 end
 
 --- Find a model by primary key (async)
 --- @param id any
 --- @param callback function
 function BaseModel:findAsync(id, callback)
-    self:newQuery():where(self.primaryKey, id):firstAsync(function(result)
-        if result then
-            local instance = self:newFromQuery(result)
-            callback(instance)
-        else
-            callback(nil)
-        end
-    end)
+    -- See find(): firstAsync() is already model-aware, result is pre-wrapped.
+    self:newQuery():where(self.primaryKey, id):firstAsync(callback)
 end
 
 --- Create a new model instance from query result
@@ -360,18 +352,16 @@ function BaseModel:load(relationName)
 
     if relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
+        -- newQuery() attaches `.model`, so `first()` already returns a
+        -- wrapped model instance (or nil) -- do not re-wrap it.
         local result = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):first()
         if result then
-            self.relations[relationName] = relation.relatedModel:newFromQuery(result)
+            self.relations[relationName] = result
         end
     elseif relation.type == 'hasMany' then
         local localValue = self.attributes[relation.localKey]
-        local results = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
-        local models = {}
-        for _, result in ipairs(results) do
-            table.insert(models, relation.relatedModel:newFromQuery(result))
-        end
-        self.relations[relationName] = models
+        -- `get()` is model-aware and already returns wrapped model instances.
+        self.relations[relationName] = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
     elseif relation.type == 'belongsTo' then
         local foreignValue = self.attributes[relation.foreignKey]
         self.relations[relationName] = relation.relatedModel:find(foreignValue)
@@ -384,12 +374,8 @@ function BaseModel:load(relationName)
                   relation.pivotTable .. '.' .. relation.relatedPivotKey)
             :where(relation.pivotTable .. '.' .. relation.foreignPivotKey, localId)
 
-        local results = query:get()
-        local models = {}
-        for _, result in ipairs(results) do
-            table.insert(models, relation.relatedModel:newFromQuery(result))
-        end
-        self.relations[relationName] = models
+        -- `get()` is model-aware and already returns wrapped model instances.
+        self.relations[relationName] = query:get()
     end
 
     return self.relations[relationName]
@@ -408,19 +394,18 @@ function BaseModel:loadAsync(relationName, callback)
 
     if relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
+        -- firstAsync() is model-aware and already returns a wrapped model
+        -- instance (or nil) -- do not re-wrap it.
         relation.relatedModel:newQuery():where(relation.foreignKey, localValue):firstAsync(function(result)
             if result then
-                self.relations[relationName] = relation.relatedModel:newFromQuery(result)
+                self.relations[relationName] = result
             end
             callback(self.relations[relationName])
         end)
     elseif relation.type == 'hasMany' then
         local localValue = self.attributes[relation.localKey]
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):getAsync(function(results)
-            local models = {}
-            for _, result in ipairs(results) do
-                table.insert(models, relation.relatedModel:newFromQuery(result))
-            end
+        -- getAsync() is model-aware and already returns wrapped model instances.
+        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):getAsync(function(models)
             self.relations[relationName] = models
             callback(models)
         end)
@@ -440,11 +425,8 @@ function BaseModel:loadAsync(relationName, callback)
                   relation.pivotTable .. '.' .. relation.relatedPivotKey)
             :where(relation.pivotTable .. '.' .. relation.foreignPivotKey, localId)
 
-        query:getAsync(function(results)
-            local models = {}
-            for _, result in ipairs(results) do
-                table.insert(models, relation.relatedModel:newFromQuery(result))
-            end
+        -- getAsync() is model-aware and already returns wrapped model instances.
+        query:getAsync(function(models)
             self.relations[relationName] = models
             callback(models)
         end)

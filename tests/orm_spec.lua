@@ -962,6 +962,112 @@ test('BaseModel casts: malformed json cast field decodes to an empty table, no e
     eqList(widget.attributes.meta, {})
 end)
 
+--------------------------------------------------------------------------------
+-- BaseModel find()/load() must not double-wrap model instances
+--
+-- newQuery() attaches `.model`, so first()/get() (and their Async variants)
+-- are already model-aware since Task 6: they decode JSON casts and wrap rows
+-- via newFromQuery() themselves. find()/load() used to call newFromQuery()
+-- again on that already-wrapped instance, treating the whole instance object
+-- (its `table`/`hidden`/`casts`/`exists`/`relations`/etc. keys) as if it were
+-- a raw DB row. These tests assert on the STRUCTURE of `.attributes` and on
+-- the actual SQL save() emits -- checks the existing `.field`-access tests
+-- don't cover, since `.field` resolves through the metatable and doesn't
+-- reveal what's actually sitting inside `.attributes`.
+--------------------------------------------------------------------------------
+test('BaseModel find: does not double-wrap - attributes contains only real db columns', function()
+    local original = Database.executeQuery
+    Database.executeQuery = function(query, params)
+        return {{ id = 1, name = 'gizmo' }}
+    end
+
+    local Widget = setmetatable({}, {__index = BaseModel})
+    Widget.table = 'widgets'
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+
+    local widget = Widget:find(1)
+    Database.executeQuery = original
+
+    local keys = {}
+    for k in pairs(widget.attributes) do keys[#keys + 1] = k end
+    table.sort(keys)
+    eqList(keys, {'id', 'name'},
+        'attributes should contain only real db columns, not instance internals like table/hidden/casts/exists')
+end)
+
+test('BaseModel find: save() after find() emits UPDATE with real column names, not instance internals', function()
+    local original = Database.executeQuery
+    local updateQuery, updateParams
+    Database.executeQuery = function(query, params)
+        if query:find('^SELECT') then
+            return {{ id = 1, name = 'gizmo' }}
+        end
+        updateQuery = query
+        updateParams = params
+        return {affectedRows = 1}
+    end
+
+    local Widget = setmetatable({}, {__index = BaseModel})
+    Widget.table = 'widgets'
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+
+    local widget = Widget:find(1)
+    widget:set('name', 'sprocket')
+    widget:save()
+    Database.executeQuery = original
+
+    truthy(updateQuery ~= nil, 'save() issued an UPDATE')
+    truthy(updateQuery:find('UPDATE `widgets` SET', 1, true), 'update statement targets the widgets table')
+    truthy(updateQuery:find('`name` = ?', 1, true), 'update sets the real `name` column')
+    truthy(updateQuery:find('`id` = ?', 1, true), 'update sets the real `id` column')
+    falsy(updateQuery:find('`table`', 1, true), 'does not attempt to write the internal `table` field')
+    falsy(updateQuery:find('`attributes`', 1, true), 'does not attempt to write the internal `attributes` field')
+    falsy(updateQuery:find('`exists`', 1, true), 'does not attempt to write the internal `exists` field')
+    falsy(updateQuery:find('`hidden`', 1, true), 'does not attempt to write the internal `hidden` field')
+    falsy(updateQuery:find('`casts`', 1, true), 'does not attempt to write the internal `casts` field')
+    falsy(updateQuery:find('`relations`', 1, true), 'does not attempt to write the internal `relations` field')
+    eq(#updateParams, 3, 'SET id, SET name, WHERE id -- only real columns, none of the ~9 instance internals')
+end)
+
+test('BaseModel load: hasMany does not double-wrap related model instances', function()
+    -- extend() (not the raw setmetatable({}, {__index = BaseModel}) pattern
+    -- used elsewhere in this file) is required here because it makes
+    -- instances resolve custom methods like `orders()` via the child's own
+    -- __index, which `self[relationName](self)` inside load() depends on.
+    local Customer = BaseModel:extend('customers')
+    Customer.primaryKey = 'id'
+    Customer.timestamps = false
+
+    local Order = BaseModel:extend('orders')
+    Order.primaryKey = 'id'
+    Order.timestamps = false
+
+    function Customer:orders() return self:hasMany(Order, 'customer_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `customers`') then
+            return {{ id = 1, name = 'Ada' }}
+        elseif sql:find('FROM `orders`') then
+            return {{ id = 10, customer_id = 1, total = 5 }}
+        end
+        return {}
+    end
+
+    local customer = Customer:find(1)
+    local orders = customer:load('orders')
+    Database.query = original
+
+    eq(#orders, 1)
+    local keys = {}
+    for k in pairs(orders[1].attributes) do keys[#keys + 1] = k end
+    table.sort(keys)
+    eqList(keys, {'customer_id', 'id', 'total'},
+        'related instance attributes should contain only real db columns')
+end)
+
 test('BaseModel instance: .field reads attributes directly', function()
     local Widget = BaseModel:extend('widgets')
     local widget = Widget.new({id = 1, name = 'gizmo'})

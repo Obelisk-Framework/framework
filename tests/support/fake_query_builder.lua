@@ -37,12 +37,28 @@ function FakeQueryBuilder:limit(n)
 end
 
 function FakeQueryBuilder:first()
+    local match
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
-            return row
+            match = row
+            break
         end
     end
-    return nil
+    if not match then
+        return nil
+    end
+
+    -- Mirror the real QueryBuilder:first() (core/server/ORM/QueryBuilder.lua),
+    -- which delegates to `get()` and is therefore just as model-aware: wrap
+    -- the raw row into a model instance via `model:newFromQuery` when a
+    -- BaseModel has attached itself via `.model`. Kept in sync with `get()`
+    -- above so `find()`/`load()` (which go through `first()`) exercise the
+    -- same wrapping behavior as production instead of silently diverging.
+    if self.model then
+        return self.model:newFromQuery(match)
+    end
+
+    return match
 end
 
 function FakeQueryBuilder:get()
