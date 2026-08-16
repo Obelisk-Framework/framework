@@ -2,9 +2,9 @@
 return {
     run = function()
         print('[Seeder] Seeding default actions...')
-        
+
         -- Check if actions already exist
-        local existing = Database.querySync('SELECT COUNT(*) as count FROM actions', {})
+        local existing = Database.query('SELECT COUNT(*) as count FROM actions', {})
         if existing and existing[1] and existing[1].count > 0 then
             print('[Seeder] Actions already seeded, skipping')
             return
@@ -21,7 +21,7 @@ return {
         }
         
         for _, action in ipairs(actions) do
-            Database.insertSync(
+            Database.insert(
                 'INSERT INTO actions (action_id, label, description, options, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 {action.action_id, action.label, action.description, action.options, action.enabled, Database.now(), Database.now()}
             )
