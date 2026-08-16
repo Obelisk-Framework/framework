@@ -860,7 +860,7 @@ test('BaseModel.createSync: writes DATETIME-formatted timestamps', function()
         Player.primaryKey = 'id'
         Player.timestamps = true
 
-        local player = Player:createSync({name = 'bob'})
+        local player = Player:create({name = 'bob'})
 
         eq(player.attributes.id, 1)
         truthy(player.attributes.created_at:match('^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d$'),
@@ -910,7 +910,7 @@ test('BaseModel casts: json cast field decodes from a JSON string on find', func
     Widget.timestamps = false
     Widget.casts = { meta = 'json' }
 
-    local widget = Widget:findSync(1)
+    local widget = Widget:find(1)
     Database.executeQuery = original
 
     truthy(type(widget.attributes.meta) == 'table', 'meta decoded into a table')
@@ -932,7 +932,7 @@ test('BaseModel casts: json cast field is JSON-encoded for the write, stays a ta
         widget.primaryKey = Widget.primaryKey
         widget.timestamps = Widget.timestamps
         widget.casts = Widget.casts
-        widget:saveSync()
+        widget:save()
 
         truthy(type(widget.attributes.meta) == 'table', 'in-memory meta stays a table after save')
 
@@ -956,7 +956,7 @@ test('BaseModel casts: malformed json cast field decodes to an empty table, no e
     Widget.timestamps = false
     Widget.casts = { meta = 'json' }
 
-    local widget = Widget:findSync(1)
+    local widget = Widget:find(1)
     Database.executeQuery = original
 
     eqList(widget.attributes.meta, {})
