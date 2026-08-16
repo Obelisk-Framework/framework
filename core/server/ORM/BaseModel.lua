@@ -93,8 +93,8 @@ end
 --- onto the model itself, so `Inventory:where('owner', id):get()` works
 --- without an explicit `Inventory:newQuery():where(...)` call, and so does an
 --- unfiltered `Inventory:get()` (the direct replacement for the old
---- `all()`/`allSync()`). Each just opens a new query and forwards to the
---- same-named QueryBuilder method.
+--- `all()`/`allSync()` — bare `get()` is sync, and there's a `getAsync()` variant).
+--- Each just opens a new query and forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
     'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get'
