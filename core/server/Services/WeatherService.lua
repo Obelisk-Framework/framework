@@ -109,3 +109,45 @@ function WeatherService.boot(now)
         WeatherService.generateForecast(now)
     end
 end
+
+WeatherService._currentWindow = nil
+
+--- Advance window if expired; sync to all clients.
+--- @param now number unix epoch
+function WeatherService.tick(now)
+    local window = WeatherService.getCurrentWindow(now)
+    if not window then return end
+    if WeatherService._currentWindow and WeatherService._currentWindow.id == window.id then
+        return  -- same window, no change
+    end
+    WeatherService._currentWindow = window
+    TriggerClientEvent('oblsk:weather:sync', -1, {
+        weather_type  = window.weather_type,
+        temperature   = window.temperature,
+        precipitation = window.precipitation,
+        wind_speed    = window.wind_speed,
+        window_start  = window.window_start,
+        window_end    = window.window_end,
+    })
+    -- trim stale windows older than 1 day
+    QueryBuilder.new('weather_forecast')
+        :where('window_end', '<', now - 86400)
+        :delete()
+    -- extend forecast if lookahead drops below 1 day
+    local farthest = QueryBuilder.new('weather_forecast')
+        :orderBy('window_end', 'desc')
+        :firstSync()
+    if farthest and farthest.window_end < now + 86400 then
+        WeatherService.generateForecast(farthest.window_end)
+    end
+end
+
+--- Start the tick loop. Called once from bootstrap.
+function WeatherService.startTick()
+    CreateThread(function()
+        while true do
+            WeatherService.tick(os.time())
+            Wait(30000)
+        end
+    end)
+end

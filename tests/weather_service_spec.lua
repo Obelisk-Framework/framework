@@ -56,6 +56,50 @@ test('generateForecast: inserts lookahead_days * 12 windows', function()
     eq(#(tables.weather_forecast or {}), expected, 'wrong window count')
 end)
 
+test('tick: advances window when expired', function()
+    local withFakeDb = dofile(scriptDir .. 'support/fake_query_builder.lua')
+    local tables = {}
+    local orig = QueryBuilder
+    QueryBuilder = withFakeDb(tables)
+
+    local now = 1700000000
+    WeatherService.generateForecast(now)
+
+    -- expire the current window
+    local expiredNow = now + WeatherConfig.window_duration + 1
+    local synced = {}
+    _G.TriggerClientEvent = function(event, target, data)
+        synced[#synced+1] = { event=event, data=data }
+    end
+
+    WeatherService.tick(expiredNow)
+    QueryBuilder = orig
+
+    truthy(#synced > 0, 'expected a sync event')
+    eq(synced[1].event, 'oblsk:weather:sync')
+end)
+
+test('tick: no-op when window still valid', function()
+    local withFakeDb = dofile(scriptDir .. 'support/fake_query_builder.lua')
+    local tables = {}
+    local orig = QueryBuilder
+    QueryBuilder = withFakeDb(tables)
+
+    local now = 1700000000
+    WeatherService.generateForecast(now)
+
+    local synced = {}
+    _G.TriggerClientEvent = function(e, t, d) synced[#synced+1] = d end
+    -- Reset _currentWindow so tick sees window fresh, then call once to prime it
+    WeatherService._currentWindow = nil
+    WeatherService.tick(now + 10)  -- prime: sets _currentWindow
+    local syncedAfterPrime = #synced
+    WeatherService.tick(now + 10)  -- same window: should not fire again
+    QueryBuilder = orig
+
+    eq(#synced, syncedAfterPrime, 'should not sync again for same window')
+end)
+
 -- runner
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
