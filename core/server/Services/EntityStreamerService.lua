@@ -11,6 +11,7 @@ EntityStreamerService.globalBudgets  = { ped = 2048, object = 16384, pickup = 70
 EntityStreamerService.globalSpawnedCounts = { ped = 0, object = 0, pickup = 0 }
 EntityStreamerService.chunkPlayerRefs = {} -- {chunkKey: number of players with this chunk active}
 EntityStreamerService.networkedOwners = {} -- {entityId: source}, who owns a networked entity
+EntityStreamerService.playerLoad = {} -- {[source]={ped=N, object=N, pickup=N}}
 
 --- Group-entity registry: a shell (or any future non-spatial grouping) gets
 --- its entities keyed by an opaque string instead of a spatial chunk, since
@@ -29,6 +30,8 @@ function EntityStreamerService.init()
     end
     EntityStreamerService.chunks = {}
     EntityStreamerService.groups = {}
+    EntityStreamerService.playerLoad = {}
+    EntityStreamerService.globalSpawnedCounts = { ped = 0, object = 0, pickup = 0 }
 
     local rows = Entity:where('enabled', true):getSync()
     for _, row in ipairs(rows) do
@@ -224,13 +227,27 @@ function EntityStreamerService.selectTier(currentChunk, facingChunk, source)
         return true
     end
 
+    local function fitsPlayer(addition)
+        if not source then return true end
+        local load = EntityStreamerService.playerLoad[source] or {}
+        for entityType, n in pairs(addition) do
+            local cap = EntityStreamerService.perPlayerCaps[entityType] or math.huge
+            if (load[entityType] or 0) + n > cap then
+                return false
+            end
+        end
+        return true
+    end
+
     local tier1 = EntityStreamerService.getSurroundingChunks(currentChunk, 1)
-    if fitsGlobal(projectedAdditionByType(tier1)) then
+    local add1 = projectedAdditionByType(tier1)
+    if fitsGlobal(add1) and fitsPlayer(add1) then
         return tier1, 1
     end
 
     local tier2 = { currentChunk, facingChunk }
-    if fitsGlobal(projectedAdditionByType(tier2)) then
+    local add2 = projectedAdditionByType(tier2)
+    if fitsGlobal(add2) and fitsPlayer(add2) then
         return tier2, 2
     end
 
@@ -485,6 +502,11 @@ function EntityStreamerService.updatePlayerChunks(player, x, y, facingChunk)
     -- set is still a safe, well-formed chunk pair rather than a nil key.
     facingChunk = facingChunk or currentChunk
 
+    local src = player:getSource()
+    if not EntityStreamerService.playerLoad[src] then
+        EntityStreamerService.playerLoad[src] = { ped = 0, object = 0, pickup = 0 }
+    end
+
     if not EntityStreamerService.playerChunks[player:getSource()] then
         EntityStreamerService.playerChunks[player:getSource()] = {
             currentChunk = currentChunk,
@@ -548,11 +570,22 @@ function EntityStreamerService.updatePlayerChunks(player, x, y, facingChunk)
                     (EntityStreamerService.globalSpawnedCounts[entityType] or 0) + n
             end
         end
+        -- Maintain per-player load
+        local added = EntityStreamerService.countEntitiesInChunkByType(chunk)
+        for entityType, n in pairs(added) do
+            EntityStreamerService.playerLoad[src][entityType] =
+                (EntityStreamerService.playerLoad[src][entityType] or 0) + n
+        end
         EntityStreamerService.loadChunkForPlayer(player, chunk)
     end
 
     for _, chunk in ipairs(chunksToUnload) do
         EntityStreamerService.releaseChunkRef(chunk)
+        local freed = EntityStreamerService.countEntitiesInChunkByType(chunk)
+        for entityType, n in pairs(freed) do
+            EntityStreamerService.playerLoad[src][entityType] =
+                math.max((EntityStreamerService.playerLoad[src][entityType] or 0) - n, 0)
+        end
         EntityStreamerService.unloadChunkForPlayer(player, chunk)
     end
 
@@ -706,6 +739,7 @@ function EntityStreamerService.handlePlayerDropped()
     end
 
     EntityStreamerService.playerChunks[source] = nil
+    EntityStreamerService.playerLoad[source] = nil
 
     for entityId, ownerSource in pairs(EntityStreamerService.networkedOwners) do
         if ownerSource == source then
