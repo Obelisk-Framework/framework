@@ -175,12 +175,17 @@ Citizen.CreateThread(function()
     -- may reference actions that were only just registered above.
     SchedulerService.startTickLoop()
 
+    -- Weather
+    WeatherService.boot(os.time())
+    WeatherService.startTick()
+    WeatherService.startExposureTick()
+
     print([[
-  
+
   ╔═══════════════════════════════════════╗
   ║     OBELISK FRAMEWORK - READY        ║
   ╚═══════════════════════════════════════╝
-  
+
 ]])
 end)
 
