@@ -167,7 +167,7 @@ Available methods include:
 - **Ordering/paging**: `orderBy(column, direction)`, `limit(n)`, `offset(n)`.
 - **Joins**: `join(tableName, first, operator, second, [joinType])`, `leftJoin(tableName, first, operator, second)`.
 - **Grouping**: `groupBy(columns)`.
-- **Execution**: `get()` / `getAsync(callback)`, `first()` / `firstAsync(callback)`, `count()` / `countAsync(callback)`, `insert(data, [callback])`, `update(data, [callback])`, `delete([callback])`, `paginateAsync(page, perPage, callback)`.
+- **Execution**: `get()` / `getAsync(callback)`, `first()` / `firstAsync(callback)`, `count()` / `countAsync(callback)`, `insert(data)` / `insertAsync(data, callback)`, `update(data)` / `updateAsync(data, callback)`, `delete()` / `deleteAsync(callback)`, `paginateAsync(page, perPage, callback)`.
 
 Every identifier (table/column name, operator, join type, sort direction) is validated against an allowlist before being interpolated into SQL, and every value is passed as a `?` parameter — this is what keeps `where`/`join`/`orderBy` safe from injection even though they build SQL by string concatenation internally.
 
@@ -177,7 +177,7 @@ A model class proxies the same starter methods (`select`, `selectRaw`, `where`, 
 Inventory:where('container', 'stash'):orderBy('created_at', 'DESC'):limit(10):get()
 ```
 
-This is equivalent to `QueryBuilder.new('inventories'):where(...)` (each proxy just opens a fresh query and forwards to it) and returns the same raw rows, not model instances, since it's the same `QueryBuilder` underneath.
+This is equivalent to `Inventory:newQuery():where(...)` (each proxy just opens a fresh query, with `.model` attached, and forwards to it). Because the query is opened off the model, `get()`/`getAsync()`/`first()`/`firstAsync()` decode JSON casts and return model instances, not raw rows — that's only true of a *bare* `QueryBuilder.new('inventories')` with no owning model.
 
 ## Schema & Migrations
 

@@ -601,10 +601,14 @@ function QueryBuilder:buildDeleteSql()
 end
 
 --- Paginate results
+--- Named with the Async suffix (unlike every other bare-named QueryBuilder
+--- method) because it is callback-only internally -- it drives count()/get()
+--- via their Async forms and never returns synchronously, so a bare
+--- `paginate` name would violate the "bare = sync" convention.
 --- @param page number
 --- @param perPage number
 --- @param callback function Receives {data, total, lastPage, currentPage}
-function QueryBuilder:paginate(page, perPage, callback)
+function QueryBuilder:paginateAsync(page, perPage, callback)
     page = page or 1
     perPage = perPage or 15
     
