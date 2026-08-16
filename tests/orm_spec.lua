@@ -275,8 +275,8 @@ end)
 --------------------------------------------------------------------------------
 test('Schema.create: generates a CREATE TABLE statement', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('users', function(t)
         t:id()
@@ -285,7 +285,7 @@ test('Schema.create: generates a CREATE TABLE statement', function()
         t:timestamps()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('CREATE TABLE IF NOT EXISTS `users`', 1, true), 'has CREATE TABLE header')
     truthy(captured:find('`id` INT NOT NULL AUTO_INCREMENT', 1, true), 'has auto-increment id')
@@ -296,15 +296,15 @@ end)
 
 test('Schema.create: updated_at has no ON UPDATE clause (app layer owns it)', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('players', function(t)
         t:id()
         t:timestamps()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP', 1, true),
         'updated_at defaults to CURRENT_TIMESTAMP')
@@ -313,30 +313,30 @@ end)
 
 test('Blueprint: string() defaults to NOT NULL', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:string('name', 50)
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('`name` VARCHAR(50) NOT NULL', 1, true), 'string() is NOT NULL by default')
 end)
 
 test('Blueprint: nullable() with no args makes the last column optional', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:string('nickname', 50):nullable()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(not captured:find('`nickname` VARCHAR(50) NOT NULL', 1, true), 'nullable() removes NOT NULL')
     truthy(captured:find('`nickname` VARCHAR(50)', 1, true), 'column still present')
@@ -344,30 +344,30 @@ end)
 
 test('Blueprint: nullable(false) makes the last column required, same as the new default', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:integer('count'):nullable(false)
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('`count` INT NOT NULL', 1, true), 'nullable(false) is NOT NULL')
 end)
 
 test('Blueprint: index() with no args uses the last-defined column', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:string('name', 50):index()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('KEY `widgets_name_index` (`name`)', 1, true),
         'index() with no args builds a non-unique index on the last column')
@@ -384,8 +384,8 @@ end)
 
 test('Blueprint: every column builder except id() defaults to NOT NULL', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('kitchen_sink', function(t)
         t:id()
@@ -404,7 +404,7 @@ test('Blueprint: every column builder except id() defaults to NOT NULL', functio
         t:enum('m', {'x', 'y'})
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     for _, col in ipairs({'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'}) do
         truthy(captured:find('`' .. col .. '`.-NOT NULL', 1, false) ~= nil or captured:find('`' .. col .. '` .- NOT NULL'),
@@ -442,14 +442,14 @@ test('Schema.table: a :change()-marked column calls the dialect introspect+alter
     Database.dialect = fakeDialect
 
     local executed = {}
-    local originalQuery = Database.querySync
-    Database.querySync = function(query) table.insert(executed, query) return {} end
+    local originalQuery = Database.query
+    Database.query = function(query) table.insert(executed, query) return {} end
 
     Schema.table('widgets', function(t)
         t:string('name', 50):nullable(false):change()
     end)
 
-    Database.querySync = originalQuery
+    Database.query = originalQuery
     Database.dialect = original
 
     truthy(introspectCalledWith ~= nil, 'introspectColumn was called')
@@ -462,29 +462,29 @@ end)
 
 test('Schema.table: an unmarked column still uses ADD COLUMN (existing behavior)', function()
     local captured = {}
-    local original = Database.querySync
-    Database.querySync = function(query) table.insert(captured, query) return {} end
+    local original = Database.query
+    Database.query = function(query) table.insert(captured, query) return {} end
 
     Schema.table('widgets', function(t)
         t:string('bio', 255)
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured[1]:find('ADD COLUMN', 1, true), 'unmarked column still adds')
 end)
 
 test('Blueprint:foreignId/:constrained: guesses the referenced table and defaults to RESTRICT', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('vehicles', function(t)
         t:id()
         t:foreignId('garage_id'):constrained()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('FOREIGN KEY (`garage_id`) REFERENCES `garages`(`id`)', 1, true),
         'guesses garages from garage_id')
@@ -493,8 +493,8 @@ end)
 
 test('Blueprint:foreign: the :references():on():onDelete() chain resolves real names', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('items', function(t)
         t:id()
@@ -502,7 +502,7 @@ test('Blueprint:foreign: the :references():on():onDelete() chain resolves real n
         t:foreign('base_item_id'):references('id'):on('base_items'):onDelete('RESTRICT')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     -- Every call site in the codebase chains this with `:`, which passes the
     -- chain table as the first argument - the links must be real methods or
@@ -514,8 +514,8 @@ end)
 
 test('Blueprint:foreign: chaining onDelete then onUpdate registers exactly one key', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('items', function(t)
         t:id()
@@ -523,7 +523,7 @@ test('Blueprint:foreign: chaining onDelete then onUpdate registers exactly one k
         t:foreign('base_item_id'):references('id'):on('base_items'):onDelete('CASCADE'):onUpdate('CASCADE')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     local _, count = captured:gsub('FOREIGN KEY', '')
     eq(count, 1, 'the key is emitted once, not once per terminal call')
@@ -532,15 +532,15 @@ end)
 
 test('Blueprint:foreignId: emits exactly the same column type as :id() (InnoDB FK requirement)', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('vehicles', function(t)
         t:id()
         t:foreignId('garage_id'):constrained('garages')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     -- InnoDB requires the FK column and the referenced column to have an
     -- identical type AND signedness. `id()` emits plain `INT`, so `foreignId`
@@ -556,29 +556,29 @@ end)
 
 test('Blueprint:constrained/:onDelete: overrides the ON DELETE action', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('vehicles', function(t)
         t:id()
         t:foreignId('garage_id'):constrained():onDelete('CASCADE')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('ON DELETE CASCADE ON UPDATE RESTRICT', 1, true), 'CASCADE applied, UPDATE still RESTRICT')
 end)
 
 test('Schema.table: ALTER TABLE emits the foreign key constraint too', function()
     local captured = {}
-    local original = Database.querySync
-    Database.querySync = function(query) table.insert(captured, query) return {} end
+    local original = Database.query
+    Database.query = function(query) table.insert(captured, query) return {} end
 
     Schema.table('vehicles', function(t)
         t:foreignId('garage_id'):constrained():onDelete('SET NULL')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     local addColumn, addConstraint
     for _, sql in ipairs(captured) do
@@ -628,8 +628,8 @@ end)
 test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {} end
 
         Schema.create('users', function(t)
             t:id()
@@ -637,7 +637,7 @@ test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', fu
             t:boolean('active')
         end)
 
-        Database.querySync = original
+        Database.query = original
 
         truthy(captured:find('CREATE TABLE IF NOT EXISTS "users"', 1, true), 'has CREATE TABLE header')
         truthy(captured:find('"id" SERIAL NOT NULL', 1, true), 'has SERIAL id')
@@ -651,8 +651,8 @@ end)
 test('postgres: plain index becomes a standalone CREATE INDEX, unique stays inline', function()
     withDialect('postgres', function()
         local captured = {}
-        local original = Database.querySync
-        Database.querySync = function(query) table.insert(captured, query) return {} end
+        local original = Database.query
+        Database.query = function(query) table.insert(captured, query) return {} end
 
         Schema.create('players', function(t)
             t:id()
@@ -661,7 +661,7 @@ test('postgres: plain index becomes a standalone CREATE INDEX, unique stays inli
             t:unique('name', 'players_name_unique')
         end)
 
-        Database.querySync = original
+        Database.query = original
 
         eq(#captured, 2, 'one CREATE TABLE + one standalone CREATE INDEX')
         truthy(captured[1]:find('CONSTRAINT "players_name_unique" UNIQUE ("name")', 1, true),
@@ -686,12 +686,12 @@ end)
 --------------------------------------------------------------------------------
 test('mysql: hasTable queries TABLE_SCHEMA = DATABASE()', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {{count = 1}} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {{count = 1}} end
 
     local exists = Schema.hasTable('users')
 
-    Database.querySync = original
+    Database.query = original
     truthy(captured:find('TABLE_SCHEMA = DATABASE()', 1, true), 'uses DATABASE() to scope TABLE_SCHEMA')
     eq(exists, true)
 end)
@@ -699,12 +699,12 @@ end)
 test('postgres: hasTable queries table_catalog/table_schema, not TABLE_SCHEMA = current_database()', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {{count = 1}} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {{count = 1}} end
 
         local exists = Schema.hasTable('users')
 
-        Database.querySync = original
+        Database.query = original
         truthy(captured:find('table_catalog = current_database() AND table_schema = current_schema()', 1, true),
             'scopes by table_catalog + table_schema, not the MySQL-only TABLE_SCHEMA = current_database()')
         truthy(not captured:find('TABLE_SCHEMA = current_database()', 1, true),
@@ -715,22 +715,22 @@ end)
 
 test('postgres: hasTable copes with a string-typed COUNT(*) result (pg returns bigint as string)', function()
     withDialect('postgres', function()
-        local original = Database.querySync
-        Database.querySync = function() return {{count = '0'}} end
+        local original = Database.query
+        Database.query = function() return {{count = '0'}} end
         local exists = Schema.hasTable('users')
-        Database.querySync = original
+        Database.query = original
         eq(exists, false)
     end)
 end)
 
 test('mysql: hasColumn queries TABLE_SCHEMA = DATABASE()', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {{count = 1}} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {{count = 1}} end
 
     local exists = Schema.hasColumn('users', 'name')
 
-    Database.querySync = original
+    Database.query = original
     truthy(captured:find('TABLE_SCHEMA = DATABASE()', 1, true), 'uses DATABASE() to scope TABLE_SCHEMA')
     eq(exists, true)
 end)
@@ -738,12 +738,12 @@ end)
 test('postgres: hasColumn queries table_catalog/table_schema', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {{count = '1'}} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {{count = '1'}} end
 
         local exists = Schema.hasColumn('users', 'name')
 
-        Database.querySync = original
+        Database.query = original
         truthy(captured:find('table_catalog = current_database() AND table_schema = current_schema()', 1, true),
             'scopes by table_catalog + table_schema')
         eq(exists, true, 'a string "1" count (as pg returns) must still compare as existing')
@@ -771,12 +771,12 @@ end)
 test('postgres: renameColumn uses RENAME COLUMN, not CHANGE', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {} end
 
         Schema.renameColumn('users', 'old_name', 'new_name')
 
-        Database.querySync = original
+        Database.query = original
         eq(captured, 'ALTER TABLE "users" RENAME COLUMN "old_name" TO "new_name"')
     end)
 end)
@@ -1167,15 +1167,15 @@ end)
 test('MySQLDialect.introspectColumn: queries information_schema and parses the row', function()
     local MySQLDialect = Dialects.resolve('mysql')
     local capturedSql, capturedParams
-    local original = Database.querySync
-    Database.querySync = function(sql, params)
+    local original = Database.query
+    Database.query = function(sql, params)
         capturedSql, capturedParams = sql, params
         return {{DATA_TYPE = 'varchar', CHARACTER_MAXIMUM_LENGTH = 100, COLUMN_TYPE = 'varchar(100)', IS_NULLABLE = 'YES', COLUMN_DEFAULT = nil}}
     end
 
     local info = MySQLDialect.introspectColumn('widgets', 'name')
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(capturedSql:find('information_schema.COLUMNS', 1, true), 'queries information_schema.COLUMNS')
     truthy(capturedSql:find('COLUMN_TYPE', 1, true), 'selects COLUMN_TYPE')
@@ -1189,12 +1189,12 @@ end)
 
 test('MySQLDialect.introspectColumn: returns nil when the column does not exist', function()
     local MySQLDialect = Dialects.resolve('mysql')
-    local original = Database.querySync
-    Database.querySync = function() return {} end
+    local original = Database.query
+    Database.query = function() return {} end
 
     local info = MySQLDialect.introspectColumn('widgets', 'ghost')
 
-    Database.querySync = original
+    Database.query = original
 
     eq(info, nil)
 end)
@@ -1285,15 +1285,15 @@ test('PostgresDialect.introspectColumn: queries information_schema.columns and p
     withDialect('postgres', function()
         local PostgresDialect = Dialects.resolve('postgres')
         local capturedSql, capturedParams
-        local original = Database.querySync
-        Database.querySync = function(sql, params)
+        local original = Database.query
+        Database.query = function(sql, params)
             capturedSql, capturedParams = sql, params
             return {{data_type = 'character varying', character_maximum_length = 100, is_nullable = 'YES', column_default = nil}}
         end
 
         local info = PostgresDialect.introspectColumn('widgets', 'name')
 
-        Database.querySync = original
+        Database.query = original
 
         truthy(capturedSql:find('information_schema.columns', 1, true), 'queries information_schema.columns')
         eqList(capturedParams, {'widgets', 'name'})
@@ -1306,12 +1306,12 @@ end)
 test('PostgresDialect.introspectColumn: returns nil when the column does not exist', function()
     withDialect('postgres', function()
         local PostgresDialect = Dialects.resolve('postgres')
-        local original = Database.querySync
-        Database.querySync = function() return {} end
+        local original = Database.query
+        Database.query = function() return {} end
 
         local info = PostgresDialect.introspectColumn('widgets', 'ghost')
 
-        Database.querySync = original
+        Database.query = original
 
         eq(info, nil)
     end)

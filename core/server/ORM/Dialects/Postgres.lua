@@ -154,7 +154,7 @@ function PostgresDialect.introspectColumn(tableName, columnName)
                 'FROM information_schema.columns WHERE ' ..
                 PostgresDialect.tableExistsPredicate() ..
                 ' AND table_name = $1 AND column_name = $2'
-    local rows = Database.querySync(sql, {tableName, columnName})
+    local rows = Database.query(sql, {tableName, columnName})
     if not rows or not rows[1] then return nil end
 
     local row = rows[1]

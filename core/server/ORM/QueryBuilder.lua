@@ -406,7 +406,7 @@ end
 --- @return table Results
 function QueryBuilder:getSync()
     local sql, params = self:toSql()
-    return Database.querySync(sql, params)
+    return Database.query(sql, params)
 end
 
 --- Get first result (async)
@@ -472,7 +472,7 @@ function QueryBuilder:insert(data, callback)
     if callback then
         Database.insert(sql, values, callback)
     else
-        return Database.insertSync(sql, values)
+        return Database.insert(sql, values)
     end
 end
 
@@ -505,7 +505,7 @@ function QueryBuilder:update(data, callback)
     if callback then
         Database.update(sql, values, callback)
     else
-        return Database.updateSync(sql, values)
+        return Database.update(sql, values)
     end
 end
 
@@ -522,7 +522,7 @@ function QueryBuilder:delete(callback)
     if callback then
         Database.update(sql, self.params, callback)
     else
-        return Database.updateSync(sql, self.params)
+        return Database.update(sql, self.params)
     end
 end
 
