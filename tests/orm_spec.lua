@@ -1145,6 +1145,45 @@ test('BaseModel.with: belongsToMany assigns each instance only its own related r
     eq(#posts[3].tags, 0, 'belongsToMany: post 3 has no tags')
 end)
 
+test('BaseModel.with: belongsToMany interns one shared instance per related row so nested paths populate for every owner', function()
+    local Creator = BaseModel:extend('creators')
+    local Tag = BaseModel:extend('tags')
+    local Post = BaseModel:extend('posts')
+    function Post:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+    function Tag:creator() return self:hasOne(Creator, 'tag_id') end
+
+    local creatorQueryCount = 0
+    local creatorWhereInParams = nil
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then
+            return {{id = 1, title = 'First'}, {id = 2, title = 'Second'}}
+        elseif sql:find('FROM `tags`') then
+            -- Both posts share the SAME tag (id = 100) via two distinct
+            -- pivot rows.
+            return {
+                {id = 100, name = 'A', post_id = 1},
+                {id = 100, name = 'A', post_id = 2},
+            }
+        elseif sql:find('FROM `creators`') then
+            creatorQueryCount = creatorQueryCount + 1
+            creatorWhereInParams = params
+            return {{id = 1000, tag_id = 100, name = 'Ada'}}
+        end
+        return {}
+    end
+
+    local posts = Post:with('tags.creator'):get()
+    Database.query = original
+
+    eq(#posts, 2, 'shared tag: both base posts returned')
+    eq(creatorQueryCount, 1, 'shared tag: creator segment batched into exactly one query')
+    eqList(creatorWhereInParams, {100}, 'shared tag: dedup collapses both pivot rows to the one shared tag id')
+    eq(posts[1].tags[1].creator.name, 'Ada', 'shared tag: post 1 tag creator populated')
+    eq(posts[2].tags[1].creator.name, 'Ada', 'shared tag: post 2 tag creator populated')
+    eq(posts[1].tags[1], posts[2].tags[1], 'shared tag: both posts reference the SAME interned tag instance')
+end)
+
 test('BaseModel.with: nested dot-path dedups shared related instances before the next batch', function()
     local Customer = BaseModel:extend('customers')
     local Address = BaseModel:extend('addresses')

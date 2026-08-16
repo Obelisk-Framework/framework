@@ -516,10 +516,24 @@ function BaseModel:eagerLoad(instances, path)
             inst.relations[segment] = {}
             byOwner[inst.attributes[inst.primaryKey]] = inst
         end
+        -- Intern one shared model instance per unique related primary key.
+        -- Each joined pivot row otherwise produces its OWN distinct instance
+        -- even when it's the same related row shared by multiple owners
+        -- (e.g. one tag on two posts), which breaks the seenIds dedup below
+        -- (and any downstream `rest ~= ''` segment) since it keys on primary
+        -- key expecting one shared object per row, like hasOne/hasMany/
+        -- belongsTo already provide via their byForeign/byOwner tables.
+        local byRelatedId = {}
         for _, row in ipairs(rows) do
             local owner = byOwner[row.attributes[relation.foreignPivotKey]]
             if owner then
-                table.insert(owner.relations[segment], row)
+                local relatedId = row.attributes[row.primaryKey]
+                local shared = byRelatedId[relatedId]
+                if not shared then
+                    shared = row
+                    byRelatedId[relatedId] = shared
+                end
+                table.insert(owner.relations[segment], shared)
             end
         end
     end
