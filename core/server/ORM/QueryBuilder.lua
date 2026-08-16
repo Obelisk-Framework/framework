@@ -85,6 +85,17 @@ function QueryBuilder:selectRaw(expression)
     return self
 end
 
+--- Record a relation path (single-level or dot-separated) to eager-load
+--- after the terminal fetch resolves. Chainable, so multiple calls
+--- accumulate multiple independent paths (e.g.
+--- `Model:with('a'):with('b')`).
+--- @param path string
+--- @return QueryBuilder
+function QueryBuilder:with(path)
+    table.insert(self.withPaths, path)
+    return self
+end
+
 --- Add a WHERE clause
 --- @param column string
 --- @param operator string|any If only 2 args, this is the value

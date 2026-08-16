@@ -108,21 +108,13 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
 end
 
 --- Record a relation path (single-level or dot-separated) to eager-load
---- after the terminal fetch resolves.
+--- after the terminal fetch resolves. Returns a QueryBuilder so further
+--- `:with(...)` calls chain (each accumulates its own independent path)
+--- ahead of either `get()` or `getAsync()`.
 --- @param path string
 --- @return QueryBuilder
 function BaseModel:with(path)
-    local query = self:newQuery()
-    table.insert(query.withPaths, path)
-    return query
-end
-
---- Same as `with`, for use before `getAsync`/`findAsync`; the eager-load
---- resolution itself stays synchronous once the terminal fetch resolves.
---- @param path string
---- @return QueryBuilder
-function BaseModel:withAsync(path)
-    return self:with(path)
+    return self:newQuery():with(path)
 end
 
 --- Find synchronously
@@ -506,21 +498,28 @@ function BaseModel:eagerLoad(instances, path)
         for _, inst in ipairs(instances) do
             table.insert(localIds, inst.attributes[inst.primaryKey])
         end
+        -- Grouping by owning instance requires the pivot's foreign key in the
+        -- selected columns; select it explicitly alongside the related row so
+        -- each returned row can be attributed back to the right instance(s)
+        -- instead of being handed to every instance indiscriminately.
+        local pivotFkColumn = relation.pivotTable .. '.' .. relation.foreignPivotKey
         local rows = related:newQuery()
+            :select({related.table .. '.*', pivotFkColumn})
             :join(relation.pivotTable,
                   related.table .. '.' .. related.primaryKey,
                   '=',
                   relation.pivotTable .. '.' .. relation.relatedPivotKey)
-            :whereIn(relation.pivotTable .. '.' .. relation.foreignPivotKey, localIds)
+            :whereIn(pivotFkColumn, localIds)
             :get()
-        -- Grouping by owning instance requires the pivot's foreign key in the
-        -- selected columns; select it explicitly alongside the related row.
+        local byOwner = {}
         for _, inst in ipairs(instances) do
-            inst.relations[segment] = inst.relations[segment] or {}
+            inst.relations[segment] = {}
+            byOwner[inst.attributes[inst.primaryKey]] = inst
         end
         for _, row in ipairs(rows) do
-            for _, inst in ipairs(instances) do
-                table.insert(inst.relations[segment], row)
+            local owner = byOwner[row.attributes[relation.foreignPivotKey]]
+            if owner then
+                table.insert(owner.relations[segment], row)
             end
         end
     end

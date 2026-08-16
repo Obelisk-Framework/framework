@@ -1082,6 +1082,104 @@ test('BaseModel.with: nested dot-path batches one query per segment', function()
     eq(orders[1].customer.address.city, 'Metropolis', 'with nested: deep .field access resolves')
 end)
 
+test('BaseModel.with: hasMany batches into an array per instance via .field access', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer:orders() return self:hasMany(Order, 'customer_id') end
+
+    local queryCount = 0
+    local original = Database.query
+    Database.query = function(sql, params)
+        queryCount = queryCount + 1
+        if sql:find('FROM `customers`') then
+            return {{id = 10, name = 'Alice'}, {id = 11, name = 'Bob'}}
+        elseif sql:find('FROM `orders`') then
+            eqList(params, {10, 11}, 'with hasMany: customer_id IN batch')
+            return {
+                {id = 1, customer_id = 10, total = 5},
+                {id = 2, customer_id = 10, total = 7},
+                {id = 3, customer_id = 11, total = 9},
+            }
+        end
+        return {}
+    end
+
+    local customers = Customer:with('orders'):get()
+    Database.query = original
+
+    eq(queryCount, 2, 'with hasMany: exactly 2 queries (base + relation)')
+    eq(#customers[1].orders, 2, 'with hasMany: first customer gets both matching orders')
+    eq(#customers[2].orders, 1, 'with hasMany: second customer gets only its own order')
+    eq(customers[1].orders[1].total, 5, 'with hasMany: .field access on nested order')
+    eq(customers[1].orders[2].total, 7, 'with hasMany: .field access on nested order')
+    eq(customers[2].orders[1].total, 9, 'with hasMany: .field access on nested order')
+end)
+
+test('BaseModel.with: belongsToMany assigns each instance only its own related rows', function()
+    local Tag = BaseModel:extend('tags')
+    local Post = BaseModel:extend('posts')
+    function Post:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then
+            return {{id = 1, title = 'First'}, {id = 2, title = 'Second'}, {id = 3, title = 'Third'}}
+        elseif sql:find('FROM `tags`') then
+            -- Post 1 -> tag A only, Post 2 -> tag B only, Post 3 -> no tags.
+            return {
+                {id = 100, name = 'A', post_id = 1},
+                {id = 200, name = 'B', post_id = 2},
+            }
+        end
+        return {}
+    end
+
+    local posts = Post:with('tags'):get()
+    Database.query = original
+
+    eq(#posts, 3, 'belongsToMany: base rows returned')
+    eq(#posts[1].tags, 1, 'belongsToMany: post 1 gets only its own tag')
+    eq(posts[1].tags[1].name, 'A', 'belongsToMany: post 1 tag is A')
+    eq(#posts[2].tags, 1, 'belongsToMany: post 2 gets only its own tag')
+    eq(posts[2].tags[1].name, 'B', 'belongsToMany: post 2 tag is B')
+    eq(#posts[3].tags, 0, 'belongsToMany: post 3 has no tags')
+end)
+
+test('BaseModel.with: nested dot-path dedups shared related instances before the next batch', function()
+    local Customer = BaseModel:extend('customers')
+    local Address = BaseModel:extend('addresses')
+    local Order = BaseModel:extend('orders')
+    function Order:customer() return self:belongsTo(Customer, 'customer_id') end
+    function Customer:address() return self:hasOne(Address, 'customer_id') end
+
+    local addressWhereInParams = nil
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `orders`') then
+            -- 3 orders all sharing the same customer_id = 10.
+            return {
+                {id = 1, customer_id = 10},
+                {id = 2, customer_id = 10},
+                {id = 3, customer_id = 10},
+            }
+        elseif sql:find('FROM `customers`') then
+            return {{id = 10, name = 'Alice'}}
+        elseif sql:find('FROM `addresses`') then
+            addressWhereInParams = params
+            return {{id = 100, customer_id = 10, city = 'Metropolis'}}
+        end
+        return {}
+    end
+
+    local orders = Order:with('customer.address'):get()
+    Database.query = original
+
+    eq(#orders, 3, 'dedup: all 3 base orders returned')
+    eqList(addressWhereInParams, {10}, 'dedup: address query received the shared customer id only once')
+    eq(orders[1].customer.address.city, 'Metropolis', 'dedup: deep .field access still resolves')
+    eq(orders[3].customer.address.city, 'Metropolis', 'dedup: deep .field access still resolves for all orders')
+end)
+
 --------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------
