@@ -79,7 +79,7 @@ end)
 
 test('tick: runs a due interval job and stamps last_run_at', function()
     withFakeDb(function(tables)
-        _G.ActionService = { execute = function() end }
+        _G.ActionService = { execute = function() return true end }
         local id = SchedulerService.create('refill_shops', 'interval', { intervalSeconds = 3600 })
         SchedulerService.tick(1000000)
         eq(tables.scheduled_jobs[1].last_run_at, 1000000)
@@ -117,6 +117,33 @@ test('tick: skips a disabled job even if due', function()
         SchedulerService.update(id, { enabled = 0 })
         SchedulerService.tick(1000000)
         eq(calls, 0)
+    end)
+end)
+
+test('tick: a row with a malformed cron expression does not stop other rows from running', function()
+    withFakeDb(function(tables)
+        local calls = {}
+        _G.ActionService = { execute = function(player, actionId, data) calls[#calls + 1] = actionId; return true end }
+
+        -- Malformed: only 4 fields instead of 5.
+        SchedulerService.create('broken_job', 'cron', { cronExpression = '0 3 * *' })
+        SchedulerService.create('healthy_job', 'interval', { intervalSeconds = 3600 })
+
+        SchedulerService.tick(1000000)
+
+        eq(#calls, 1)
+        eq(calls[1], 'healthy_job')
+    end)
+end)
+
+test('tick: does not stamp last_run_at when ActionService.execute reports the action did not run', function()
+    withFakeDb(function(tables)
+        _G.ActionService = { execute = function() return false end }
+        local id = SchedulerService.create('unregistered_action', 'interval', { intervalSeconds = 3600 })
+
+        SchedulerService.tick(1000000)
+
+        eq(tables.scheduled_jobs[1].last_run_at, nil)
     end)
 end)
 

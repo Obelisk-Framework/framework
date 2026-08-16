@@ -67,12 +67,19 @@ end
 function SchedulerService.tick(now)
     local rows = QueryBuilder.new('scheduled_jobs'):where('enabled', 1):getSync()
     for _, row in ipairs(rows) do
-        if SchedulerService.isDue(row, now) then
-            ActionService.execute(nil, row.action_id, {})
-            QueryBuilder.new('scheduled_jobs'):where('id', row.id):update({
-                last_run_at = now,
-                updated_at = Database.now(),
-            })
+        local ok, err = pcall(function()
+            if SchedulerService.isDue(row, now) then
+                local ran = ActionService.execute(nil, row.action_id, {})
+                if ran then
+                    QueryBuilder.new('scheduled_jobs'):where('id', row.id):update({
+                        last_run_at = now,
+                        updated_at = Database.now(),
+                    })
+                end
+            end
+        end)
+        if not ok then
+            print('[SchedulerService] tick: error processing scheduled_jobs row ' .. tostring(row.id) .. ' (action_id=' .. tostring(row.action_id) .. '): ' .. tostring(err))
         end
     end
 end
