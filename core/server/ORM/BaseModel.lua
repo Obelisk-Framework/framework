@@ -84,16 +84,20 @@ end
 --- Create a new query builder for this model
 --- @return QueryBuilder
 function BaseModel:newQuery()
-    return QueryBuilder.new(self.table, self.primaryKey)
+    local query = QueryBuilder.new(self.table, self.primaryKey)
+    query.model = self
+    return query
 end
 
---- Proxy the chainable QueryBuilder starter methods onto the model itself, so
---- `Inventory:where('owner', id):get()` works without an explicit
---- `Inventory:newQuery():where(...)` call. Each just opens a new query and
---- forwards to the same-named QueryBuilder method.
+--- Proxy the chainable QueryBuilder starter methods (and the `get` terminal)
+--- onto the model itself, so `Inventory:where('owner', id):get()` works
+--- without an explicit `Inventory:newQuery():where(...)` call, and so does an
+--- unfiltered `Inventory:get()` (the direct replacement for the old
+--- `all()`/`allSync()`). Each just opens a new query and forwards to the
+--- same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
-    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy'
+    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get'
 }
 
 for _, methodName in ipairs(QUERY_PROXY_METHODS) do

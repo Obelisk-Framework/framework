@@ -396,17 +396,35 @@ function QueryBuilder:toSql()
 end
 
 --- Execute the query synchronously
---- @return table Results
+--- @return table Results (raw rows, or model instances if opened via a BaseModel)
 function QueryBuilder:get()
     local sql, params = self:toSql()
-    return Database.query(sql, params)
+    local results = Database.query(sql, params)
+    if not self.model then
+        return results
+    end
+    local models = {}
+    for _, result in ipairs(results) do
+        table.insert(models, self.model:newFromQuery(result))
+    end
+    return models
 end
 
 --- Execute the query and return results (async)
 --- @param callback function
 function QueryBuilder:getAsync(callback)
     local sql, params = self:toSql()
-    Database.queryAsync(sql, params, callback)
+    Database.queryAsync(sql, params, function(results)
+        if not self.model then
+            callback(results)
+            return
+        end
+        local models = {}
+        for _, result in ipairs(results) do
+            table.insert(models, self.model:newFromQuery(result))
+        end
+        callback(models)
+    end)
 end
 
 --- Get first result synchronously

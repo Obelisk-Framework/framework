@@ -986,6 +986,48 @@ test('BaseModel: get(key) attribute getter is removed', function()
     truthy(widget.get == nil or type(widget.get) == 'function', 'get should not be an attribute getter')
 end)
 
+test('BaseModel: get() (no filter) decodes JSON casts and returns model instances', function()
+    local Category = BaseModel:extend('categories')
+    Category.casts = {fields = 'json'}
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        return {{id = 1, fields = '{"color":"red"}'}}
+    end
+
+    local results = Category:get()
+    Database.query = original
+
+    eq(#results, 1, 'get(): one row')
+    truthy(type(results[1].fields) == 'table', 'get(): json cast decoded')
+    eq(results[1].fields.color, 'red', 'get(): decoded value correct')
+    eq(results[1].id, 1, 'get(): .field access on wrapped instance')
+end)
+
+test('BaseModel: where(...):get() (filtered) also decodes and wraps', function()
+    local Category = BaseModel:extend('categories')
+    Category.casts = {fields = 'json'}
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        return {{id = 2, fields = '{"color":"blue"}'}}
+    end
+
+    local results = Category:where('id', 2):get()
+    Database.query = original
+
+    eq(results[1].fields.color, 'blue', 'where():get(): decoded value correct')
+end)
+
+test('QueryBuilder.get(): bare QueryBuilder (no model) returns raw rows', function()
+    local original = Database.query
+    Database.query = function(sql, params) return {{id = 1, fields = '{"a":1}'}} end
+    local results = QueryBuilder.new('categories'):get()
+    Database.query = original
+
+    eq(type(results[1].fields), 'string', 'bare QueryBuilder: no decoding, still a string')
+end)
+
 --------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------
