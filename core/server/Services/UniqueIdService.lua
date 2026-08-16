@@ -47,16 +47,31 @@ function UniqueIdService.generate(pattern)
     for i = 1, #pattern do
         local c = pattern:sub(i, i)
         if c == 'X' then
-            local v = n > 0 and (n % 36) or math.random(0, 35)
-            if n > 0 then n = n // 36 end
+            local v
+            if n > 0 then
+                v = n % 36
+                n = n // 36
+            else
+                v = math.random(0, 35)
+            end
             out[#out + 1] = ALPHANUM:sub(v + 1, v + 1)
         elseif c == 'N' then
-            local v = n > 0 and (n % 10) or math.random(0, 9)
-            if n > 0 then n = n // 10 end
+            local v
+            if n > 0 then
+                v = n % 10
+                n = n // 10
+            else
+                v = math.random(0, 9)
+            end
             out[#out + 1] = DIGIT:sub(v + 1, v + 1)
         elseif c == 'A' then
-            local v = n > 0 and (n % 26) or math.random(0, 25)
-            if n > 0 then n = n // 26 end
+            local v
+            if n > 0 then
+                v = n % 26
+                n = n // 26
+            else
+                v = math.random(0, 25)
+            end
             out[#out + 1] = ALPHA:sub(v + 1, v + 1)
         else
             out[#out + 1] = c
