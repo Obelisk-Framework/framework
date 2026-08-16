@@ -30,9 +30,9 @@ function EntityStreamerService.init()
     EntityStreamerService.chunks = {}
     EntityStreamerService.groups = {}
 
-    local rows = Entity:where('enabled', true):getSync()
+    local rows = Entity:where('enabled', true):get()
     for _, row in ipairs(rows) do
-        -- `Entity:where(...):getSync()` goes through the plain QueryBuilder,
+        -- `Entity:where(...):get()` goes through the plain QueryBuilder,
         -- which has no knowledge of the model's `casts` table -- only
         -- BaseModel:decodeJsonCasts applies those, and nothing on this read
         -- path calls it. So `data` still arrives as a raw JSON string here

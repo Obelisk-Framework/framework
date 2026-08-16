@@ -395,59 +395,59 @@ function QueryBuilder:toSql()
     return sql, self.params
 end
 
---- Execute the query and return results (async)
---- @param callback function
-function QueryBuilder:get(callback)
-    local sql, params = self:toSql()
-    Database.query(sql, params, callback)
-end
-
 --- Execute the query synchronously
 --- @return table Results
-function QueryBuilder:getSync()
+function QueryBuilder:get()
     local sql, params = self:toSql()
     return Database.query(sql, params)
 end
 
---- Get first result (async)
+--- Execute the query and return results (async)
 --- @param callback function
-function QueryBuilder:first(callback)
-    self:limit(1)
-    self:get(function(results)
-        callback(results[1])
-    end)
+function QueryBuilder:getAsync(callback)
+    local sql, params = self:toSql()
+    Database.queryAsync(sql, params, callback)
 end
 
 --- Get first result synchronously
 --- @return table|nil
-function QueryBuilder:firstSync()
+function QueryBuilder:first()
     self:limit(1)
-    local results = self:getSync()
+    local results = self:get()
     return results[1]
 end
 
---- Count results
+--- Get first result (async)
 --- @param callback function
-function QueryBuilder:count(callback)
-    local originalRaw = self.rawSelect
-    self:selectRaw('COUNT(*) as count')
-
-    self:first(function(result)
-        self.rawSelect = originalRaw
-        callback(tonumber(result and result.count) or 0)
+function QueryBuilder:firstAsync(callback)
+    self:limit(1)
+    self:getAsync(function(results)
+        callback(results[1])
     end)
 end
 
 --- Count synchronously
 --- @return number
-function QueryBuilder:countSync()
+function QueryBuilder:count()
     local originalRaw = self.rawSelect
     self:selectRaw('COUNT(*) as count')
 
-    local result = self:firstSync()
+    local result = self:first()
     self.rawSelect = originalRaw
 
     return tonumber(result and result.count) or 0
+end
+
+--- Count results (async)
+--- @param callback function
+function QueryBuilder:countAsync(callback)
+    local originalRaw = self.rawSelect
+    self:selectRaw('COUNT(*) as count')
+
+    self:firstAsync(function(result)
+        self.rawSelect = originalRaw
+        callback(tonumber(result and result.count) or 0)
+    end)
 end
 
 --- Insert data
@@ -535,12 +535,12 @@ function QueryBuilder:paginate(page, perPage, callback)
     perPage = perPage or 15
     
     -- First get total count
-    self:count(function(total)
+    self:countAsync(function(total)
         local lastPage = math.ceil(total / perPage)
         local offset = (page - 1) * perPage
         
         -- Now get the actual data
-        self:limit(perPage):offset(offset):get(function(data)
+        self:limit(perPage):offset(offset):getAsync(function(data)
             callback({
                 data = data,
                 total = total,

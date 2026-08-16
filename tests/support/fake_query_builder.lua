@@ -36,7 +36,7 @@ function FakeQueryBuilder:limit(n)
     return self
 end
 
-function FakeQueryBuilder:firstSync()
+function FakeQueryBuilder:first()
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
             return row
@@ -45,7 +45,7 @@ function FakeQueryBuilder:firstSync()
     return nil
 end
 
-function FakeQueryBuilder:getSync()
+function FakeQueryBuilder:get()
     local results = {}
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then

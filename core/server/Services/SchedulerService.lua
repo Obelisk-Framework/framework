@@ -36,7 +36,7 @@ end
 
 --- @return table[]
 function SchedulerService.list()
-    return QueryBuilder.new('scheduled_jobs'):getSync()
+    return QueryBuilder.new('scheduled_jobs'):get()
 end
 
 --- @param row table scheduled_jobs row
@@ -65,7 +65,7 @@ end
 
 --- @param now number unix epoch seconds
 function SchedulerService.tick(now)
-    local rows = QueryBuilder.new('scheduled_jobs'):where('enabled', 1):getSync()
+    local rows = QueryBuilder.new('scheduled_jobs'):where('enabled', 1):get()
     for _, row in ipairs(rows) do
         local ok, err = pcall(function()
             if SchedulerService.isDue(row, now) then

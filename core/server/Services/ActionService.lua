@@ -35,7 +35,7 @@ function ActionService.flushPendingRegistrations()
         local entry = ActionService.registry[actionId]
         if entry and not entry.dbId then
             local options = entry.options
-            local existing = QueryBuilder.new('actions'):where('action_id', actionId):firstSync()
+            local existing = QueryBuilder.new('actions'):where('action_id', actionId):first()
             local dbId
             if existing then
                 dbId = existing.id

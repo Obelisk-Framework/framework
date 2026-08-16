@@ -68,7 +68,7 @@ function BaseModel:newQuery()
 end
 
 --- Proxy the chainable QueryBuilder starter methods onto the model itself, so
---- `Inventory:where('owner', id):getSync()` works without an explicit
+--- `Inventory:where('owner', id):get()` works without an explicit
 --- `Inventory:newQuery():where(...)` call. Each just opens a new query and
 --- forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
@@ -87,7 +87,7 @@ end
 --- @param id any
 --- @param callback function
 function BaseModel:find(id, callback)
-    self:newQuery():where(self.primaryKey, id):first(function(result)
+    self:newQuery():where(self.primaryKey, id):firstAsync(function(result)
         if result then
             local instance = self:newFromQuery(result)
             callback(instance)
@@ -101,7 +101,7 @@ end
 --- @param id any
 --- @return BaseModel|nil
 function BaseModel:findSync(id)
-    local result = self:newQuery():where(self.primaryKey, id):firstSync()
+    local result = self:newQuery():where(self.primaryKey, id):first()
     if result then
         return self:newFromQuery(result)
     end
@@ -111,7 +111,7 @@ end
 --- Get all records (async)
 --- @param callback function
 function BaseModel:all(callback)
-    self:newQuery():get(function(results)
+    self:newQuery():getAsync(function(results)
         local models = {}
         for _, result in ipairs(results) do
             table.insert(models, self:newFromQuery(result))
@@ -123,7 +123,7 @@ end
 --- Get all synchronously
 --- @return table
 function BaseModel:allSync()
-    local results = self:newQuery():getSync()
+    local results = self:newQuery():get()
     local models = {}
     for _, result in ipairs(results) do
         table.insert(models, self:newFromQuery(result))
@@ -359,7 +359,7 @@ function BaseModel:load(relationName, callback)
     
     if relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):first(function(result)
+        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):firstAsync(function(result)
             if result then
                 self.relations[relationName] = relation.relatedModel:newFromQuery(result)
             end
@@ -367,7 +367,7 @@ function BaseModel:load(relationName, callback)
         end)
     elseif relation.type == 'hasMany' then
         local localValue = self.attributes[relation.localKey]
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get(function(results)
+        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):getAsync(function(results)
             local models = {}
             for _, result in ipairs(results) do
                 table.insert(models, relation.relatedModel:newFromQuery(result))
@@ -392,7 +392,7 @@ function BaseModel:load(relationName, callback)
                   relation.pivotTable .. '.' .. relation.relatedPivotKey)
             :where(relation.pivotTable .. '.' .. relation.foreignPivotKey, localId)
         
-        query:get(function(results)
+        query:getAsync(function(results)
             local models = {}
             for _, result in ipairs(results) do
                 table.insert(models, relation.relatedModel:newFromQuery(result))
@@ -415,13 +415,13 @@ function BaseModel:loadSync(relationName)
     
     if relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
-        local result = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):firstSync()
+        local result = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):first()
         if result then
             self.relations[relationName] = relation.relatedModel:newFromQuery(result)
         end
     elseif relation.type == 'hasMany' then
         local localValue = self.attributes[relation.localKey]
-        local results = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):getSync()
+        local results = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
         local models = {}
         for _, result in ipairs(results) do
             table.insert(models, relation.relatedModel:newFromQuery(result))
@@ -439,7 +439,7 @@ function BaseModel:loadSync(relationName)
                   relation.pivotTable .. '.' .. relation.relatedPivotKey)
             :where(relation.pivotTable .. '.' .. relation.foreignPivotKey, localId)
         
-        local results = query:getSync()
+        local results = query:get()
         local models = {}
         for _, result in ipairs(results) do
             table.insert(models, relation.relatedModel:newFromQuery(result))

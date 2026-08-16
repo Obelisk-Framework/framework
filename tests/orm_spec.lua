@@ -751,20 +751,20 @@ test('postgres: hasColumn queries table_catalog/table_schema', function()
 end)
 
 --------------------------------------------------------------------------------
--- QueryBuilder:count / countSync coping with string-typed pg results
+-- QueryBuilder:count / countAsync coping with string-typed pg results
 --------------------------------------------------------------------------------
-test('countSync: coerces a string count (pg bigint) to a number', function()
+test('count (sync): coerces a string count (pg bigint) to a number', function()
     local qb = QueryBuilder.new('users')
-    qb.firstSync = function() return {count = '3'} end
-    local result = qb:countSync()
+    qb.first = function() return {count = '3'} end
+    local result = qb:count()
     eq(result, 3)
 end)
 
 test('count (async): coerces a string count (pg bigint) to a number', function()
     local qb = QueryBuilder.new('users')
-    qb.first = function(_, callback) callback({count = '7'}) end
+    qb.firstAsync = function(_, callback) callback({count = '7'}) end
     local received
-    qb:count(function(n) received = n end)
+    qb:countAsync(function(n) received = n end)
     eq(received, 7)
 end)
 
@@ -816,7 +816,7 @@ test('BaseModel query proxy: Model:where(...) starts a query directly', function
         Player.table = 'players'
         Player.primaryKey = 'id'
 
-        Player:where('level', '>=', 10):orderBy('name'):limit(5):getSync()
+        Player:where('level', '>=', 10):orderBy('name'):limit(5):get()
 
         eq(get().query, 'SELECT * FROM `players` WHERE `level` >= ? ORDER BY `name` ASC LIMIT 5')
         eqList(get().params, {10})
@@ -828,7 +828,7 @@ test('BaseModel query proxy: works on an extend()-based subclass too', function(
         local Item = BaseModel:extend('items')
         Item.primaryKey = 'id'
 
-        Item:whereIn('kind', {'weapon', 'armor'}):getSync()
+        Item:whereIn('kind', {'weapon', 'armor'}):get()
 
         eq(get().query, 'SELECT * FROM `items` WHERE `kind` IN (?, ?)')
         eqList(get().params, {'weapon', 'armor'})
