@@ -1,7 +1,17 @@
 --- BaseModel - Active Record pattern with relationships
 --- Inspired by Laravel's Eloquent ORM
 BaseModel = {}
-BaseModel.__index = BaseModel
+BaseModel.__index = function(instance, key)
+    local attrs = rawget(instance, 'attributes')
+    if attrs and attrs[key] ~= nil then
+        return attrs[key]
+    end
+    local rels = rawget(instance, 'relations')
+    if rels and rels[key] ~= nil then
+        return rels[key]
+    end
+    return BaseModel[key]
+end
 
 --- Model configuration (override in child classes)
 BaseModel.table = nil
@@ -31,7 +41,17 @@ end
 --- @return table The new model class
 function BaseModel:extend(tableName)
     local child = {}
-    child.__index = child
+    child.__index = function(instance, key)
+        local attrs = rawget(instance, 'attributes')
+        if attrs and attrs[key] ~= nil then
+            return attrs[key]
+        end
+        local rels = rawget(instance, 'relations')
+        if rels and rels[key] ~= nil then
+            return rels[key]
+        end
+        return child[key]
+    end
     setmetatable(child, { __index = self })
 
     if tableName then
@@ -228,13 +248,6 @@ function BaseModel:deleteAsync(callback)
         self.exists = false
         if callback then callback(true) end
     end)
-end
-
---- Get attribute value
---- @param key string
---- @return any
-function BaseModel:get(key)
-    return self.attributes[key]
 end
 
 --- Set attribute value

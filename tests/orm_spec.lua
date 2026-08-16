@@ -962,6 +962,30 @@ test('BaseModel casts: malformed json cast field decodes to an empty table, no e
     eqList(widget.attributes.meta, {})
 end)
 
+test('BaseModel instance: .field reads attributes directly', function()
+    local Widget = BaseModel:extend('widgets')
+    local widget = Widget.new({id = 1, name = 'gizmo'})
+    eq(widget.name, 'gizmo', '.field should read attributes.field')
+    eq(widget.attributes.name, 'gizmo', '.attributes.field should still work')
+end)
+
+test('BaseModel instance: .field falls through to relations then methods', function()
+    local Widget = BaseModel:extend('widgets')
+    function Widget:describe() return 'a widget' end
+    local widget = Widget.new({id = 1})
+    widget.relations.owner = {id = 9}
+    eq(widget.owner.id, 9, '.field should fall through to relations')
+    eq(widget:describe(), 'a widget', 'method calls should still resolve')
+end)
+
+test('BaseModel: get(key) attribute getter is removed', function()
+    local Widget = BaseModel:extend('widgets')
+    local widget = Widget.new({id = 1})
+    -- get() is now the query-fetch method (class-level); calling it as an
+    -- instance attribute getter with a key arg is no longer supported.
+    truthy(widget.get == nil or type(widget.get) == 'function', 'get should not be an attribute getter')
+end)
+
 --------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------
