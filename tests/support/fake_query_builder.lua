@@ -73,6 +73,21 @@ function FakeQueryBuilder:get()
         results = limited
     end
 
+    -- Mirror the real QueryBuilder:get() (core/server/ORM/QueryBuilder.lua):
+    -- when a BaseModel has attached itself via `.model` (set by
+    -- BaseModel:newQuery()), wrap each raw row into a model instance via
+    -- `model:newFromQuery`, which JSON-decodes any `casts[key] == 'json'`
+    -- columns. Without this, every spec using this fake would silently
+    -- exercise a different code path than production for model-backed
+    -- reads (raw undecoded rows), even though `.model` was set.
+    if self.model then
+        local models = {}
+        for _, row in ipairs(results) do
+            table.insert(models, self.model:newFromQuery(row))
+        end
+        return models
+    end
+
     return results
 end
 
