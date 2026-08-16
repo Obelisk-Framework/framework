@@ -240,15 +240,42 @@ function EntityStreamerService.selectTier(currentChunk, facingChunk, source)
         return true
     end
 
+    -- Per-player projection: counts entities in chunks NOT already in this
+    -- player's own active set. A chunk held by another player is still a
+    -- full cost for this player if they don't already have it active.
+    local playerProjection = function(chunkList)
+        local playerData = EntityStreamerService.playerChunks[source]
+        local playerActive = playerData and playerData.activeChunks or {}
+        local addition = {}
+        for entityType in pairs(EntityStreamerService.perPlayerCaps) do
+            addition[entityType] = 0
+        end
+        for _, chunkKey in ipairs(chunkList) do
+            local alreadyActive = false
+            for _, activeChunk in ipairs(playerActive) do
+                if activeChunk == chunkKey then alreadyActive = true; break end
+            end
+            if not alreadyActive then
+                local counts = EntityStreamerService.countEntitiesInChunkByType(chunkKey)
+                for entityType, n in pairs(counts) do
+                    addition[entityType] = addition[entityType] + n
+                end
+            end
+        end
+        return addition
+    end
+
     local tier1 = EntityStreamerService.getSurroundingChunks(currentChunk, 1)
-    local add1 = projectedAdditionByType(tier1)
-    if fitsGlobal(add1) and fitsPlayer(add1) then
+    local globalAdd1 = projectedAdditionByType(tier1)
+    local playerAdd1 = playerProjection(tier1)
+    if fitsGlobal(globalAdd1) and fitsPlayer(playerAdd1) then
         return tier1, 1
     end
 
     local tier2 = { currentChunk, facingChunk }
-    local add2 = projectedAdditionByType(tier2)
-    if fitsGlobal(add2) and fitsPlayer(add2) then
+    local globalAdd2 = projectedAdditionByType(tier2)
+    local playerAdd2 = playerProjection(tier2)
+    if fitsGlobal(globalAdd2) and fitsPlayer(playerAdd2) then
         return tier2, 2
     end
 

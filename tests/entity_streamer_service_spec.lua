@@ -777,6 +777,51 @@ test('two players sharing a chunk: globalSpawnedCounts increments once, playerLo
     assert_(Streamer.playerLoad[2].object >= 1, 'p2 load')
 end)
 
+test('playerLoad invariant: matches recomputed sum across activeChunks after tier changes', function()
+    local Streamer = freshService()
+    -- Register entities in two different chunks
+    Streamer.register('ped',    { x=0,    y=0,    z=0, heading=0, model='p1', networked=false })
+    Streamer.register('object', { x=0,    y=0,    z=0, heading=0, model='o1', networked=false })
+    Streamer.register('ped',    { x=5000, y=5000, z=0, heading=0, model='p2', networked=false })
+
+    local p = fakePlayer(7)
+
+    -- Move player to chunk 0_0, commit tier (2 ticks)
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+
+    -- Verify invariant: playerLoad matches sum across activeChunks
+    local function checkInvariant(label)
+        local playerData = Streamer.playerChunks[7]
+        assert_(playerData ~= nil, label .. ': no playerData')
+        local expected = { ped = 0, object = 0, pickup = 0 }
+        for _, chunkKey in ipairs(playerData.activeChunks) do
+            local counts = Streamer.countEntitiesInChunkByType(chunkKey)
+            for t, n in pairs(counts) do
+                expected[t] = (expected[t] or 0) + n
+            end
+        end
+        local load = Streamer.playerLoad[7] or {}
+        for t, n in pairs(expected) do
+            eq(load[t] or 0, n, label .. ': playerLoad.' .. t)
+        end
+    end
+
+    checkInvariant('after first position')
+
+    -- Force tier downgrade by capping global ped budget
+    Streamer.globalBudgets.ped = Streamer.globalSpawnedCounts.ped
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    Streamer.updatePlayerChunks(p, 0, 0, '0_0')
+    checkInvariant('after tier downgrade')
+
+    -- Restore budget and move to the second chunk
+    Streamer.globalBudgets.ped = 2048
+    Streamer.updatePlayerChunks(p, 5000, 5000, '50_50')
+    Streamer.updatePlayerChunks(p, 5000, 5000, '50_50')
+    checkInvariant('after chunk change')
+end)
+
 if #failures > 0 then
     for _, f in ipairs(failures) do print('FAIL: ' .. f) end
     os.exit(1)
