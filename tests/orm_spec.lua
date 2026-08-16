@@ -1028,6 +1028,60 @@ test('QueryBuilder.get(): bare QueryBuilder (no model) returns raw rows', functi
     eq(type(results[1].fields), 'string', 'bare QueryBuilder: no decoding, still a string')
 end)
 
+test('BaseModel.with: single-level eager load batches into one query per relation', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Order:customer() return self:belongsTo(Customer, 'customer_id') end
+
+    local queries = {}
+    local original = Database.query
+    Database.query = function(sql, params)
+        table.insert(queries, sql)
+        if sql:find('FROM `orders`') then
+            return {{id = 1, customer_id = 10}, {id = 2, customer_id = 11}}
+        elseif sql:find('FROM `customers`') then
+            eqList(params, {10, 11}, 'with: customer_id IN batch')
+            return {{id = 10, name = 'Alice'}, {id = 11, name = 'Bob'}}
+        end
+        return {}
+    end
+
+    local orders = Order:with('customer'):get()
+    Database.query = original
+
+    eq(#orders, 2, 'with: base rows returned')
+    eq(orders[1].customer.name, 'Alice', 'with: relation attached and .field-readable')
+    eq(orders[2].customer.name, 'Bob', 'with: relation attached and .field-readable')
+end)
+
+test('BaseModel.with: nested dot-path batches one query per segment', function()
+    local Address = BaseModel:extend('addresses')
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Order:customer() return self:belongsTo(Customer, 'customer_id') end
+    function Customer:address() return self:hasOne(Address, 'customer_id') end
+
+    local queryCount = 0
+    local original = Database.query
+    Database.query = function(sql, params)
+        queryCount = queryCount + 1
+        if sql:find('FROM `orders`') then
+            return {{id = 1, customer_id = 10}}
+        elseif sql:find('FROM `customers`') then
+            return {{id = 10, name = 'Alice'}}
+        elseif sql:find('FROM `addresses`') then
+            return {{id = 100, customer_id = 10, city = 'Metropolis'}}
+        end
+        return {}
+    end
+
+    local orders = Order:with('customer.address'):get()
+    Database.query = original
+
+    eq(queryCount, 3, 'with nested: exactly 3 queries (base + 2 segments)')
+    eq(orders[1].customer.address.city, 'Metropolis', 'with nested: deep .field access resolves')
+end)
+
 --------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------

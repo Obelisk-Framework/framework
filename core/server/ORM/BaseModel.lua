@@ -107,6 +107,24 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
     end
 end
 
+--- Record a relation path (single-level or dot-separated) to eager-load
+--- after the terminal fetch resolves.
+--- @param path string
+--- @return QueryBuilder
+function BaseModel:with(path)
+    local query = self:newQuery()
+    table.insert(query.withPaths, path)
+    return query
+end
+
+--- Same as `with`, for use before `getAsync`/`findAsync`; the eager-load
+--- resolution itself stays synchronous once the terminal fetch resolves.
+--- @param path string
+--- @return QueryBuilder
+function BaseModel:withAsync(path)
+    return self:with(path)
+end
+
 --- Find synchronously
 --- @param id any
 --- @return BaseModel|nil
@@ -438,6 +456,92 @@ function BaseModel:loadAsync(relationName, callback)
             self.relations[relationName] = models
             callback(models)
         end)
+    end
+end
+
+--- Eager-load a (possibly dot-separated) relation path across a batch of
+--- already-fetched model instances, one batched query per path segment.
+--- @param instances table Array of model instances sharing this model's relations
+--- @param path string e.g. 'customer' or 'customer.address'
+function BaseModel:eagerLoad(instances, path)
+    local segment, rest = path:match('^([^.]+)%.?(.*)$')
+    if #instances == 0 then
+        return
+    end
+
+    local relation = instances[1][segment](instances[1])
+    local related = relation.relatedModel
+
+    if relation.type == 'hasOne' or relation.type == 'hasMany' then
+        local localValues = {}
+        for _, inst in ipairs(instances) do
+            table.insert(localValues, inst.attributes[relation.localKey])
+        end
+        local rows = related:newQuery():whereIn(relation.foreignKey, localValues):get()
+        local byForeign = {}
+        for _, row in ipairs(rows) do
+            local fk = row.attributes[relation.foreignKey]
+            byForeign[fk] = byForeign[fk] or {}
+            table.insert(byForeign[fk], row)
+        end
+        for _, inst in ipairs(instances) do
+            local matches = byForeign[inst.attributes[relation.localKey]] or {}
+            inst.relations[segment] = (relation.type == 'hasOne') and matches[1] or matches
+        end
+    elseif relation.type == 'belongsTo' then
+        local foreignValues = {}
+        for _, inst in ipairs(instances) do
+            table.insert(foreignValues, inst.attributes[relation.foreignKey])
+        end
+        local rows = related:newQuery():whereIn(relation.ownerKey, foreignValues):get()
+        local byOwner = {}
+        for _, row in ipairs(rows) do
+            byOwner[row.attributes[relation.ownerKey]] = row
+        end
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = byOwner[inst.attributes[relation.foreignKey]]
+        end
+    elseif relation.type == 'belongsToMany' then
+        local localIds = {}
+        for _, inst in ipairs(instances) do
+            table.insert(localIds, inst.attributes[inst.primaryKey])
+        end
+        local rows = related:newQuery()
+            :join(relation.pivotTable,
+                  related.table .. '.' .. related.primaryKey,
+                  '=',
+                  relation.pivotTable .. '.' .. relation.relatedPivotKey)
+            :whereIn(relation.pivotTable .. '.' .. relation.foreignPivotKey, localIds)
+            :get()
+        -- Grouping by owning instance requires the pivot's foreign key in the
+        -- selected columns; select it explicitly alongside the related row.
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = inst.relations[segment] or {}
+        end
+        for _, row in ipairs(rows) do
+            for _, inst in ipairs(instances) do
+                table.insert(inst.relations[segment], row)
+            end
+        end
+    end
+
+    if rest ~= '' then
+        local nextLevelInstances = {}
+        local seenIds = {}
+        for _, inst in ipairs(instances) do
+            local rel = inst.relations[segment]
+            local relList = (relation.type == 'hasMany' or relation.type == 'belongsToMany') and rel or {rel}
+            for _, relInst in ipairs(relList) do
+                if relInst then
+                    local id = relInst.attributes[relInst.primaryKey]
+                    if not seenIds[id] then
+                        seenIds[id] = true
+                        table.insert(nextLevelInstances, relInst)
+                    end
+                end
+            end
+        end
+        related:eagerLoad(nextLevelInstances, rest)
     end
 end
 

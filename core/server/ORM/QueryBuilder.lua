@@ -58,6 +58,7 @@ function QueryBuilder.new(tableName, primaryKey)
     self.havingConditions = {}
     self.params = {}
     self.paramIndex = 1
+    self.withPaths = {}
     return self
 end
 
@@ -407,6 +408,11 @@ function QueryBuilder:get()
     for _, result in ipairs(results) do
         table.insert(models, self.model:newFromQuery(result))
     end
+    if #self.withPaths > 0 then
+        for _, path in ipairs(self.withPaths) do
+            self.model:eagerLoad(models, path)
+        end
+    end
     return models
 end
 
@@ -422,6 +428,11 @@ function QueryBuilder:getAsync(callback)
         local models = {}
         for _, result in ipairs(results) do
             table.insert(models, self.model:newFromQuery(result))
+        end
+        if #self.withPaths > 0 then
+            for _, path in ipairs(self.withPaths) do
+                self.model:eagerLoad(models, path)
+            end
         end
         callback(models)
     end)
