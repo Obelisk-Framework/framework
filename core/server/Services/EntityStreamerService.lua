@@ -6,10 +6,10 @@ EntityStreamerService.entities = {} -- {entityType: {entityId: entityData}}
 EntityStreamerService.chunks = {} -- {chunkKey: {entityType: {entityId}}}
 EntityStreamerService.playerChunks = {} -- {playerId: {currentChunk, activeChunks[]}}
 EntityStreamerService.entityTypes = {'ped', 'marker', 'object', 'pickup', 'blip'}
-EntityStreamerService.entityBudget = 300 -- global cap on peds/objects/pickups spawned across all players
+EntityStreamerService.perPlayerCaps = { ped = 256, object = 2048, pickup = 70 }
+EntityStreamerService.globalBudgets  = { ped = 2048, object = 16384, pickup = 700 }
+EntityStreamerService.globalSpawnedCounts = { ped = 0, object = 0, pickup = 0 }
 EntityStreamerService.chunkPlayerRefs = {} -- {chunkKey: number of players with this chunk active}
-EntityStreamerService.globalSpawnedCount = 0 -- sum of budget-countable entities across referenced chunks
-EntityStreamerService.budgetCountableTypes = { ped = true, object = true, pickup = true }
 EntityStreamerService.networkedOwners = {} -- {entityId: source}, who owns a networked entity
 
 --- Group-entity registry: a shell (or any future non-spatial grouping) gets
@@ -172,53 +172,66 @@ function EntityStreamerService.getPrecacheChunk(currentChunk, heading)
     return facingChunk, lookaheadChunk
 end
 
---- Count only budget-relevant entities (ped/object/pickup) in a chunk.
+--- Count budget-relevant entities (ped/object/pickup) in a chunk, per type.
 --- Markers and blips never consume an entity handle, so they're free.
 --- @param chunkKey string
---- @return number
-function EntityStreamerService.countBudgetEntitiesInChunk(chunkKey)
+--- @return table {ped=N, object=N, pickup=N}
+function EntityStreamerService.countEntitiesInChunkByType(chunkKey)
     local chunk = EntityStreamerService.chunks[chunkKey]
-    if not chunk then return 0 end
-
-    local count = 0
-    for entityType, isCountable in pairs(EntityStreamerService.budgetCountableTypes) do
-        if isCountable and chunk[entityType] then
-            for _ in pairs(chunk[entityType]) do
-                count = count + 1
-            end
+    local counts = {}
+    for entityType in pairs(EntityStreamerService.perPlayerCaps) do
+        local n = 0
+        if chunk and chunk[entityType] then
+            for _ in pairs(chunk[entityType]) do n = n + 1 end
         end
+        counts[entityType] = n
     end
-    return count
+    return counts
 end
 
---- Project how much a candidate chunk set would add to the global budget,
---- counting only chunks no other player already has referenced (a chunk
---- shared by two nearby players is one real cost, not two).
+--- Per-type projected addition for chunks not yet referenced by any player.
 --- @param chunkList string[]
---- @return number
-local function projectedAddition(chunkList)
-    local addition = 0
+--- @return table {ped=N, object=N, pickup=N}
+local function projectedAdditionByType(chunkList)
+    local addition = {}
+    for entityType in pairs(EntityStreamerService.perPlayerCaps) do
+        addition[entityType] = 0
+    end
     for _, chunkKey in ipairs(chunkList) do
         if (EntityStreamerService.chunkPlayerRefs[chunkKey] or 0) == 0 then
-            addition = addition + EntityStreamerService.countBudgetEntitiesInChunk(chunkKey)
+            local counts = EntityStreamerService.countEntitiesInChunkByType(chunkKey)
+            for entityType, n in pairs(counts) do
+                addition[entityType] = addition[entityType] + n
+            end
         end
     end
     return addition
 end
 
 --- Pick the highest tier (widest chunk set) that fits within the global
---- entity budget. Tier 3 (current chunk only) always succeeds.
+--- per-type entity budgets. Tier 3 (current chunk only) always succeeds.
 --- @param currentChunk string
 --- @param facingChunk string
+--- @param source number player source (used by per-player gate, Task 2)
 --- @return string[] chunkList, number tier
-function EntityStreamerService.selectTier(currentChunk, facingChunk)
+function EntityStreamerService.selectTier(currentChunk, facingChunk, source)
+    local function fitsGlobal(addition)
+        for entityType, n in pairs(addition) do
+            local cap = EntityStreamerService.globalBudgets[entityType] or math.huge
+            if (EntityStreamerService.globalSpawnedCounts[entityType] or 0) + n > cap then
+                return false
+            end
+        end
+        return true
+    end
+
     local tier1 = EntityStreamerService.getSurroundingChunks(currentChunk, 1)
-    if EntityStreamerService.globalSpawnedCount + projectedAddition(tier1) <= EntityStreamerService.entityBudget then
+    if fitsGlobal(projectedAdditionByType(tier1)) then
         return tier1, 1
     end
 
     local tier2 = { currentChunk, facingChunk }
-    if EntityStreamerService.globalSpawnedCount + projectedAddition(tier2) <= EntityStreamerService.entityBudget then
+    if fitsGlobal(projectedAdditionByType(tier2)) then
         return tier2, 2
     end
 
@@ -448,10 +461,14 @@ end
 --- (handlePlayerDropped) so the two can't drift apart.
 --- @param chunkKey string
 function EntityStreamerService.releaseChunkRef(chunkKey)
-    EntityStreamerService.chunkPlayerRefs[chunkKey] = math.max((EntityStreamerService.chunkPlayerRefs[chunkKey] or 1) - 1, 0)
+    EntityStreamerService.chunkPlayerRefs[chunkKey] = math.max(
+        (EntityStreamerService.chunkPlayerRefs[chunkKey] or 1) - 1, 0)
     if EntityStreamerService.chunkPlayerRefs[chunkKey] == 0 then
-        EntityStreamerService.globalSpawnedCount = math.max(EntityStreamerService.globalSpawnedCount -
-            EntityStreamerService.countBudgetEntitiesInChunk(chunkKey), 0)
+        local freed = EntityStreamerService.countEntitiesInChunkByType(chunkKey)
+        for entityType, n in pairs(freed) do
+            EntityStreamerService.globalSpawnedCounts[entityType] =
+                math.max((EntityStreamerService.globalSpawnedCounts[entityType] or 0) - n, 0)
+        end
     end
 end
 
@@ -479,7 +496,8 @@ function EntityStreamerService.updatePlayerChunks(player, x, y, facingChunk)
     end
     local playerData = EntityStreamerService.playerChunks[player:getSource()]
 
-    local candidateChunks, candidateTier = EntityStreamerService.selectTier(currentChunk, facingChunk)
+    local candidateChunks, candidateTier = EntityStreamerService.selectTier(
+        currentChunk, facingChunk, player:getSource())
 
     -- Tier hysteresis: only commit a tier change after 2 consecutive ticks agree.
     if playerData.pendingTier == candidateTier then
@@ -525,8 +543,11 @@ function EntityStreamerService.updatePlayerChunks(player, x, y, facingChunk)
     for _, chunk in ipairs(chunksToLoad) do
         EntityStreamerService.chunkPlayerRefs[chunk] = (EntityStreamerService.chunkPlayerRefs[chunk] or 0) + 1
         if EntityStreamerService.chunkPlayerRefs[chunk] == 1 then
-            EntityStreamerService.globalSpawnedCount = EntityStreamerService.globalSpawnedCount +
-                EntityStreamerService.countBudgetEntitiesInChunk(chunk)
+            local added = EntityStreamerService.countEntitiesInChunkByType(chunk)
+            for entityType, n in pairs(added) do
+                EntityStreamerService.globalSpawnedCounts[entityType] =
+                    (EntityStreamerService.globalSpawnedCounts[entityType] or 0) + n
+            end
         end
         EntityStreamerService.loadChunkForPlayer(player, chunk)
     end
