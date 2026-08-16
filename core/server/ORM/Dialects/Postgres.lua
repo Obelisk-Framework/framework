@@ -129,6 +129,14 @@ function PostgresDialect.renameColumnSQL(tableName, from, to)
     return 'ALTER TABLE ' .. q(tableName) .. ' RENAME COLUMN ' .. q(from) .. ' TO ' .. q(to)
 end
 
+--- @param from string
+--- @param to string
+--- @return string
+function PostgresDialect.renameTableSQL(from, to)
+    local q = PostgresDialect.quoteIdentifier
+    return 'ALTER TABLE ' .. q(from) .. ' RENAME TO ' .. q(to)
+end
+
 --- Postgres connectors have no connector-native insertId; RETURNING the
 --- primary key is how oblsk_connector's Postgres path recovers it (see
 --- oblsk_connector/index.js).

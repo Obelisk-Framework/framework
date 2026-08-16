@@ -11,6 +11,7 @@
 ---   standaloneIndexStatements(tableName, indexes, q) -> string[]
 ---   alterAddIndexStatements(tableName, idx, q) -> string[]
 ---   renameColumnSQL(tableName, from, to) -> string
+---   renameTableSQL(from, to) -> string
 ---   insertReturningClause(primaryKey) -> string
 --- `q` passed into the index helpers is always that dialect's own quoteIdentifier.
 Dialects = {}

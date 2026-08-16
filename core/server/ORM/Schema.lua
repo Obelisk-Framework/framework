@@ -547,6 +547,12 @@ function Schema.renameColumn(tableName, from, to)
     return Database.querySync(sql, {})
 end
 
+--- Rename a table
+function Schema.renameTable(from, to)
+    local sql = Database.dialect.renameTableSQL(from, to)
+    return Database.querySync(sql, {})
+end
+
 -- Exposed for unit tests that need to construct/inspect a Blueprint directly
 -- (e.g. verifying :change() without driving a full Schema.table() call).
 Schema.Blueprint = Blueprint
