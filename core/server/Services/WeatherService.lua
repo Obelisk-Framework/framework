@@ -151,3 +151,39 @@ function WeatherService.startTick()
         end
     end)
 end
+
+--- Emit exposure events for all connected players based on current window.
+--- @param window table current weather window
+--- @param tickMinutes number how many minutes this tick represents
+function WeatherService.emitExposure(window, tickMinutes)
+    local cfg = WeatherConfig
+    local isCold = window.temperature < cfg.climate.cold_threshold_c
+    local isHot  = window.temperature > cfg.climate.hot_threshold_c
+    local isRain = window.precipitation > 0.1
+
+    if not isCold and not isHot then return end
+
+    for _, player in ipairs(PlayerService.getAll()) do
+        local src = player:getSource()
+        if isCold then
+            local rate = cfg.exposure.cold_rate * (isRain and cfg.exposure.rain_multiplier or 1.0)
+            TriggerEvent('oblsk:weather:cold_exposure_tick', src, rate * tickMinutes)
+        elseif isHot then
+            TriggerEvent('oblsk:weather:heat_exposure_tick', src, cfg.exposure.heat_rate * tickMinutes)
+        end
+    end
+end
+
+--- Start the exposure tick loop (every tick_interval seconds).
+function WeatherService.startExposureTick()
+    local interval = WeatherConfig.exposure.tick_interval
+    CreateThread(function()
+        while true do
+            Wait(interval * 1000)
+            local window = WeatherService.getCurrentWindow(os.time())
+            if window then
+                WeatherService.emitExposure(window, interval / 60)
+            end
+        end
+    end)
+end
