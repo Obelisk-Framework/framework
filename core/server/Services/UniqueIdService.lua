@@ -37,22 +37,27 @@ end
 --- @return string
 function UniqueIdService.generate(pattern)
     local cs, ts = tick()
-    -- 46-bit unique counter: 32-bit timestamp-seconds in upper bits, 14-bit clockSeq in lower
-    -- Consecutive calls produce consecutive n values → distinct outputs for patterns with 2+ X positions
+    -- 46-bit unique counter: 32-bit second | 14-bit clockSeq.
+    -- Covers ~9 X positions bijectively (36^9 > 2^46 > n). Beyond that,
+    -- math.random fills remaining positions with negligible collision risk.
+    -- Hard cap: 16,384 unique IDs per second (14-bit clockSeq limit).
     local n = ts * 0x4000 + cs
 
     local out = {}
     for i = 1, #pattern do
         local c = pattern:sub(i, i)
         if c == 'X' then
-            out[#out + 1] = ALPHANUM:sub((n % 36) + 1, (n % 36) + 1)
-            n = n // 36
+            local v = n > 0 and (n % 36) or math.random(0, 35)
+            if n > 0 then n = n // 36 end
+            out[#out + 1] = ALPHANUM:sub(v + 1, v + 1)
         elseif c == 'N' then
-            out[#out + 1] = DIGIT:sub((n % 10) + 1, (n % 10) + 1)
-            n = n // 10
+            local v = n > 0 and (n % 10) or math.random(0, 9)
+            if n > 0 then n = n // 10 end
+            out[#out + 1] = DIGIT:sub(v + 1, v + 1)
         elseif c == 'A' then
-            out[#out + 1] = ALPHA:sub((n % 26) + 1, (n % 26) + 1)
-            n = n // 26
+            local v = n > 0 and (n % 26) or math.random(0, 25)
+            if n > 0 then n = n // 26 end
+            out[#out + 1] = ALPHA:sub(v + 1, v + 1)
         else
             out[#out + 1] = c
         end

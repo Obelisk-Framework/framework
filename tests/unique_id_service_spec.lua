@@ -68,7 +68,7 @@ test('literal characters pass through unchanged', function()
 end)
 
 test('mixed pattern produces correct total length and char sets', function()
-    -- TIRE-XXXX-XXXX: 4 literals + 4 X + 1 literal + 4 X = 13 chars
+    -- TIRE-XXXX-XXXX: 5 literals (T,I,R,E,-) + 4 X + 1 literal (-) + 4 X = 14 chars
     local result = UniqueIdService.generate('TIRE-XXXX-XXXX')
     eq(#result, 14, 'length')
     eq(result:sub(1, 5), 'TIRE-', 'prefix')
@@ -92,6 +92,15 @@ test('clock sequence increments when two calls land in the same second', functio
     eq(#id2, 8)
     -- They differ — clock sequence bumped the UUID between calls
     assert_(id1 ~= id2, 'same-second calls produced identical IDs: ' .. id1)
+end)
+
+-- ── long pattern (VIN) test ─────────────────────────────────────────────────
+
+test('17-X VIN pattern produces correct length and valid alphanum output', function()
+    local result = UniqueIdService.generate('XXXXXXXXXXXXXXXXX')
+    eq(#result, 17, 'length')
+    assert_(matchesCharSet(result, '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+        'non-alphanum in VIN: ' .. result)
 end)
 
 -- ── uniqueness smoke test ────────────────────────────────────────────────────
