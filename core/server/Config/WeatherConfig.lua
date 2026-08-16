@@ -18,8 +18,6 @@ WeatherConfig = {
         cold_rate        = 1.0,
         rain_multiplier  = 1.5,
         heat_rate        = 1.0,
-        cold_threshold   = 60,
-        heat_threshold   = 40,
         tick_interval    = 60,
     },
 }
