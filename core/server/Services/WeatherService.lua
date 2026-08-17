@@ -122,7 +122,7 @@ function WeatherService.tick(now)
         return  -- same window, no change
     end
     WeatherService._currentWindow = window
-    TriggerClientEvent('oblsk:weather:sync', -1, {
+    Obelisk.emitClient('oblsk:weather:sync', -1, {
         weather_type  = window.weather_type,
         temperature   = window.temperature,
         precipitation = window.precipitation,
