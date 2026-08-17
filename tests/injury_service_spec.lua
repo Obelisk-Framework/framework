@@ -71,6 +71,61 @@ test('setState: writes row and fires state_changed event', function()
     end)
 end)
 
+test('addInjury: inserts row and fires injury_added event', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        local events = {}
+        _G.TriggerEvent = function(name, ...) events[#events+1] = {name=name, args={...}} end
+
+        local id = InjuryService.addInjury(7, 'thorax', 'bullet')
+        truthy(id ~= nil, 'expected an id')
+        eq(#(tables.player_injuries or {}), 1)
+        eq(tables.player_injuries[1].zone, 'thorax')
+        eq(tables.player_injuries[1].wound_type, 'bullet')
+        eq(tables.player_injuries[1].hit_count, 1)
+        truthy(#events > 0)
+        eq(events[1].name, 'oblsk:injury:injury_added')
+    end)
+end)
+
+test('addInjury: stacks hit_count on same zone', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        _G.TriggerEvent = function() end
+        InjuryService.addInjury(7, 'lower_leg_l', 'bullet')
+        InjuryService.addInjury(7, 'lower_leg_l', 'bullet')
+        eq(#(tables.player_injuries or {}), 1)
+        eq(tables.player_injuries[1].hit_count, 2)
+    end)
+end)
+
+test('treatInjury: sets treated_at on the row', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        _G.TriggerEvent = function() end
+        local id = InjuryService.addInjury(7, 'hand_r', 'stab')
+        InjuryService.treatInjury(7, id)
+        eq(tables.player_injuries[1].treated_at ~= nil, true)
+    end)
+end)
+
+test('getInjuries: returns only untreated rows', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        _G.TriggerEvent = function() end
+        local id1 = InjuryService.addInjury(7, 'thorax', 'bullet')
+        local id2 = InjuryService.addInjury(7, 'hand_r', 'bullet')
+        InjuryService.treatInjury(7, id1)
+        local injuries = InjuryService.getInjuries(7)
+        eq(#injuries, 1)
+        eq(injuries[1].zone, 'hand_r')
+    end)
+end)
+
 -- runner
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
