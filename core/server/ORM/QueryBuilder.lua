@@ -156,6 +156,7 @@ end
 --- WHERE clause with a raw SQL fragment (no params; caller is responsible for safety)
 --- @param sql string Raw SQL fragment, e.g. "`owner_type` = 'ATMMachine'"
 --- @return QueryBuilder
+--- @warning The sql fragment is embedded verbatim — never pass user-controlled data.
 function QueryBuilder:whereRaw(sql)
     table.insert(self.whereConditions, {
         type = 'raw',

@@ -807,7 +807,9 @@ function BaseModel:eagerLoad(instances, path)
                 end
             end
         end
-        -- morphTo has no single relatedModel; skip recursive eager-load for now.
+        -- morphTo resolves to a per-instance class at runtime; recursive eager-loading
+        -- on a polymorphic inverse is not supported — callers must load nested paths
+        -- on each concrete type separately.
         if related then
             related:eagerLoad(nextLevelInstances, rest)
         end
