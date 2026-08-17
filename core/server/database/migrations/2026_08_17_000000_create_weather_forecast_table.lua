@@ -1,19 +1,15 @@
 return {
     up = function()
-        Database.query([[
-            CREATE TABLE IF NOT EXISTS weather_forecast (
-                id              INTEGER PRIMARY KEY AUTO_INCREMENT,
-                window_start    INTEGER NOT NULL,
-                window_end      INTEGER NOT NULL,
-                weather_type    VARCHAR(32) NOT NULL,
-                temperature     FLOAT NOT NULL,
-                precipitation   FLOAT NOT NULL DEFAULT 0,
-                wind_speed      FLOAT NOT NULL DEFAULT 0,
-                generated_at    INTEGER NOT NULL
-            )
-        ]])
+        Schema.create('weather_forecast', function(t)
+            t:id()
+            t:integer('window_start')
+            t:integer('window_end')
+            t:string('weather_type', 32)
+            t:float('temperature')
+            t:float('precipitation'):default(0)
+            t:float('wind_speed'):default(0)
+            t:integer('generated_at')
+        end)
     end,
-    down = function()
-        Database.query('DROP TABLE IF EXISTS weather_forecast')
-    end,
+    down = function() Schema.drop('weather_forecast') end,
 }

@@ -1,0 +1,2 @@
+# Server-local config overrides (see *.lua.example counterparts)
+WeatherConfig.lua

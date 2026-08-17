@@ -4,7 +4,9 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx,vue}",
     "../plugins/**/*.{js,ts,jsx,tsx,vue}",
-    "../modules/**/*.{js,ts,jsx,tsx,vue}"
+    "!../plugins/**/node_modules/**",
+    "../modules/**/*.{js,ts,jsx,tsx,vue}",
+    "!../modules/**/node_modules/**"
   ],
   theme: {
     extend: {
