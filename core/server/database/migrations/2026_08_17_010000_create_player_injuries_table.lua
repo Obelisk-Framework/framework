@@ -12,6 +12,7 @@ return {
                 treated_at   INTEGER
             )
         ]])
+        Database.query('CREATE INDEX IF NOT EXISTS idx_player_injuries_player ON player_injuries (player_type, player_id)')
     end,
     down = function() Database.query('DROP TABLE IF EXISTS player_injuries') end,
 }

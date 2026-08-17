@@ -15,6 +15,7 @@ function InjuryService.getBinding(playerId)
         local char = CharacterService.getActiveCharacter(playerId)
         if char then return { type = 'character', id = char.id } end
     end
+    if not PlayerService then return { type = 'account', id = 0 } end
     local player = PlayerService.get(playerId)
     local accountId = player:getIdentifier('account')
     return { type = 'account', id = accountId }
@@ -41,6 +42,7 @@ function InjuryService.setState(playerId, newState)
         :where('player_id', b.id)
         :firstSync()
     local oldState = existing and existing.state or 'healthy'
+    if oldState == newState then return end
     if existing then
         QueryBuilder.new('player_states')
             :where('player_type', b.type)
@@ -74,6 +76,7 @@ function InjuryService.addInjury(playerId, zone, woundType)
         :firstSync()
     local id
     if existing then
+        -- original wound_type persists; subsequent hits increment hit_count only
         QueryBuilder.new('player_injuries')
             :where('id', existing.id)
             :update({ hit_count = existing.hit_count + 1 })
@@ -149,6 +152,7 @@ function InjuryService.treatIllness(playerId, illnessId)
     QueryBuilder.new('player_illnesses')
         :where('id', illnessId)
         :update({ treated_at = Database.now() })
+    TriggerEvent('oblsk:injury:illness_treated', playerId, illnessId)
 end
 
 --- @param playerId number
