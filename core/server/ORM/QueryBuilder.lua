@@ -153,6 +153,18 @@ function QueryBuilder:whereIn(column, values)
     return self
 end
 
+--- WHERE clause with a raw SQL fragment (no params; caller is responsible for safety)
+--- @param sql string Raw SQL fragment, e.g. "`owner_type` = 'ATMMachine'"
+--- @return QueryBuilder
+function QueryBuilder:whereRaw(sql)
+    table.insert(self.whereConditions, {
+        type = 'raw',
+        sql = sql,
+        boolean = 'AND'
+    })
+    return self
+end
+
 --- WHERE NULL clause
 --- @param column string
 --- @return QueryBuilder
@@ -283,6 +295,8 @@ function QueryBuilder:buildWhereClause()
             clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NULL'
         elseif condition.type == 'notNull' then
             clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NOT NULL'
+        elseif condition.type == 'raw' then
+            clause = clause .. condition.sql
         end
         
         table.insert(clauses, clause)

@@ -451,6 +451,42 @@ function BaseModel:belongsToMany(relatedModel, pivotTable, foreignPivotKey, rela
     }
 end
 
+--- Define a morphOne relationship (this model owns one related row via owner_type/owner_id)
+--- owner_type value must equal the Lua global name of this model class.
+function BaseModel:morphOne(relatedModel, ownerIdKey, ownerTypeKey, ownerTypeValue)
+    return {
+        type = 'morphOne',
+        relatedModel = relatedModel,
+        ownerIdKey = ownerIdKey,
+        ownerTypeKey = ownerTypeKey,
+        ownerTypeValue = ownerTypeValue,
+        localKey = self.primaryKey,
+    }
+end
+
+--- Define a morphMany relationship (this model owns many related rows via owner_type/owner_id)
+function BaseModel:morphMany(relatedModel, ownerIdKey, ownerTypeKey, ownerTypeValue)
+    return {
+        type = 'morphMany',
+        relatedModel = relatedModel,
+        ownerIdKey = ownerIdKey,
+        ownerTypeKey = ownerTypeKey,
+        ownerTypeValue = ownerTypeValue,
+        localKey = self.primaryKey,
+    }
+end
+
+--- Define a morphTo relationship (resolve this row's polymorphic owner)
+--- Reads self.attributes[ownerTypeKey] as a _G key to find the model class,
+--- then calls :find(self.attributes[ownerIdKey]) on it.
+function BaseModel:morphTo(ownerTypeKey, ownerIdKey)
+    return {
+        type = 'morphTo',
+        ownerTypeKey = ownerTypeKey,
+        ownerIdKey = ownerIdKey,
+    }
+end
+
 --- Load relationship synchronously
 --- @param relationName string
 --- @return any
@@ -487,6 +523,28 @@ function BaseModel:load(relationName)
 
         -- `get()` is model-aware and already returns wrapped model instances.
         self.relations[relationName] = query:get()
+    elseif relation.type == 'morphOne' then
+        local localValue = self.attributes[relation.localKey]
+        local result = relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, localValue)
+            :first()
+        if result then
+            self.relations[relationName] = result
+        end
+    elseif relation.type == 'morphMany' then
+        local localValue = self.attributes[relation.localKey]
+        self.relations[relationName] = relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, localValue)
+            :get()
+    elseif relation.type == 'morphTo' then
+        local ownerType = self.attributes[relation.ownerTypeKey]
+        local ownerId   = self.attributes[relation.ownerIdKey]
+        local model = ownerType and _G[ownerType]
+        if model and ownerId then
+            self.relations[relationName] = model:find(ownerId)
+        end
     end
 
     return self.relations[relationName]
@@ -541,6 +599,36 @@ function BaseModel:loadAsync(relationName, callback)
             self.relations[relationName] = models
             callback(models)
         end)
+    elseif relation.type == 'morphOne' then
+        local localValue = self.attributes[relation.localKey]
+        relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, localValue)
+            :firstAsync(function(result)
+                if result then self.relations[relationName] = result end
+                callback(self.relations[relationName])
+            end)
+    elseif relation.type == 'morphMany' then
+        local localValue = self.attributes[relation.localKey]
+        relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, localValue)
+            :getAsync(function(models)
+                self.relations[relationName] = models
+                callback(models)
+            end)
+    elseif relation.type == 'morphTo' then
+        local ownerType = self.attributes[relation.ownerTypeKey]
+        local ownerId   = self.attributes[relation.ownerIdKey]
+        local model = ownerType and _G[ownerType]
+        if model and ownerId then
+            model:newQuery():where(model.primaryKey, ownerId):firstAsync(function(result)
+                self.relations[relationName] = result
+                callback(result)
+            end)
+        else
+            callback(nil)
+        end
     end
 end
 
@@ -629,6 +717,75 @@ function BaseModel:eagerLoad(instances, path)
                 table.insert(owner.relations[segment], shared)
             end
         end
+    elseif relation.type == 'morphOne' then
+        local localValues = {}
+        for _, inst in ipairs(instances) do
+            table.insert(localValues, inst.attributes[relation.localKey])
+        end
+        -- Embed owner_type as a SQL literal so only the IN-list IDs appear in params.
+        local typeFilter = QueryBuilder.quoteIdentifier(relation.ownerTypeKey)
+                        .. " = '" .. relation.ownerTypeValue:gsub("'", "''") .. "'"
+        local rows = related:newQuery()
+            :whereRaw(typeFilter)
+            :whereIn(relation.ownerIdKey, localValues)
+            :get()
+        local byOwnerId = {}
+        for _, row in ipairs(rows) do
+            byOwnerId[row.attributes[relation.ownerIdKey]] = row
+        end
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = byOwnerId[inst.attributes[relation.localKey]]
+        end
+    elseif relation.type == 'morphMany' then
+        local localValues = {}
+        for _, inst in ipairs(instances) do
+            table.insert(localValues, inst.attributes[relation.localKey])
+        end
+        -- Embed owner_type as a SQL literal so only the IN-list IDs appear in params.
+        local typeFilter = QueryBuilder.quoteIdentifier(relation.ownerTypeKey)
+                        .. " = '" .. relation.ownerTypeValue:gsub("'", "''") .. "'"
+        local rows = related:newQuery()
+            :whereRaw(typeFilter)
+            :whereIn(relation.ownerIdKey, localValues)
+            :get()
+        local byOwnerId = {}
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = {}
+            byOwnerId[inst.attributes[relation.localKey]] = inst
+        end
+        for _, row in ipairs(rows) do
+            local owner = byOwnerId[row.attributes[relation.ownerIdKey]]
+            if owner then
+                table.insert(owner.relations[segment], row)
+            end
+        end
+    elseif relation.type == 'morphTo' then
+        -- Group instances by owner_type; batch one query per distinct type.
+        local byType = {}
+        for _, inst in ipairs(instances) do
+            local ownerType = inst.attributes[relation.ownerTypeKey]
+            if ownerType then
+                byType[ownerType] = byType[ownerType] or {}
+                table.insert(byType[ownerType], inst)
+            end
+        end
+        for ownerType, group in pairs(byType) do
+            local model = _G[ownerType]
+            if model then
+                local ids = {}
+                for _, inst in ipairs(group) do
+                    table.insert(ids, inst.attributes[relation.ownerIdKey])
+                end
+                local rows = model:newQuery():whereIn(model.primaryKey, ids):get()
+                local byId = {}
+                for _, row in ipairs(rows) do
+                    byId[row.attributes[model.primaryKey]] = row
+                end
+                for _, inst in ipairs(group) do
+                    inst.relations[segment] = byId[inst.attributes[relation.ownerIdKey]]
+                end
+            end
+        end
     end
 
     if rest ~= '' then
@@ -636,7 +793,10 @@ function BaseModel:eagerLoad(instances, path)
         local seenIds = {}
         for _, inst in ipairs(instances) do
             local rel = inst.relations[segment]
-            local relList = (relation.type == 'hasMany' or relation.type == 'belongsToMany') and rel or {rel}
+            local isList = relation.type == 'hasMany'
+                        or relation.type == 'belongsToMany'
+                        or relation.type == 'morphMany'
+            local relList = isList and rel or {rel}
             for _, relInst in ipairs(relList) do
                 if relInst then
                     local id = relInst.attributes[relInst.primaryKey]
@@ -647,7 +807,10 @@ function BaseModel:eagerLoad(instances, path)
                 end
             end
         end
-        related:eagerLoad(nextLevelInstances, rest)
+        -- morphTo has no single relatedModel; skip recursive eager-load for now.
+        if related then
+            related:eagerLoad(nextLevelInstances, rest)
+        end
     end
 end
 
