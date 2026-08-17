@@ -7,21 +7,6 @@ if WeatherConfig then
     return
 end
 
-local resourceName = GetCurrentResourceName()
-
-local function loadConfigFile(path)
-    local content = LoadResourceFile(resourceName, path)
-    if not content then
-        return false
-    end
-    local chunk = load(content, '@' .. path)
-    if not chunk then
-        return false
-    end
-    chunk()
-    return true
-end
-
-if not loadConfigFile('core/server/Config/WeatherConfig.lua') then
-    loadConfigFile('core/server/Config/WeatherConfig.lua.example')
+if not LoadConfigFile('core/server/Config/WeatherConfig.lua') then
+    LoadConfigFile('core/server/Config/WeatherConfig.lua.example')
 end
