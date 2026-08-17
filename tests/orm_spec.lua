@@ -2143,12 +2143,13 @@ test('BaseModel.with: morphOne batches one query for all instances with WHERE IN
         return self:morphOne(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
     end
 
-    local interactionParams
+    local interactionParams, interactionSql
     local original = Database.query
     Database.query = function(sql, params)
         if sql:find('FROM `atm_machines`') then
             return {{ id = 1, name = 'ATM A' }, { id = 2, name = 'ATM B' }}
         elseif sql:find('FROM `interactions`') then
+            interactionSql = sql
             interactionParams = params
             return {
                 { id = 10, owner_type = 'ATMMachine', owner_id = 1, label = 'ATM A' },
@@ -2167,6 +2168,7 @@ test('BaseModel.with: morphOne batches one query for all instances with WHERE IN
     eq(atms[1].interaction.label, 'ATM A', 'morphOne eagerLoad: correct interaction for first')
     eq(atms[2].interaction.label, 'ATM B', 'morphOne eagerLoad: correct interaction for second')
     eqList(interactionParams, {1, 2}, 'morphOne eagerLoad: batched owner_id IN query')
+    truthy(interactionSql:find('ATMMachine', 1, true), 'owner_type filter present in SQL')
 end)
 
 test('BaseModel.with: morphMany distributes all related rows per instance', function()
@@ -2203,6 +2205,63 @@ test('BaseModel.with: morphMany distributes all related rows per instance', func
     eq(#posts[2].comments, 1, 'morphMany eagerLoad: post 2 gets 1 comment')
     eq(posts[1].comments[1].body, 'A', 'morphMany eagerLoad: first comment body')
     eq(posts[2].comments[1].body, 'C', 'morphMany eagerLoad: only post2 comment')
+end)
+
+test('BaseModel.with: morphTo eagerLoad batches by owner_type and groups correctly', function()
+    local Interaction = BaseModel:extend('interactions')
+    Interaction.primaryKey = 'id'
+    Interaction.timestamps = false
+
+    function Interaction:owner()
+        return self:morphTo('owner_type', 'owner_id')
+    end
+
+    local int1 = Interaction.new({ owner_type = 'ATMMachine', owner_id = 10 })
+    int1.primaryKey = 'id'
+    local int2 = Interaction.new({ owner_type = 'Garage', owner_id = 20 })
+    int2.primaryKey = 'id'
+
+    local atmQueries = {}
+    local garageQueries = {}
+
+    local origAtm = rawget(_G, 'ATMMachine')
+    local origGarage = rawget(_G, 'Garage')
+
+    local AtmModel = BaseModel:extend('atm_machines')
+    AtmModel.primaryKey = 'id'
+    AtmModel.timestamps = false
+
+    local GarageModel = BaseModel:extend('garages')
+    GarageModel.primaryKey = 'id'
+    GarageModel.timestamps = false
+
+    _G['ATMMachine'] = AtmModel
+    _G['Garage'] = GarageModel
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `atm_machines`') then
+            table.insert(atmQueries, {sql = sql, params = params})
+            return {{ id = 10, name = 'Test ATM' }}
+        elseif sql:find('FROM `garages`') then
+            table.insert(garageQueries, {sql = sql, params = params})
+            return {{ id = 20, name = 'Test Garage' }}
+        end
+        return {}
+    end
+
+    Interaction:eagerLoad({int1, int2}, 'owner')
+    Database.query = original
+
+    _G['ATMMachine'] = origAtm
+    _G['Garage'] = origGarage
+
+    eq(#atmQueries, 1, 'morphTo eagerLoad: one query for ATMMachine batch')
+    eq(#garageQueries, 1, 'morphTo eagerLoad: one query for Garage batch')
+    truthy(int1.relations['owner'], 'morphTo eagerLoad: int1 has owner loaded')
+    truthy(int2.relations['owner'], 'morphTo eagerLoad: int2 has owner loaded')
+    eq(int1.relations['owner'].name, 'Test ATM', 'morphTo eagerLoad: int1 owner is ATM')
+    eq(int2.relations['owner'].name, 'Test Garage', 'morphTo eagerLoad: int2 owner is Garage')
 end)
 
 --------------------------------------------------------------------------------
