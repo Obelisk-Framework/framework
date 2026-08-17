@@ -117,21 +117,25 @@ function BaseModel:with(path)
     return self:newQuery():with(path)
 end
 
---- Find synchronously
---- @param id any
+--- Find synchronously by a column's value. Defaults to primaryKey, so
+--- `find(id)` behaves as before; pass `column` to look up by any other
+--- unique-ish column (e.g. belongsTo's ownerKey).
+--- @param value any
+--- @param column string|nil defaults to self.primaryKey
 --- @return BaseModel|nil
-function BaseModel:find(id)
+function BaseModel:find(value, column)
     -- newQuery() attaches `.model`, so `first()` already decodes JSON casts
     -- and returns a wrapped model instance (or nil) -- do not re-wrap it.
-    return self:newQuery():where(self.primaryKey, id):first()
+    return self:newQuery():where(column or self.primaryKey, value):first()
 end
 
---- Find a model by primary key (async)
---- @param id any
+--- Async form of find(). See find() for the `column` param.
+--- @param value any
 --- @param callback function
-function BaseModel:findAsync(id, callback)
+--- @param column string|nil defaults to self.primaryKey
+function BaseModel:findAsync(value, callback, column)
     -- See find(): firstAsync() is already model-aware, result is pre-wrapped.
-    self:newQuery():where(self.primaryKey, id):firstAsync(callback)
+    self:newQuery():where(column or self.primaryKey, value):firstAsync(callback)
 end
 
 --- Create a new model instance from query result
@@ -475,7 +479,7 @@ function BaseModel:load(relationName)
         self.relations[relationName] = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
     elseif relation.type == 'belongsTo' then
         local foreignValue = self.attributes[relation.foreignKey]
-        self.relations[relationName] = relation.relatedModel:find(foreignValue)
+        self.relations[relationName] = relation.relatedModel:find(foreignValue, relation.ownerKey)
     elseif relation.type == 'belongsToMany' then
         local localId = self.attributes[self.primaryKey]
         local query = relation.relatedModel:newQuery()
@@ -525,7 +529,7 @@ function BaseModel:loadAsync(relationName, callback)
         relation.relatedModel:findAsync(foreignValue, function(model)
             self.relations[relationName] = model
             callback(model)
-        end)
+        end, relation.ownerKey)
     elseif relation.type == 'belongsToMany' then
         local localId = self.attributes[self.primaryKey]
 

@@ -1068,6 +1068,36 @@ test('BaseModel load: hasMany does not double-wrap related model instances', fun
         'related instance attributes should contain only real db columns')
 end)
 
+test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that column, not id', function()
+    local Action = BaseModel:extend('actions')
+    Action.primaryKey = 'id'
+    Action.timestamps = false
+
+    local ScheduledJob = BaseModel:extend('scheduled_jobs')
+    ScheduledJob.primaryKey = 'id'
+    ScheduledJob.timestamps = false
+
+    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'action_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `scheduled_jobs`') then
+            return {{ id = 1, action_id = 'give_item' }}
+        elseif sql:find('FROM `actions`') then
+            eqList(params, {'give_item'}, 'belongsTo: queried by ownerKey value, not the jobs.id row id')
+            return {{ id = 99, action_id = 'give_item', label = 'Give Item' }}
+        end
+        return {}
+    end
+
+    local job = ScheduledJob:find(1)
+    local action = job:load('action')
+    Database.query = original
+
+    truthy(action, 'belongsTo: related row found via ownerKey match')
+    eq(action.label, 'Give Item', 'belongsTo: correct row returned despite id (99) != foreignValue (give_item)')
+end)
+
 test('BaseModel instance: .field reads attributes directly', function()
     local Widget = BaseModel:extend('widgets')
     local widget = Widget.new({id = 1, name = 'gizmo'})
