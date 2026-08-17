@@ -466,6 +466,20 @@ function QueryBuilder:firstAsync(callback)
     end)
 end
 
+--- Get first result synchronously, or invoke a fallback if none is found.
+--- NOTE: `callback` here is a fallback-value function (Laravel's `firstOr`
+--- convention), not a completion callback -- unlike every `...Async` method
+--- in this file, `firstOr` is itself synchronous. There is no `firstOrAsync`.
+--- @param callback function Called (and its return value returned) when no row matches
+--- @return any The found row, or the fallback's return value
+function QueryBuilder:firstOr(callback)
+    local result = self:first()
+    if result then
+        return result
+    end
+    return callback()
+end
+
 --- Count synchronously
 --- @return number
 function QueryBuilder:count()

@@ -97,7 +97,7 @@ end
 --- Each just opens a new query and forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
-    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get'
+    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get', 'firstOr'
 }
 
 for _, methodName in ipairs(QUERY_PROXY_METHODS) do
@@ -172,6 +172,117 @@ function BaseModel:createAsync(attributes, callback)
     instance.primaryKey = self.primaryKey
     instance.timestamps = self.timestamps
     instance:saveAsync(callback)
+end
+
+--- Apply each key/value pair in `attributes` as an AND'd WHERE clause on
+--- `query`. Shared by firstOrNew/firstOrCreate/updateOrCreate's lookup.
+--- @param query QueryBuilder
+--- @param attributes table
+--- @return QueryBuilder
+local function applyAttributeWhere(query, attributes)
+    for key, value in pairs(attributes) do
+        query:where(key, value)
+    end
+    return query
+end
+
+--- Shallow-merge two attribute tables; `values`' keys win over `attributes`'.
+--- @param attributes table
+--- @param values table|nil
+--- @return table
+local function mergeAttributes(attributes, values)
+    local merged = {}
+    for k, v in pairs(attributes) do merged[k] = v end
+    if values then
+        for k, v in pairs(values) do merged[k] = v end
+    end
+    return merged
+end
+
+--- Find the first model matching `attributes`, or build (without saving) a
+--- new unsaved instance from `attributes` merged with `values`. Mirrors
+--- Laravel's `firstOrNew` -- the caller must call `:save()` themselves on
+--- the not-found path. Lookup is the only I/O, so there is no async form.
+--- @param attributes table Lookup criteria, AND'd together
+--- @param values table|nil Additional attributes to set only if not found
+--- @return BaseModel
+function BaseModel:firstOrNew(attributes, values)
+    local found = applyAttributeWhere(self:newQuery(), attributes):first()
+    if found then
+        return found
+    end
+
+    local instance = self.new(mergeAttributes(attributes, values))
+    instance.table = self.table
+    instance.primaryKey = self.primaryKey
+    instance.timestamps = self.timestamps
+    return instance
+end
+
+--- Find the first model matching `attributes`, or create and save one from
+--- `attributes` merged with `values`. Mirrors Laravel's `firstOrCreate`.
+--- @param attributes table Lookup criteria, AND'd together
+--- @param values table|nil Additional attributes to set only if not found
+--- @return BaseModel
+function BaseModel:firstOrCreate(attributes, values)
+    local found = applyAttributeWhere(self:newQuery(), attributes):first()
+    if found then
+        return found
+    end
+    return self:create(mergeAttributes(attributes, values))
+end
+
+--- Async form of firstOrCreate.
+--- @param attributes table
+--- @param values table|nil
+--- @param callback function
+function BaseModel:firstOrCreateAsync(attributes, values, callback)
+    applyAttributeWhere(self:newQuery(), attributes):firstAsync(function(found)
+        if found then
+            callback(found)
+            return
+        end
+        self:createAsync(mergeAttributes(attributes, values), callback)
+    end)
+end
+
+--- Find the first model matching `attributes`; if found, apply `values` and
+--- save it; if not found, create one from `attributes` merged with `values`.
+--- Mirrors Laravel's `updateOrCreate`.
+--- @param attributes table Lookup criteria, AND'd together
+--- @param values table|nil Attributes to apply on the found row, or fold into a new one
+--- @return BaseModel
+function BaseModel:updateOrCreate(attributes, values)
+    local found = applyAttributeWhere(self:newQuery(), attributes):first()
+    if found then
+        if values then
+            for key, value in pairs(values) do
+                found:set(key, value)
+            end
+        end
+        found:save()
+        return found
+    end
+    return self:create(mergeAttributes(attributes, values))
+end
+
+--- Async form of updateOrCreate.
+--- @param attributes table
+--- @param values table|nil
+--- @param callback function
+function BaseModel:updateOrCreateAsync(attributes, values, callback)
+    applyAttributeWhere(self:newQuery(), attributes):firstAsync(function(found)
+        if found then
+            if values then
+                for key, value in pairs(values) do
+                    found:set(key, value)
+                end
+            end
+            found:saveAsync(callback)
+            return
+        end
+        self:createAsync(mergeAttributes(attributes, values), callback)
+    end)
 end
 
 --- Save synchronously

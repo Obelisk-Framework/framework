@@ -1326,6 +1326,184 @@ test('BaseModel.with: nested dot-path dedups shared related instances before the
 end)
 
 --------------------------------------------------------------------------------
+-- BaseModel firstOrNew / firstOrCreate / updateOrCreate / firstOr
+--------------------------------------------------------------------------------
+test('BaseModel.firstOrNew: found match returns it, issues no write query', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local wroteAnything = false
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function(sql, params)
+        eq(sql, 'SELECT * FROM `widgets` WHERE `sku` = ? LIMIT 1')
+        eqList(params, {'abc'})
+        return {{id = 1, sku = 'abc', name = 'gizmo'}}
+    end
+    Database.insert = function() wroteAnything = true return 99 end
+
+    local widget = Widget:firstOrNew({sku = 'abc'}, {name = 'ignored'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    falsy(wroteAnything, 'firstOrNew: found match must not write')
+    eq(widget.sku, 'abc')
+    eq(widget.name, 'gizmo', 'firstOrNew: found match keeps its own values, ignores `values` param')
+    truthy(widget.exists, 'firstOrNew: found match is already persisted')
+end)
+
+test('BaseModel.firstOrNew: no match returns an unsaved instance with merged attributes', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local wroteAnything = false
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function() wroteAnything = true return 99 end
+
+    local widget = Widget:firstOrNew({sku = 'abc'}, {name = 'new gizmo'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    falsy(wroteAnything, 'firstOrNew: no match must not save -- caller calls save() themselves')
+    falsy(widget.exists, 'firstOrNew: no match returns an unsaved instance')
+    eq(widget.sku, 'abc', 'firstOrNew: no match carries the lookup attributes')
+    eq(widget.name, 'new gizmo', 'firstOrNew: no match carries the values attributes')
+end)
+
+test('BaseModel.firstOrCreate: found match returns it, issues no write query', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local wroteAnything = false
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {{id = 1, sku = 'abc', name = 'gizmo'}} end
+    Database.insert = function() wroteAnything = true return 99 end
+
+    local widget = Widget:firstOrCreate({sku = 'abc'}, {name = 'ignored'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    falsy(wroteAnything, 'firstOrCreate: found match must not write')
+    eq(widget.name, 'gizmo')
+end)
+
+test('BaseModel.firstOrCreate: no match creates and saves the merged attributes', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local insertedSql, insertedValues
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function(sql, values) insertedSql, insertedValues = sql, values return 42 end
+
+    local widget = Widget:firstOrCreate({sku = 'abc'}, {name = 'new gizmo'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    truthy(insertedSql ~= nil, 'firstOrCreate: no match issues an INSERT')
+    truthy(insertedSql:find('INSERT INTO `widgets`', 1, true))
+    truthy(widget.exists, 'firstOrCreate: no match returns a saved instance')
+    eq(widget.id, 42)
+    eq(widget.sku, 'abc')
+    eq(widget.name, 'new gizmo')
+end)
+
+test('BaseModel.firstOrCreateAsync: no match creates via the async path', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local originalQueryAsync, originalInsertAsync = Database.queryAsync, Database.insertAsync
+    Database.queryAsync = function(sql, params, callback) callback({}) end
+    Database.insertAsync = function(sql, values, callback) callback(7) end
+
+    local received
+    Widget:firstOrCreateAsync({sku = 'abc'}, {name = 'async gizmo'}, function(widget) received = widget end)
+    Database.queryAsync, Database.insertAsync = originalQueryAsync, originalInsertAsync
+
+    truthy(received ~= nil, 'firstOrCreateAsync: callback received an instance')
+    eq(received.id, 7)
+    eq(received.name, 'async gizmo')
+    truthy(received.exists, 'firstOrCreateAsync: callback instance is saved')
+end)
+
+test('BaseModel.updateOrCreate: found match applies values and saves an UPDATE', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local updatedSql, updatedValues
+    local originalQuery, originalUpdate = Database.query, Database.update
+    Database.query = function() return {{id = 1, sku = 'abc', name = 'old name'}} end
+    Database.update = function(sql, values) updatedSql, updatedValues = sql, values return 1 end
+
+    local widget = Widget:updateOrCreate({sku = 'abc'}, {name = 'new name'})
+    Database.query, Database.update = originalQuery, originalUpdate
+
+    truthy(updatedSql ~= nil, 'updateOrCreate: found match issues an UPDATE')
+    truthy(updatedSql:find('UPDATE `widgets`', 1, true))
+    eq(widget.name, 'new name', 'updateOrCreate: found match applies the values param')
+end)
+
+test('BaseModel.updateOrCreate: no match creates the merged attributes', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local insertedValues
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function(sql, values) insertedValues = values return 42 end
+
+    local widget = Widget:updateOrCreate({sku = 'abc'}, {name = 'new gizmo'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    truthy(insertedValues ~= nil, 'updateOrCreate: no match issues an INSERT')
+    eq(widget.sku, 'abc')
+    eq(widget.name, 'new gizmo')
+end)
+
+test('BaseModel.updateOrCreateAsync: found match applies values via the async path', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local originalQueryAsync, originalUpdateAsync = Database.queryAsync, Database.updateAsync
+    Database.queryAsync = function(sql, params, callback) callback({{id = 1, sku = 'abc', name = 'old name'}}) end
+    Database.updateAsync = function(sql, values, callback) callback(1) end
+
+    local received
+    Widget:updateOrCreateAsync({sku = 'abc'}, {name = 'async new name'}, function(widget) received = widget end)
+    Database.queryAsync, Database.updateAsync = originalQueryAsync, originalUpdateAsync
+
+    truthy(received ~= nil, 'updateOrCreateAsync: callback received an instance')
+    eq(received.name, 'async new name')
+end)
+
+test('QueryBuilder.firstOr: returns the found row without calling the fallback', function()
+    local original = Database.query
+    Database.query = function() return {{id = 1, sku = 'abc'}} end
+
+    local fallbackCalled = false
+    local result = QueryBuilder.new('widgets'):where('sku', 'abc'):firstOr(function()
+        fallbackCalled = true
+        return 'fallback value'
+    end)
+    Database.query = original
+
+    falsy(fallbackCalled, 'firstOr: fallback must not run when a row is found')
+    truthy(result ~= nil and result ~= 'fallback value', 'firstOr: returns the found row')
+end)
+
+test('QueryBuilder.firstOr: calls and returns the fallback when nothing is found', function()
+    local original = Database.query
+    Database.query = function() return {} end
+
+    local result = QueryBuilder.new('widgets'):where('sku', 'missing'):firstOr(function()
+        return 'fallback value'
+    end)
+    Database.query = original
+
+    eq(result, 'fallback value', 'firstOr: returns the fallback callback\'s return value')
+end)
+
+test('BaseModel.firstOr: proxied onto the model like get/first', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local original = Database.query
+    Database.query = function() return {} end
+
+    local result = Widget:where('sku', 'missing'):firstOr(function() return 'default widget' end)
+    Database.query = original
+
+    eq(result, 'default widget', 'BaseModel.firstOr: proxies through to QueryBuilder.firstOr')
+end)
+
+--------------------------------------------------------------------------------
 -- Connector detection / hard-fail (no in-memory fallback)
 --------------------------------------------------------------------------------
 test('detectConnector: nil when none is started', function()

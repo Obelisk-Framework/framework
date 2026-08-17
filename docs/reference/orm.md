@@ -162,6 +162,9 @@ Sync. Returns `self`. Appends `path` to `self.withPaths` (chainable, so `:with('
 **`:first()`** / **`:firstAsync(callback)`**
 Sync / async. Same as `get`, but with `limit(1)` applied first, returning a single row (or `nil`) instead of a list.
 
+**`:firstOr(callback)`**
+Sync only. Runs `:first()`; if it found a row, returns it; if not, calls `callback()` and returns its return value instead. `callback` here is a fallback-value function (Laravel's `firstOr` convention) — not an async completion handler like every other `callback` param in this file. There is no `firstOrAsync`.
+
 **`:count()`** / **`:countAsync(callback)`**
 Sync / async. Temporarily swaps in `selectRaw('COUNT(*) as count')`, runs the query, restores the prior select, and returns a `number` (coerced via `tonumber`, defaulting to `0`; this also handles Postgres returning the count as a string).
 
@@ -412,11 +415,20 @@ Constructor. Returns an instance with the given `attributes` (defaults to `{}`),
 **`:newQuery()`**
 Sync. Returns a `QueryBuilder.new(self.table, self.primaryKey)`, the query object every other model method builds on.
 
-**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**, **`:get()`**
-Proxies onto the same-named `QueryBuilder` method: each opens a fresh `newQuery()` (which attaches `.model`) and forwards straight to it, letting you skip the explicit `newQuery()` call, e.g. `Inventory:where('owner', id):get()`. Same parameters and return value as documented under [QueryBuilder](#querybuilder) above — for the chainable starters that's a `QueryBuilder` (so the rest of the chain and its terminal `get`/`getAsync`/`first`/etc. behave identically); for the `get` proxy specifically, because `.model` is attached, the result is JSON-cast-decoded model instances, not raw rows.
+**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**, **`:get()`**, **`:firstOr(callback)`**
+Proxies onto the same-named `QueryBuilder` method: each opens a fresh `newQuery()` (which attaches `.model`) and forwards straight to it, letting you skip the explicit `newQuery()` call, e.g. `Inventory:where('owner', id):get()`. Same parameters and return value as documented under [QueryBuilder](#querybuilder) above — for the chainable starters that's a `QueryBuilder` (so the rest of the chain and its terminal `get`/`getAsync`/`first`/etc. behave identically); for the `get` proxy specifically, because `.model` is attached, the result is JSON-cast-decoded model instances, not raw rows. `firstOr`'s `callback` is a fallback-value function (Laravel convention), not an async completion handler — there is no `firstOrAsync`.
 
 **`:find(id)`** / **`:findAsync(id, callback)`**
 Sync / async. Looks up a row by primary key. Returns the wrapped model instance, or `nil` if not found.
+
+**`:firstOrNew(attributes, values)`**
+Sync only. Looks up the first row matching every key/value pair in `attributes` (AND'd together). Found → returns it. Not found → returns a new, **unsaved** instance (`exists = false`) built from `attributes` merged with `values` (`values`' keys win on conflict); the caller calls `:save()`/`:saveAsync()` themselves. No async form — the only I/O is the lookup.
+
+**`:firstOrCreate(attributes, values)`** / **`:firstOrCreateAsync(attributes, values, callback)`**
+Sync / async. Same lookup as `firstOrNew`. Found → returns/callbacks it as-is (`values` is ignored). Not found → creates and saves a new instance from `attributes` merged with `values` (equivalent to `:create(...)`/`:createAsync(...)`) — no separate `:save()` call needed.
+
+**`:updateOrCreate(attributes, values)`** / **`:updateOrCreateAsync(attributes, values, callback)`**
+Sync / async. Same lookup. Found → applies every key in `values` via `:set()`, then `:save()`s/`:saveAsync()`s it, returns/callbacks the updated instance. Not found → same create-with-merge as `firstOrCreate`.
 
 **`:get()`** / **`:getAsync(callback)`**
 Sync / async. Returns every row in the table as an array of model instances. (This replaces the old `all()`/`allSync()` methods.)

@@ -3,13 +3,8 @@ return {
     run = function()
         print('[Seeder] Seeding default actions...')
 
-        -- Check if actions already exist
-        local existing = Database.query('SELECT COUNT(*) as count FROM actions', {})
-        if existing and existing[1] and existing[1].count > 0 then
-            print('[Seeder] Actions already seeded, skipping')
-            return
-        end
-        
+        local Action = BaseModel:extend('actions')
+
         local actions = {
             {
                 action_id = 'use_interaction',
@@ -19,14 +14,11 @@ return {
                 enabled = 1
             }
         }
-        
+
         for _, action in ipairs(actions) do
-            Database.insert(
-                'INSERT INTO actions (action_id, label, description, options, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                {action.action_id, action.label, action.description, action.options, action.enabled, Database.now(), Database.now()}
-            )
+            Action:firstOrCreate({action_id = action.action_id}, action)
         end
-        
-        print('[Seeder] Seeded ' .. #actions .. ' default actions')
+
+        print('[Seeder] Seeded ' .. #actions .. ' default action(s) (idempotent)')
     end
 }
