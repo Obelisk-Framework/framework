@@ -107,6 +107,20 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
     end
 end
 
+--- Fetch all rows as model instances. Alias for Model:get() on a fresh query.
+--- @return table[]
+BaseModel.all = BaseModel.get
+
+--- Bulk-update a set of attributes on this instance and persist.
+--- @param attributes table
+--- @return BaseModel self
+function BaseModel:update(attributes)
+    for key, value in pairs(attributes) do
+        self.attributes[key] = value
+    end
+    return self:save()
+end
+
 --- Record a relation path (single-level or dot-separated) to eager-load
 --- after the terminal fetch resolves. Returns a QueryBuilder so further
 --- `:with(...)` calls chain (each accumulates its own independent path)
