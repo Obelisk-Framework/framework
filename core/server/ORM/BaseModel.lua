@@ -420,6 +420,39 @@ function BaseModel:hasMany(relatedModel, foreignKey, localKey)
     }
 end
 
+--- Strip a trailing 's' off a table name to get its singular morph-type
+--- value (e.g. 'base_vehicles' -> 'base_vehicle'). Matches this codebase's
+--- existing owner_type convention; irregular plurals aren't handled, pass
+--- `typeValue` explicitly to morphMany() for those.
+--- @param tableName string
+--- @return string
+local function singularize(tableName)
+    return (tableName:gsub('s$', ''))
+end
+
+--- Define a morphMany relationship - the polymorphic counterpart to
+--- hasMany, for a related table with `morphType`/`morphId` columns (e.g.
+--- vehicle_handling's `owner_type`/`owner_id`) shared by multiple owner
+--- models. Defaults match that convention: `owner_type`/`owner_id`, and
+--- `typeValue` singularized from this model's own table name, so
+--- `BaseVehicle:morphMany(VehicleHandling)` alone is enough.
+--- @param relatedModel BaseModel
+--- @param morphType string|nil defaults to 'owner_type'
+--- @param morphId string|nil defaults to 'owner_id'
+--- @param typeValue string|nil defaults to singularize(self.table)
+--- @param localKey string|nil defaults to self.primaryKey
+--- @return table
+function BaseModel:morphMany(relatedModel, morphType, morphId, typeValue, localKey)
+    return {
+        type = 'morphMany',
+        relatedModel = relatedModel,
+        morphType = morphType or 'owner_type',
+        morphId = morphId or 'owner_id',
+        typeValue = typeValue or singularize(self.table),
+        localKey = localKey or self.primaryKey
+    }
+end
+
 --- Define a belongsTo relationship
 --- @param relatedModel BaseModel
 --- @param foreignKey string
@@ -473,6 +506,10 @@ function BaseModel:load(relationName)
         local localValue = self.attributes[relation.localKey]
         -- `get()` is model-aware and already returns wrapped model instances.
         self.relations[relationName] = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
+    elseif relation.type == 'morphMany' then
+        local localValue = self.attributes[relation.localKey]
+        self.relations[relationName] = relation.relatedModel:newQuery()
+            :where(relation.morphType, relation.typeValue):where(relation.morphId, localValue):get()
     elseif relation.type == 'belongsTo' then
         local foreignValue = self.attributes[relation.foreignKey]
         self.relations[relationName] = relation.relatedModel:find(foreignValue)
@@ -520,6 +557,14 @@ function BaseModel:loadAsync(relationName, callback)
             self.relations[relationName] = models
             callback(models)
         end)
+    elseif relation.type == 'morphMany' then
+        local localValue = self.attributes[relation.localKey]
+        relation.relatedModel:newQuery()
+            :where(relation.morphType, relation.typeValue):where(relation.morphId, localValue)
+            :getAsync(function(models)
+                self.relations[relationName] = models
+                callback(models)
+            end)
     elseif relation.type == 'belongsTo' then
         local foreignValue = self.attributes[relation.foreignKey]
         relation.relatedModel:findAsync(foreignValue, function(model)
@@ -572,6 +617,22 @@ function BaseModel:eagerLoad(instances, path)
         for _, inst in ipairs(instances) do
             local matches = byForeign[inst.attributes[relation.localKey]] or {}
             inst.relations[segment] = (relation.type == 'hasOne') and matches[1] or matches
+        end
+    elseif relation.type == 'morphMany' then
+        local localValues = {}
+        for _, inst in ipairs(instances) do
+            table.insert(localValues, inst.attributes[relation.localKey])
+        end
+        local rows = related:newQuery()
+            :where(relation.morphType, relation.typeValue):whereIn(relation.morphId, localValues):get()
+        local byMorphId = {}
+        for _, row in ipairs(rows) do
+            local id = row.attributes[relation.morphId]
+            byMorphId[id] = byMorphId[id] or {}
+            table.insert(byMorphId[id], row)
+        end
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = byMorphId[inst.attributes[relation.localKey]] or {}
         end
     elseif relation.type == 'belongsTo' then
         local foreignValues = {}
@@ -636,7 +697,7 @@ function BaseModel:eagerLoad(instances, path)
         local seenIds = {}
         for _, inst in ipairs(instances) do
             local rel = inst.relations[segment]
-            local relList = (relation.type == 'hasMany' or relation.type == 'belongsToMany') and rel or {rel}
+            local relList = (relation.type == 'hasMany' or relation.type == 'morphMany' or relation.type == 'belongsToMany') and rel or {rel}
             for _, relInst in ipairs(relList) do
                 if relInst then
                     local id = relInst.attributes[relInst.primaryKey]

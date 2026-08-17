@@ -1068,6 +1068,103 @@ test('BaseModel load: hasMany does not double-wrap related model instances', fun
         'related instance attributes should contain only real db columns')
 end)
 
+test('BaseModel load: morphMany defaults owner_type/owner_id and singularizes the table name', function()
+    local BaseVehicle = BaseModel:extend('base_vehicles')
+    BaseVehicle.primaryKey = 'id'
+    BaseVehicle.timestamps = false
+
+    local VehicleHandling = BaseModel:extend('vehicle_handling')
+    VehicleHandling.primaryKey = 'id'
+    VehicleHandling.timestamps = false
+
+    function BaseVehicle:vehicleHandlings() return self:morphMany(VehicleHandling) end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `base_vehicles`') then
+            return {{ id = 5, model = 'sultan' }}
+        elseif sql:find('FROM `vehicle_handling`') then
+            eqList(params, {'base_vehicle', 5},
+                'morphMany: filters by default owner_type (singularized table name) and owner_id')
+            return {{ id = 1, owner_type = 'base_vehicle', owner_id = 5, field = 'fMass', value = 1500.0 }}
+        end
+        return {}
+    end
+
+    local baseVehicle = BaseVehicle:find(5)
+    local rows = baseVehicle:load('vehicleHandlings')
+    Database.query = original
+
+    eq(#rows, 1, 'morphMany: one matching row returned')
+    eq(rows[1].field, 'fMass', 'morphMany: related row .field access works')
+end)
+
+test('BaseModel.with: morphMany batches into an array per instance, scoped by typeValue', function()
+    local BaseVehicle = BaseModel:extend('base_vehicles')
+    BaseVehicle.primaryKey = 'id'
+    BaseVehicle.timestamps = false
+
+    local VehicleHandling = BaseModel:extend('vehicle_handling')
+    VehicleHandling.primaryKey = 'id'
+    VehicleHandling.timestamps = false
+
+    function BaseVehicle:vehicleHandlings() return self:morphMany(VehicleHandling) end
+
+    local original = Database.query
+    local queryCount = 0
+    Database.query = function(sql, params)
+        queryCount = queryCount + 1
+        if sql:find('FROM `base_vehicles`') then
+            return {{ id = 5, model = 'sultan' }, { id = 6, model = 'elegy' }}
+        elseif sql:find('FROM `vehicle_handling`') then
+            eqList(params, {'base_vehicle', 5, 6}, 'with morphMany: owner_type + owner_id IN batch')
+            return {
+                { id = 1, owner_type = 'base_vehicle', owner_id = 5, field = 'fMass', value = 1500.0 },
+                { id = 2, owner_type = 'base_vehicle', owner_id = 5, field = 'fDrag', value = 2.0 },
+                { id = 3, owner_type = 'base_vehicle', owner_id = 6, field = 'fMass', value = 1200.0 },
+            }
+        end
+        return {}
+    end
+
+    local baseVehicles = BaseVehicle:with('vehicleHandlings'):get()
+    Database.query = original
+
+    eq(queryCount, 2, 'with morphMany: exactly 2 queries (base + relation)')
+    eq(#baseVehicles[1].vehicleHandlings, 2, 'with morphMany: first vehicle gets both its rows')
+    eq(#baseVehicles[2].vehicleHandlings, 1, 'with morphMany: second vehicle gets only its own row')
+end)
+
+test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that column, not id', function()
+    local Action = BaseModel:extend('actions')
+    Action.primaryKey = 'id'
+    Action.timestamps = false
+
+    local ScheduledJob = BaseModel:extend('scheduled_jobs')
+    ScheduledJob.primaryKey = 'id'
+    ScheduledJob.timestamps = false
+
+    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'action_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `scheduled_jobs`') then
+            return {{ id = 1, action_id = 'give_item' }}
+        elseif sql:find('FROM `actions`') then
+            eqList(params, {'give_item'}, 'belongsTo: queried by ownerKey value, not the jobs.id row id')
+            return {{ id = 99, action_id = 'give_item', label = 'Give Item' }}
+        end
+        return {}
+    end
+
+    local job = ScheduledJob:find(1)
+    local action = job:load('action')
+    Database.query = original
+
+    truthy(action, 'belongsTo: related row found via ownerKey match')
+    eq(action.label, 'Give Item', 'belongsTo: correct row returned despite id (99) != foreignValue (give_item)')
+end)
+
 test('BaseModel instance: .field reads attributes directly', function()
     local Widget = BaseModel:extend('widgets')
     local widget = Widget.new({id = 1, name = 'gizmo'})
