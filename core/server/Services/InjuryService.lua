@@ -113,3 +113,51 @@ function InjuryService.getInjuries(playerId)
         :whereNull('treated_at')
         :getSync()
 end
+
+--- @param playerId number
+--- @param illnessType string
+--- @return number illness id
+function InjuryService.addIllness(playerId, illnessType)
+    local b = InjuryService.getBinding(playerId)
+    local id = QueryBuilder.new('player_illnesses'):insert({
+        player_type          = b.type,
+        player_id            = b.id,
+        illness_type         = illnessType,
+        stage                = 'incubating',
+        exposure_accumulated = 0,
+        onset_at             = Database.now(),
+    })
+    TriggerEvent('oblsk:injury:illness_progressed', playerId,
+        { id=id, illness_type=illnessType, stage='incubating' })
+    return id
+end
+
+--- @param playerId number
+--- @param illnessId number
+--- @param stage string 'incubating'|'active'|'severe'|'lethal'
+function InjuryService.progressIllness(playerId, illnessId, stage)
+    QueryBuilder.new('player_illnesses')
+        :where('id', illnessId)
+        :update({ stage = stage })
+    local illness = QueryBuilder.new('player_illnesses'):where('id', illnessId):firstSync()
+    TriggerEvent('oblsk:injury:illness_progressed', playerId, illness)
+end
+
+--- @param playerId number
+--- @param illnessId number
+function InjuryService.treatIllness(playerId, illnessId)
+    QueryBuilder.new('player_illnesses')
+        :where('id', illnessId)
+        :update({ treated_at = Database.now() })
+end
+
+--- @param playerId number
+--- @return table[] active (untreated) illness rows
+function InjuryService.getIllnesses(playerId)
+    local b = InjuryService.getBinding(playerId)
+    return QueryBuilder.new('player_illnesses')
+        :where('player_type', b.type)
+        :where('player_id', b.id)
+        :whereNull('treated_at')
+        :getSync()
+end

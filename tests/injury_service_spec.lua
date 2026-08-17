@@ -126,6 +126,49 @@ test('getInjuries: returns only untreated rows', function()
     end)
 end)
 
+test('addIllness: inserts incubating row', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        _G.TriggerEvent = function() end
+        local id = InjuryService.addIllness(7, 'pneumonia')
+        eq(#(tables.player_illnesses or {}), 1)
+        eq(tables.player_illnesses[1].illness_type, 'pneumonia')
+        eq(tables.player_illnesses[1].stage, 'incubating')
+    end)
+end)
+
+test('progressIllness: updates stage and fires event', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        local events = {}
+        _G.TriggerEvent = function(name, ...) events[#events+1] = {name=name} end
+        local id = InjuryService.addIllness(7, 'pneumonia')
+        InjuryService.progressIllness(7, id, 'active')
+        eq(tables.player_illnesses[1].stage, 'active')
+        local found = false
+        for _, e in ipairs(events) do
+            if e.name == 'oblsk:injury:illness_progressed' then found = true end
+        end
+        truthy(found, 'expected illness_progressed event')
+    end)
+end)
+
+test('getIllnesses: returns only untreated', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        _G.TriggerEvent = function() end
+        local id1 = InjuryService.addIllness(7, 'pneumonia')
+        InjuryService.addIllness(7, 'heatstroke')
+        InjuryService.treatIllness(7, id1)
+        local ill = InjuryService.getIllnesses(7)
+        eq(#ill, 1)
+        eq(ill[1].illness_type, 'heatstroke')
+    end)
+end)
+
 -- runner
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
