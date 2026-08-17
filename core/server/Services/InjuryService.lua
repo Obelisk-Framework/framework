@@ -161,3 +161,59 @@ function InjuryService.getIllnesses(playerId)
         :whereNull('treated_at')
         :getSync()
 end
+
+local _bleedTimers = {}
+local _vitals = {}
+
+--- Start bleed-out countdown. Fires bleed_out_available after `seconds`.
+--- @param playerId number
+--- @param seconds number
+function InjuryService.startBleedTimer(playerId, seconds)
+    InjuryService.cancelBleedTimer(playerId)
+    _bleedTimers[playerId] = true
+    CreateThread(function()
+        Wait(seconds * 1000)
+        if _bleedTimers[playerId] then
+            _bleedTimers[playerId] = nil
+            TriggerEvent('oblsk:injury:bleed_out_available', playerId)
+        end
+    end)
+end
+
+--- @param playerId number
+function InjuryService.cancelBleedTimer(playerId)
+    _bleedTimers[playerId] = nil
+end
+
+--- @param playerId number
+--- @param key string e.g. 'temperature', 'pulse', 'spo2'
+--- @param value any
+function InjuryService.setVital(playerId, key, value)
+    if not _vitals[playerId] then _vitals[playerId] = {} end
+    _vitals[playerId][key] = value
+end
+
+--- @param playerId number
+--- @return table vitals map
+function InjuryService.getVitals(playerId)
+    return _vitals[playerId] or {}
+end
+
+--- Admin heal: clears all injuries, illnesses, sets state to healthy.
+--- @param playerId number
+function InjuryService.healAll(playerId)
+    local b = InjuryService.getBinding(playerId)
+    QueryBuilder.new('player_injuries')
+        :where('player_type', b.type)
+        :where('player_id', b.id)
+        :whereNull('treated_at')
+        :update({ treated_at = Database.now() })
+    QueryBuilder.new('player_illnesses')
+        :where('player_type', b.type)
+        :where('player_id', b.id)
+        :whereNull('treated_at')
+        :update({ treated_at = Database.now() })
+    InjuryService.cancelBleedTimer(playerId)
+    _vitals[playerId] = {}
+    InjuryService.setState(playerId, 'healthy')
+end

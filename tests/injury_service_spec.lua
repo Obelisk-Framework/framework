@@ -169,6 +169,31 @@ test('getIllnesses: returns only untreated', function()
     end)
 end)
 
+test('healAll: clears injuries, illnesses, sets state to healthy', function()
+    withFakeDb(function(tables)
+        _G.CharacterService = nil
+        _G.PlayerService = { get = function() return { getIdentifier = function() return 1 end } end }
+        _G.TriggerEvent = function() end
+        InjuryService.addInjury(7, 'thorax', 'bullet')
+        InjuryService.addIllness(7, 'pneumonia')
+        InjuryService.setState(7, 'critical')
+        InjuryService.healAll(7)
+        local injuries = InjuryService.getInjuries(7)
+        local illnesses = InjuryService.getIllnesses(7)
+        eq(#injuries, 0)
+        eq(#illnesses, 0)
+        eq(InjuryService.getState(7), 'healthy')
+    end)
+end)
+
+test('setVital / getVitals: stores and returns in-memory vitals', function()
+    InjuryService.setVital(7, 'temperature', 38.5)
+    InjuryService.setVital(7, 'spo2', 94)
+    local v = InjuryService.getVitals(7)
+    eq(v.temperature, 38.5)
+    eq(v.spo2, 94)
+end)
+
 -- runner
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
