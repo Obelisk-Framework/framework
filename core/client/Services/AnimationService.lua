@@ -1,11 +1,11 @@
-PedAnimService = {}
+AnimationService = {}
 
 local _registry = {}
 
 -- Register a named animation any plugin can play by id.
 -- config: { dict, anim, blendIn?, blendOut?, duration?, flags? }
 -- duration = -1 means looping; positive = one-shot ms.
-function PedAnimService.register(id, config)
+function AnimationService.register(id, config)
     _registry[id] = {
         dict     = config.dict,
         anim     = config.anim,
@@ -29,7 +29,7 @@ end
 
 -- Play a registered animation on the local ped.
 -- Looping anims (duration=-1) are skipped if already playing.
-function PedAnimService.play(id)
+function AnimationService.play(id)
     local cfg = _registry[id]
     if not cfg then return end
     CreateThread(function()
@@ -42,7 +42,7 @@ function PedAnimService.play(id)
 end
 
 -- Stop a looping animation started via play().
-function PedAnimService.stop(id)
+function AnimationService.stop(id)
     local cfg = _registry[id]
     if not cfg then return end
     local ped = PlayerPedId()
