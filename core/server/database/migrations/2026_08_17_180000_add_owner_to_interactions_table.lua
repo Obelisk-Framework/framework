@@ -9,7 +9,7 @@ return {
     end,
 
     down = function()
-        Database.query('ALTER TABLE `interactions` DROP INDEX `interactions_owner_type_owner_id_index`', {})
+        Database.query('ALTER TABLE `interactions` DROP INDEX `interactions_owner_type_owner_id_unique`', {})
         Schema.dropColumn('interactions', 'owner_id')
         Schema.dropColumn('interactions', 'owner_type')
         print('[Migration] Dropped owner_type/owner_id from interactions')
