@@ -4,3 +4,6 @@ modules/*
 plugins/*
 .superpowers/
 storage/
+
+# Server-local config overrides (see *.lua.example counterparts)
+core/server/Config/WeatherConfig.lua
