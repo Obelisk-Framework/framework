@@ -4,6 +4,17 @@
 --- FiveM server. Only the globals those files actually touch are stubbed;
 --- network / native / NUI behaviour is intentionally out of scope.
 
+-- FiveM vector types — minimal stubs so tests can construct coord values.
+_G.vector3 = _G.vector3 or function(x, y, z)
+    return { x = x, y = y, z = z }
+end
+_G.vector2 = _G.vector2 or function(x, y)
+    return { x = x, y = y }
+end
+_G.vector4 = _G.vector4 or function(x, y, z, w)
+    return { x = x, y = y, z = z, w = w }
+end
+
 _G.Citizen = _G.Citizen or {
     -- Run threads synchronously so async helpers are testable if needed.
     CreateThread = function(fn) fn() end,
