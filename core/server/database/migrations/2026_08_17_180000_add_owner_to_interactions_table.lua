@@ -3,7 +3,7 @@ return {
         Schema.table('interactions', function(table)
             table:string('owner_type', 50):nullable()
             table:integer('owner_id'):nullable()
-            table:index({'owner_type', 'owner_id'})
+            table:unique({'owner_type', 'owner_id'})
         end)
         print('[Migration] Added owner_type/owner_id to interactions')
     end,
