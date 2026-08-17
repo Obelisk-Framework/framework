@@ -172,9 +172,9 @@ function WeatherService.emitExposure(window, tickMinutes)
         local src = player:getSource()
         if isCold then
             local rate = cfg.exposure.cold_rate * (isRain and cfg.exposure.rain_multiplier or 1.0)
-            TriggerEvent('oblsk:weather:cold_exposure_tick', src, rate * tickMinutes)
+            Obelisk.emit('core:server:cold_exposure_tick', src, rate * tickMinutes)
         elseif isHot then
-            TriggerEvent('oblsk:weather:heat_exposure_tick', src, cfg.exposure.heat_rate * tickMinutes)
+            Obelisk.emit('core:server:heat_exposure_tick', src, cfg.exposure.heat_rate * tickMinutes)
         end
     end
 end
