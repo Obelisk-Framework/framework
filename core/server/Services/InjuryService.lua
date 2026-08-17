@@ -25,8 +25,7 @@ end
 --- @return string state
 function InjuryService.getState(playerId)
     local b = InjuryService.getBinding(playerId)
-    local row = QueryBuilder.new('player_states')
-        :where('player_type', b.type)
+    local row = PlayerState:where('player_type', b.type)
         :where('player_id', b.id)
         :firstSync()
     return row and row.state or 'healthy'
@@ -37,19 +36,17 @@ end
 function InjuryService.setState(playerId, newState)
     local b = InjuryService.getBinding(playerId)
     local now = Database.now()
-    local existing = QueryBuilder.new('player_states')
-        :where('player_type', b.type)
+    local existing = PlayerState:where('player_type', b.type)
         :where('player_id', b.id)
         :firstSync()
     local oldState = existing and existing.state or 'healthy'
     if oldState == newState then return end
     if existing then
-        QueryBuilder.new('player_states')
-            :where('player_type', b.type)
+        PlayerState:where('player_type', b.type)
             :where('player_id', b.id)
             :update({ state = newState, updated_at = now })
     else
-        QueryBuilder.new('player_states'):insert({
+        PlayerState:newQuery():insert({
             player_type = b.type,
             player_id   = b.id,
             state       = newState,
@@ -57,7 +54,7 @@ function InjuryService.setState(playerId, newState)
             updated_at  = now,
         })
     end
-    TriggerEvent('oblsk:injury:state_changed', playerId, oldState, newState)
+    Obelisk.emit('oblsk:injury:state_changed', playerId, oldState, newState)
     for _, fn in ipairs(_listeners) do pcall(fn, playerId, oldState, newState) end
 end
 
@@ -68,8 +65,7 @@ end
 function InjuryService.addInjury(playerId, zone, woundType)
     local b = InjuryService.getBinding(playerId)
     local now = Database.now()
-    local existing = QueryBuilder.new('player_injuries')
-        :where('player_type', b.type)
+    local existing = PlayerInjury:where('player_type', b.type)
         :where('player_id', b.id)
         :where('zone', zone)
         :whereNull('treated_at')
@@ -77,12 +73,11 @@ function InjuryService.addInjury(playerId, zone, woundType)
     local id
     if existing then
         -- original wound_type persists; subsequent hits increment hit_count only
-        QueryBuilder.new('player_injuries')
-            :where('id', existing.id)
+        PlayerInjury:where('id', existing.id)
             :update({ hit_count = existing.hit_count + 1 })
         id = existing.id
     else
-        id = QueryBuilder.new('player_injuries'):insert({
+        id = PlayerInjury:newQuery():insert({
             player_type = b.type,
             player_id   = b.id,
             zone        = zone,
@@ -91,7 +86,7 @@ function InjuryService.addInjury(playerId, zone, woundType)
             created_at  = now,
         })
     end
-    TriggerEvent('oblsk:injury:injury_added', playerId, {
+    Obelisk.emit('oblsk:injury:injury_added', playerId, {
         id = id, zone = zone, wound_type = woundType,
     })
     return id
@@ -100,18 +95,16 @@ end
 --- @param playerId number
 --- @param injuryId number
 function InjuryService.treatInjury(playerId, injuryId)
-    QueryBuilder.new('player_injuries')
-        :where('id', injuryId)
+    PlayerInjury:where('id', injuryId)
         :update({ treated_at = Database.now() })
-    TriggerEvent('oblsk:injury:injury_treated', playerId, injuryId)
+    Obelisk.emit('oblsk:injury:injury_treated', playerId, injuryId)
 end
 
 --- @param playerId number
 --- @return table[] active (untreated) injury rows
 function InjuryService.getInjuries(playerId)
     local b = InjuryService.getBinding(playerId)
-    return QueryBuilder.new('player_injuries')
-        :where('player_type', b.type)
+    return PlayerInjury:where('player_type', b.type)
         :where('player_id', b.id)
         :whereNull('treated_at')
         :getSync()
@@ -122,7 +115,7 @@ end
 --- @return number illness id
 function InjuryService.addIllness(playerId, illnessType)
     local b = InjuryService.getBinding(playerId)
-    local id = QueryBuilder.new('player_illnesses'):insert({
+    local id = PlayerIllness:newQuery():insert({
         player_type          = b.type,
         player_id            = b.id,
         illness_type         = illnessType,
@@ -130,7 +123,7 @@ function InjuryService.addIllness(playerId, illnessType)
         exposure_accumulated = 0,
         onset_at             = Database.now(),
     })
-    TriggerEvent('oblsk:injury:illness_progressed', playerId,
+    Obelisk.emit('oblsk:injury:illness_progressed', playerId,
         { id=id, illness_type=illnessType, stage='incubating' })
     return id
 end
@@ -139,28 +132,24 @@ end
 --- @param illnessId number
 --- @param stage string 'incubating'|'active'|'severe'|'lethal'
 function InjuryService.progressIllness(playerId, illnessId, stage)
-    QueryBuilder.new('player_illnesses')
-        :where('id', illnessId)
-        :update({ stage = stage })
-    local illness = QueryBuilder.new('player_illnesses'):where('id', illnessId):firstSync()
-    TriggerEvent('oblsk:injury:illness_progressed', playerId, illness)
+    PlayerIllness:where('id', illnessId):update({ stage = stage })
+    local illness = PlayerIllness:where('id', illnessId):firstSync()
+    Obelisk.emit('oblsk:injury:illness_progressed', playerId, illness)
 end
 
 --- @param playerId number
 --- @param illnessId number
 function InjuryService.treatIllness(playerId, illnessId)
-    QueryBuilder.new('player_illnesses')
-        :where('id', illnessId)
+    PlayerIllness:where('id', illnessId)
         :update({ treated_at = Database.now() })
-    TriggerEvent('oblsk:injury:illness_treated', playerId, illnessId)
+    Obelisk.emit('oblsk:injury:illness_treated', playerId, illnessId)
 end
 
 --- @param playerId number
 --- @return table[] active (untreated) illness rows
 function InjuryService.getIllnesses(playerId)
     local b = InjuryService.getBinding(playerId)
-    return QueryBuilder.new('player_illnesses')
-        :where('player_type', b.type)
+    return PlayerIllness:where('player_type', b.type)
         :where('player_id', b.id)
         :whereNull('treated_at')
         :getSync()
@@ -179,7 +168,7 @@ function InjuryService.startBleedTimer(playerId, seconds)
         Wait(seconds * 1000)
         if _bleedTimers[playerId] then
             _bleedTimers[playerId] = nil
-            TriggerEvent('oblsk:injury:bleed_out_available', playerId)
+            Obelisk.emit('oblsk:injury:bleed_out_available', playerId)
         end
     end)
 end
@@ -207,16 +196,15 @@ end
 --- @param playerId number
 function InjuryService.healAll(playerId)
     local b = InjuryService.getBinding(playerId)
-    QueryBuilder.new('player_injuries')
-        :where('player_type', b.type)
+    local now = Database.now()
+    PlayerInjury:where('player_type', b.type)
         :where('player_id', b.id)
         :whereNull('treated_at')
-        :update({ treated_at = Database.now() })
-    QueryBuilder.new('player_illnesses')
-        :where('player_type', b.type)
+        :update({ treated_at = now })
+    PlayerIllness:where('player_type', b.type)
         :where('player_id', b.id)
         :whereNull('treated_at')
-        :update({ treated_at = Database.now() })
+        :update({ treated_at = now })
     InjuryService.cancelBleedTimer(playerId)
     _vitals[playerId] = {}
     InjuryService.setState(playerId, 'healthy')

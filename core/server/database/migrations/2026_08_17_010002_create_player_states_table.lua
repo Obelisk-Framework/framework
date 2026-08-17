@@ -1,16 +1,14 @@
 return {
     up = function()
-        Database.query([[
-            CREATE TABLE IF NOT EXISTS player_states (
-                id          INTEGER PRIMARY KEY AUTO_INCREMENT,
-                player_type VARCHAR(16) NOT NULL,
-                player_id   INTEGER NOT NULL,
-                state       VARCHAR(16) NOT NULL DEFAULT 'healthy',
-                state_since INTEGER NOT NULL,
-                updated_at  INTEGER NOT NULL,
-                UNIQUE(player_type, player_id)
-            )
-        ]])
+        Schema.create('player_states', function(t)
+            t:id()
+            t:string('player_type', 16)
+            t:integer('player_id')
+            t:string('state', 16):default('healthy')
+            t:integer('state_since')
+            t:integer('updated_at')
+            t:unique({'player_type', 'player_id'})
+        end)
     end,
-    down = function() Database.query('DROP TABLE IF EXISTS player_states') end,
+    down = function() Schema.drop('player_states') end,
 }

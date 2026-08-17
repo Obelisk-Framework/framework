@@ -201,7 +201,7 @@ Obelisk.on('playerConnecting', function(name, setKickReason, deferrals)
 end)
 
 -- Player disconnection handler - cleanup injury state
-AddEventHandler('playerDropped', function()
+Obelisk.on('playerDropped', function()
     InjuryService.cancelBleedTimer(source)
 end)
 

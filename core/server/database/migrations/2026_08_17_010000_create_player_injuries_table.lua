@@ -1,18 +1,16 @@
 return {
     up = function()
-        Database.query([[
-            CREATE TABLE IF NOT EXISTS player_injuries (
-                id           INTEGER PRIMARY KEY AUTO_INCREMENT,
-                player_type  VARCHAR(16) NOT NULL,
-                player_id    INTEGER NOT NULL,
-                zone         VARCHAR(32) NOT NULL,
-                hit_count    INTEGER NOT NULL DEFAULT 1,
-                wound_type   VARCHAR(16) NOT NULL,
-                created_at   INTEGER NOT NULL,
-                treated_at   INTEGER
-            )
-        ]])
-        Database.query('CREATE INDEX IF NOT EXISTS idx_player_injuries_player ON player_injuries (player_type, player_id)')
+        Schema.create('player_injuries', function(t)
+            t:id()
+            t:string('player_type', 16)
+            t:integer('player_id')
+            t:string('zone', 32)
+            t:integer('hit_count'):default(1)
+            t:string('wound_type', 16)
+            t:integer('created_at')
+            t:integer('treated_at'):nullable()
+            t:index({'player_type', 'player_id'})
+        end)
     end,
-    down = function() Database.query('DROP TABLE IF EXISTS player_injuries') end,
+    down = function() Schema.drop('player_injuries') end,
 }
