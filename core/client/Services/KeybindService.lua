@@ -5,7 +5,7 @@ KeybindService.keyMap = {} -- Map key name (e.g. 'G') -> list of actionIds bound
 
 --- Sync keybinds from server. Payload is the resolved {actionId -> key}
 --- map from KeybindService.resolveAll (server), not a row array.
-Obelisk.onClient('core:server:keybinds-sync', function(resolved)
+Obelisk.onServer('core:server:keybinds-sync', function(resolved)
     KeybindService.keybinds = resolved
     KeybindService.keyMap = {}
 
@@ -30,7 +30,7 @@ end
 
 --- Server told us a keybind changed (register/update/delete) elsewhere;
 --- re-request our own list so it reflects the change.
-Obelisk.onClient('core:server:keybinds-requestSync', function()
+Obelisk.onServer('core:server:keybinds-requestSync', function()
     KeybindService.requestSync()
 end)
 

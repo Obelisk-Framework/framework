@@ -268,11 +268,11 @@ Citizen.CreateThread(function()
 end)
 
 --- Net event handlers
-Obelisk.onClient('core:server:streamer-entityAdd', function(data)
+Obelisk.onServer('core:server:streamer-entityAdd', function(data)
     EntityStreamerService.spawnEntity(data.entityId, data.entityType, data.data)
 end)
 
-Obelisk.onClient('core:server:streamer-entityRemove', function(data)
+Obelisk.onServer('core:server:streamer-entityRemove', function(data)
     EntityStreamerService.despawnEntity(data.entityId)
 end)
 
@@ -283,7 +283,7 @@ end)
 --- waiting on RequestModel's up-to-5-second stream-in.
 EntityStreamerService.precachedModels = {} -- {modelHash: true}, avoids redundant RequestModel calls
 
-Obelisk.onClient('core:server:streamer-precache', function(data)
+Obelisk.onServer('core:server:streamer-precache', function(data)
     for _, entity in ipairs(data.entities or {}) do
         local entityData = entity.data
         if entityData and entityData.model then

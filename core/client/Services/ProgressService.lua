@@ -3,7 +3,7 @@ ProgressService = {}
 ProgressService.activeProgress = {}
 
 --- Start a progress bar
-Obelisk.onClient('core:server:progress-start', function(progressData)
+Obelisk.onServer('core:server:progress-start', function(progressData)
     ProgressService.activeProgress[progressData.id] = progressData
     
     -- Send to NUI
@@ -16,7 +16,7 @@ Obelisk.onClient('core:server:progress-start', function(progressData)
 end)
 
 --- Complete a progress bar
-Obelisk.onClient('core:server:progress-complete', function(progressId)
+Obelisk.onServer('core:server:progress-complete', function(progressId)
     ProgressService.activeProgress[progressId] = nil
     
     -- Send to NUI
@@ -29,7 +29,7 @@ Obelisk.onClient('core:server:progress-complete', function(progressId)
 end)
 
 --- Cancel a progress bar
-Obelisk.onClient('core:server:progress-cancel', function(progressId)
+Obelisk.onServer('core:server:progress-cancel', function(progressId)
     ProgressService.activeProgress[progressId] = nil
     
     -- Send to NUI
