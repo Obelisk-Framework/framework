@@ -137,11 +137,7 @@ function InteractionService.use(player, interactionId)
     -- Check policies
     PolicyService.check(player, 'interaction', interactionId, function(allowed, reason)
         if not allowed then
-            NotificationService.notify(player, {
-                type = 'error',
-                title = 'Access Denied',
-                description = reason or 'You cannot use this interaction'
-            })
+            NotificationService.error(player, 'Access Denied', reason or 'You cannot use this interaction')
             return
         end
 

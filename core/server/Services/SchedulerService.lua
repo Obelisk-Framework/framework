@@ -92,14 +92,13 @@ local TICK_INTERVAL_MS = 30000
 --- plan for why: the CreateThread test stub runs synchronously, so an
 --- infinite loop here would hang any test that dofiles this file).
 function SchedulerService.startTickLoop()
-    Citizen.CreateThread(function()
-        while not Database.isReady() do
-            Citizen.Wait(200)
-        end
-        while true do
-            SchedulerService.tick(os.time())
-            Citizen.Wait(TICK_INTERVAL_MS)
-        end
+    Database.onReady(function()
+        Citizen.CreateThread(function()
+            while true do
+                SchedulerService.tick(os.time())
+                Citizen.Wait(TICK_INTERVAL_MS)
+            end
+        end)
     end)
 end
 

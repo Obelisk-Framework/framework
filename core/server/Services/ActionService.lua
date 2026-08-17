@@ -127,11 +127,7 @@ function ActionService.execute(player, actionId, data)
             if not allowed then
                 print('[ActionService] Action denied by policy: ' .. actionId .. ' for player ' .. tostring(player:getSource()))
                 if NotificationService then
-                    NotificationService.notify(player, {
-                        type = 'error',
-                        title = 'Access Denied',
-                        description = reason or 'You cannot perform this action'
-                    })
+                    NotificationService.error(player, 'Access Denied', reason or 'You cannot perform this action')
                 end
                 return
             end

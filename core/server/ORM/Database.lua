@@ -136,6 +136,8 @@ function Database.init()
     print('[Database] Initialized (connector: ' .. Database.connector .. ', driver: ' .. Database.config.driver .. ')')
     print('[Database] Config: ' .. Database.config.user .. '@' .. Database.config.host .. ':' .. Database.config.port .. '/' .. Database.config.database)
 
+    Database._flushReadyCallbacks()
+
     return true
 end
 
@@ -465,4 +467,29 @@ end
 --- @return boolean
 function Database.isReady()
     return Database.ready
+end
+
+Database._readyCallbacks = Database._readyCallbacks or {}
+
+--- Run fn once the database is ready. Fires immediately (synchronously) if
+--- already ready, otherwise queues fn to run when Database.init() succeeds.
+--- Replaces the `while not Database.isReady() do Wait(x) end` polling loop
+--- previously duplicated across services.
+--- @param fn function
+function Database.onReady(fn)
+    if Database.ready then
+        fn()
+        return
+    end
+    table.insert(Database._readyCallbacks, fn)
+end
+
+--- Fire and clear all callbacks queued via Database.onReady(). Called by
+--- Database.init() once Database.ready is set true.
+function Database._flushReadyCallbacks()
+    local callbacks = Database._readyCallbacks
+    Database._readyCallbacks = {}
+    for _, fn in ipairs(callbacks) do
+        fn()
+    end
 end
