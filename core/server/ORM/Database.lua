@@ -139,13 +139,22 @@ function Database.init()
     return true
 end
 
+--- Execute query synchronously
+--- @param query string SQL query
+--- @param params table Parameters
+--- @return table result
+function Database.query(query, params)
+    params = params or {}
+    return Database.executeQuery(query, params)
+end
+
 --- Execute query asynchronously
 --- @param query string SQL query
 --- @param params table Parameters
 --- @param callback function Callback function
-function Database.query(query, params, callback)
+function Database.queryAsync(query, params, callback)
     params = params or {}
-    
+
     Citizen.CreateThread(function()
         local result = Database.executeQuery(query, params)
         if callback then
@@ -154,22 +163,23 @@ function Database.query(query, params, callback)
     end)
 end
 
---- Execute query synchronously
+--- Insert query sync
 --- @param query string SQL query
 --- @param params table Parameters
---- @return table result
-function Database.querySync(query, params)
+--- @return number insertId
+function Database.insert(query, params)
     params = params or {}
-    return Database.executeQuery(query, params)
+    local result = Database.executeQuery(query, params)
+    return result and result.insertId or 0
 end
 
 --- Insert query async
 --- @param query string SQL query
 --- @param params table Parameters
 --- @param callback function Callback with insertId
-function Database.insert(query, params, callback)
+function Database.insertAsync(query, params, callback)
     params = params or {}
-    
+
     Citizen.CreateThread(function()
         local result = Database.executeQuery(query, params)
         local insertId = result and result.insertId or 0
@@ -179,23 +189,23 @@ function Database.insert(query, params, callback)
     end)
 end
 
---- Insert query sync
+--- Update query sync
 --- @param query string SQL query
 --- @param params table Parameters
---- @return number insertId
-function Database.insertSync(query, params)
+--- @return number affectedRows
+function Database.update(query, params)
     params = params or {}
     local result = Database.executeQuery(query, params)
-    return result and result.insertId or 0
+    return result and result.affectedRows or 0
 end
 
 --- Update query async
 --- @param query string SQL query
 --- @param params table Parameters
 --- @param callback function Callback with affectedRows
-function Database.update(query, params, callback)
+function Database.updateAsync(query, params, callback)
     params = params or {}
-    
+
     Citizen.CreateThread(function()
         local result = Database.executeQuery(query, params)
         local affectedRows = result and result.affectedRows or 0
@@ -205,34 +215,24 @@ function Database.update(query, params, callback)
     end)
 end
 
---- Update query sync
---- @param query string SQL query
---- @param params table Parameters
---- @return number affectedRows
-function Database.updateSync(query, params)
-    params = params or {}
-    local result = Database.executeQuery(query, params)
-    return result and result.affectedRows or 0
+--- Delete query sync (alias for update)
+function Database.delete(query, params)
+    return Database.update(query, params)
 end
 
---- Delete query (alias for update)
-function Database.delete(query, params, callback)
-    Database.update(query, params, callback)
-end
-
---- Delete query sync
-function Database.deleteSync(query, params)
-    return Database.updateSync(query, params)
-end
-
---- Execute raw query
-function Database.execute(query, params, callback)
-    Database.query(query, params, callback)
+--- Delete query async (alias for update)
+function Database.deleteAsync(query, params, callback)
+    Database.updateAsync(query, params, callback)
 end
 
 --- Execute raw query sync
-function Database.executeSync(query, params)
-    return Database.querySync(query, params)
+function Database.execute(query, params)
+    return Database.query(query, params)
+end
+
+--- Execute raw query async
+function Database.executeAsync(query, params, callback)
+    Database.queryAsync(query, params, callback)
 end
 
 --- Prepare query (replace ? with values)

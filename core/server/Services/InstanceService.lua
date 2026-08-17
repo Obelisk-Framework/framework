@@ -18,7 +18,7 @@ local bucketMembers = {}
 --- @param key string
 --- @return number bucketId
 function InstanceService.getOrCreateBucket(key)
-    local existing = QueryBuilder.new('instance_buckets'):where('key', key):firstSync()
+    local existing = QueryBuilder.new('instance_buckets'):where('key', key):first()
     if existing then
         return existing.bucket_id
     end

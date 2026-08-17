@@ -55,43 +55,57 @@ Inventory.casts = {
 ```
 
 - **`primaryKey`** — the column used by `find`/`save`/`delete` (default `'id'`).
-- **`timestamps`** — when `true`, `save`/`saveSync` stamp `created_at` on insert and `updated_at` on every save, using `Database.now()`.
+- **`timestamps`** — when `true`, `save` and `saveAsync` stamp `created_at` on insert and `updated_at` on every save, using `Database.now()`.
 - **`fillable`** — documents which attributes are mass-assignable (used as a reference by generators; not enforced inside `BaseModel` itself).
 - **`hidden`** — attribute names stripped out by `toTable()`, e.g. before sending a model to the client.
 - **`casts`** — attribute cast hints such as `'json'`, matching the `Inventory.metadata` example above.
 
 ### Finding, saving, deleting
 
-`BaseModel` exposes both async (callback-based) and `Sync` variants of its core operations:
+`BaseModel` exposes both sync (direct return) and async (callback-based) variants of its core operations. Bare method names are sync; methods suffixed with `Async` take a callback:
 
 ```lua
 -- Find
-Inventory:find(id, function(item) ... end)
-local item = Inventory:findSync(id)
+local item = Inventory:find(id)                    -- sync
+Inventory:findAsync(id, function(item) ... end)   -- async
 
--- All rows
-Inventory:all(function(items) ... end)
-local items = Inventory:allSync()
+-- Get all rows
+local items = Inventory:get()                      -- sync (replaces old all()/allSync())
+Inventory:getAsync(function(items) ... end)       -- async
 
 -- Create + save
 local item = Inventory.new({ owner = charId, container = 'player', slot = 0, item = 'water', count = 1 })
-item:save(function(saved) ... end)      -- async
-item:saveSync()                          -- sync
+item:save()                                        -- sync
+item:saveAsync(function(saved) ... end)           -- async
 
--- create()/createSync() build and save in one call
-Inventory:create({ owner = charId, item = 'water', count = 1 }, function(item) ... end)
-local item = Inventory:createSync({ owner = charId, item = 'water', count = 1 })
+-- create()/createAsync() build and save in one call
+local item = Inventory:create({ owner = charId, item = 'water', count = 1 })
+Inventory:createAsync({ owner = charId, item = 'water', count = 1 }, function(item) ... end)
 
 -- Delete
-item:delete(function(ok) ... end)
-item:deleteSync()
+item:delete()                                      -- sync
+item:deleteAsync(function(ok) ... end)            -- async
 ```
 
-`save`/`saveSync` decide insert vs. update from `instance.exists`: a freshly-`new`'d instance inserts (and then has its primary key set from the insert id), while an instance loaded via `find`/`all`/`create` updates in place.
+`save`/`saveAsync` decide insert vs. update from `instance.exists`: a freshly-`new`'d instance inserts (and then has its primary key set from the insert id), while an instance loaded via `find`/`get`/`create` updates in place.
+
+### Attribute access
+
+A model instance's metatable `__index` falls back through `attributes`, then loaded `relations`, then the class's own method table, so you can read a column or a loaded relation directly off the instance instead of going through `instance.attributes`:
+
+```lua
+local item = Inventory:find(id)
+print(item.item, item.count)          -- same as item.attributes.item, item.attributes.count
+
+local character = item:load('owner')
+print(item.owner.name)                -- reads the loaded `owner` relation off item.relations
+```
+
+`instance.attributes.field` still works unchanged — `.field` is a convenience fallback, not a replacement; nothing stops you from using either form. If an attribute and a relation share a name, the attribute wins (the lookup checks `attributes` first). If nothing matches in `attributes` or `relations`, the lookup falls through to the model's class methods, which is how instance calls like `item:save()` resolve in the first place.
 
 ### Relationships
 
-`BaseModel` implements four relationship helpers — `hasOne`, `hasMany`, `belongsTo`, and `belongsToMany` — each returning a relationship descriptor consumed by `load`/`loadSync`:
+`BaseModel` implements four relationship helpers — `hasOne`, `hasMany`, `belongsTo`, and `belongsToMany` — each returning a relationship descriptor consumed by `load`/`loadAsync`:
 
 ```lua
 function Inventory:owner()
@@ -101,11 +115,37 @@ end
 
 ```lua
 -- Lazy-load a relation
-item:load('owner', function(character) ... end)
-local character = item:loadSync('owner')
+local character = item:load('owner')                        -- sync
+item:loadAsync('owner', function(character) ... end)       -- async
 ```
 
 `belongsToMany(relatedModel, pivotTable, foreignPivotKey, relatedPivotKey)` relationships also get `attach(relationName, id, pivotData, callback)` and `detach(relationName, id, callback)` for managing pivot-table rows.
+
+#### Eager loading with `with()`
+
+`load`/`loadAsync` resolve one relation on one already-fetched instance at a time. For a list of instances, calling `load` in a loop means one query per instance — the classic N+1 pattern. `Model:with(path)` avoids that: it records a relation path to eager-load once the terminal `get()`/`getAsync()` fetch resolves, then loads it for the whole result set in one batched query per path segment, not one per instance:
+
+```lua
+-- One query for the inventories, one more for every owner they reference
+local items = Inventory:with('owner'):get()
+for _, item in ipairs(items) do
+    print(item.relations.owner.name)   -- already loaded, no extra query
+end
+```
+
+`path` can be dot-separated to eager-load a chain of nested relations (`'a.b.c'`), one additional batched query per segment:
+
+```lua
+local items = Inventory:with('owner.faction'):get()
+```
+
+Multiple `with()` calls chain and accumulate independent paths rather than overwriting each other:
+
+```lua
+Inventory:with('owner'):with('owner.faction'):get()
+```
+
+For `belongsToMany` relations specifically, a related row shared by more than one owner (e.g. the same faction on two characters) is interned to a single shared model instance rather than one distinct instance per pivot row, so a nested path through it populates correctly for every owner that references it.
 
 ## Query Builder
 
@@ -117,7 +157,7 @@ local recent = QueryBuilder.new('inventories')
     :whereIn('item', {'water', 'bread'})
     :orderBy('created_at', 'DESC')
     :limit(10)
-    :getSync()
+    :get()
 ```
 
 Available methods include:
@@ -127,17 +167,17 @@ Available methods include:
 - **Ordering/paging**: `orderBy(column, direction)`, `limit(n)`, `offset(n)`.
 - **Joins**: `join(tableName, first, operator, second, [joinType])`, `leftJoin(tableName, first, operator, second)`.
 - **Grouping**: `groupBy(columns)`.
-- **Execution**: `get(callback)` / `getSync()`, `first(callback)` / `firstSync()`, `count(callback)` / `countSync()`, `insert(data, [callback])`, `update(data, [callback])`, `delete([callback])`, `paginate(page, perPage, callback)`.
+- **Execution**: `get()` / `getAsync(callback)`, `first()` / `firstAsync(callback)`, `count()` / `countAsync(callback)`, `insert(data)` / `insertAsync(data, callback)`, `update(data)` / `updateAsync(data, callback)`, `delete()` / `deleteAsync(callback)`, `paginateAsync(page, perPage, callback)`.
 
 Every identifier (table/column name, operator, join type, sort direction) is validated against an allowlist before being interpolated into SQL, and every value is passed as a `?` parameter — this is what keeps `where`/`join`/`orderBy` safe from injection even though they build SQL by string concatenation internally.
 
 A model class proxies the same starter methods (`select`, `selectRaw`, `where`, `orWhere`, `whereIn`, `whereNull`, `whereNotNull`, `orderBy`, `limit`, `offset`, `join`, `leftJoin`, `groupBy`), so you can skip the explicit `newQuery()` call and start a query straight off the model:
 
 ```lua
-Inventory:where('container', 'stash'):orderBy('created_at', 'DESC'):limit(10):getSync()
+Inventory:where('container', 'stash'):orderBy('created_at', 'DESC'):limit(10):get()
 ```
 
-This is equivalent to `QueryBuilder.new('inventories'):where(...)` (each proxy just opens a fresh query and forwards to it) and returns the same raw rows, not model instances, since it's the same `QueryBuilder` underneath.
+This is equivalent to `Inventory:newQuery():where(...)` (each proxy just opens a fresh query, with `.model` attached, and forwards to it). Because the query is opened off the model, `get()`/`getAsync()`/`first()`/`firstAsync()` decode JSON casts and return model instances, not raw rows — that's only true of a *bare* `QueryBuilder.new('inventories')` with no owning model.
 
 ## Schema & Migrations
 

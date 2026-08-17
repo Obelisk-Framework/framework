@@ -30,14 +30,15 @@ function EntityStreamerService.init()
     EntityStreamerService.chunks = {}
     EntityStreamerService.groups = {}
 
-    local rows = Entity:where('enabled', true):getSync()
+    local rows = Entity:where('enabled', true):get()
     for _, row in ipairs(rows) do
-        -- `Entity:where(...):getSync()` goes through the plain QueryBuilder,
-        -- which has no knowledge of the model's `casts` table -- only
-        -- BaseModel:decodeJsonCasts applies those, and nothing on this read
-        -- path calls it. So `data` still arrives as a raw JSON string here
-        -- (as a real MySQL driver would hand it back), not the decoded
-        -- table BaseModel-mediated reads would produce.
+        -- `Entity:where(...):get()` is a model-mediated query (opened off
+        -- the `Entity` model, so `.model` is attached), and `get()` has been
+        -- model-aware since the ORM sync-rename work: it already runs
+        -- BaseModel:decodeJsonCasts on every row. So `row.data` normally
+        -- arrives here pre-decoded as a table already. The type-check/decode
+        -- below is just a defensive fallback in case that ever isn't true
+        -- (e.g. a future direct/raw read path), not the primary decode step.
         local decodedData = row.data
         if type(decodedData) == 'string' then
             local ok, parsed = pcall(json.decode, decodedData)

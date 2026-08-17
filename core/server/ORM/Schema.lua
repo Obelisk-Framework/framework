@@ -450,7 +450,7 @@ function Schema.create(tableName, callback)
     local result
     for _, sql in ipairs(statements) do
         print('[Schema] SQL: ' .. sql)
-        result = Database.querySync(sql, {})
+        result = Database.query(sql, {})
     end
     print('[Schema] Result: ' .. json.encode(result))
     return result
@@ -460,14 +460,14 @@ end
 function Schema.drop(tableName)
     local sql = 'DROP TABLE IF EXISTS ' .. Database.dialect.quoteIdentifier(tableName)
     print('[Schema] Dropping table: ' .. tableName)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 --- Check if a table exists
 function Schema.hasTable(tableName)
     local sql = 'SELECT COUNT(*) as count FROM information_schema.TABLES WHERE ' ..
                 Database.dialect.tableExistsPredicate() .. ' AND TABLE_NAME = ?'
-    local result = Database.querySync(sql, {tableName})
+    local result = Database.query(sql, {tableName})
     return result and result[1] and (tonumber(result[1].count) or 0) > 0
 end
 
@@ -522,7 +522,7 @@ function Schema.table(tableName, callback)
     end
 
     for _, sql in ipairs(statements) do
-        Database.querySync(sql, {})
+        Database.query(sql, {})
     end
 end
 
@@ -530,7 +530,7 @@ end
 function Schema.hasColumn(tableName, columnName)
     local sql = 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE ' ..
                 Database.dialect.tableExistsPredicate() .. ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    local result = Database.querySync(sql, {tableName, columnName})
+    local result = Database.query(sql, {tableName, columnName})
     return result and result[1] and (tonumber(result[1].count) or 0) > 0
 end
 
@@ -538,19 +538,19 @@ end
 function Schema.dropColumn(tableName, columnName)
     local q = Database.dialect.quoteIdentifier
     local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP COLUMN ' .. q(columnName)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 --- Rename a column
 function Schema.renameColumn(tableName, from, to)
     local sql = Database.dialect.renameColumnSQL(tableName, from, to)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 --- Rename a table
 function Schema.renameTable(from, to)
     local sql = Database.dialect.renameTableSQL(from, to)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 -- Exposed for unit tests that need to construct/inspect a Blueprint directly

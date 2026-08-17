@@ -2,7 +2,7 @@
 
 Exhaustive reference for every public function in the ORM (`core/server/ORM/`). For an architectural overview and everyday usage patterns, read [ORM](/concepts/orm) first; this page is the complete signature list, including the lower-level `Database` layer and internal `QueryBuilder`/`Blueprint` methods that the concepts page only summarizes.
 
-**Sync vs async:** a `...Sync` function blocks and returns its result directly. The non-`Sync` counterpart runs the query on a separate thread (`Citizen.CreateThread`) and calls a `callback` with the result instead of returning it; it has no meaningful return value. Several `QueryBuilder`/`BaseModel` write methods are dual mode: pass a `callback` for the async form, omit it for the sync form that returns a value directly.
+**Sync vs async:** a bare-named function blocks and returns its result directly, no `callback` parameter. The `...Async`-suffixed counterpart runs the query on a separate thread (`Citizen.CreateThread`) and calls a `callback` with the result instead of returning it; it has no meaningful return value. This split is consistent throughout `QueryBuilder`/`BaseModel` — there is no callback-presence branching on a single bare-named method; `attach`/`detach` are the only exception (callback-based only, no sync form).
 
 ## Database
 
@@ -26,35 +26,35 @@ Sync. Returns a `table` with `driver`, `user`, `password`, `host`, `port`, `data
 
 ### Raw queries
 
-**`Database.querySync(query, params)`**
+**`Database.query(query, params)`**
 Sync. Returns `table` (the raw result rows).
 
-**`Database.query(query, params, callback)`**
+**`Database.queryAsync(query, params, callback)`**
 Async. Calls `callback(result)`. `params` defaults to `{}`.
 
-**`Database.insertSync(query, params)`**
+**`Database.insert(query, params)`**
 Sync. Returns `number` (the inserted row's id, or `0` if the connector didn't report one).
 
-**`Database.insert(query, params, callback)`**
+**`Database.insertAsync(query, params, callback)`**
 Async. Calls `callback(insertId)`.
 
-**`Database.updateSync(query, params)`**
+**`Database.update(query, params)`**
 Sync. Returns `number` (affected row count, or `0`).
 
-**`Database.update(query, params, callback)`**
+**`Database.updateAsync(query, params, callback)`**
 Async. Calls `callback(affectedRows)`.
 
-**`Database.deleteSync(query, params)`**
-Sync alias for `Database.updateSync`.
+**`Database.delete(query, params)`**
+Sync alias for `Database.update`.
 
-**`Database.delete(query, params, callback)`**
-Async alias for `Database.update`.
+**`Database.deleteAsync(query, params, callback)`**
+Async alias for `Database.updateAsync`.
 
-**`Database.executeSync(query, params)`**
-Sync alias for `Database.querySync`.
+**`Database.execute(query, params)`**
+Sync alias for `Database.query`.
 
-**`Database.execute(query, params, callback)`**
-Async alias for `Database.query`.
+**`Database.executeAsync(query, params, callback)`**
+Async alias for `Database.queryAsync`.
 
 **`Database.prepareQuery(query, params)`**
 Sync. Returns `string`, the query with each `?` substituted left to right by `Database.escape(params[i])`. Returns `query` unchanged if `params` is empty or `nil`. Extra `?` placeholders beyond `#params` are left as literal `?`. Prints the prepared query if `Database.debug` is set.
@@ -153,26 +153,32 @@ Sync. Returns `string sql, table params`. Assembles the full `SELECT ... FROM ..
 **`:buildWhereClause()`**, **`:buildOrderByClause()`**, **`:buildLimitClause()`**, **`:buildJoinClause()`**, **`:buildSelectClause()`**
 Sync internals `toSql()` composes from. Each returns the SQL fragment for its clause (empty string if not applicable). `buildOrderByClause`, `buildLimitClause`, and `buildJoinClause` are where the allowlist validation for direction, numeric limit/offset, and join type actually throws.
 
-**`:get(callback)`** / **`:getSync()`**
-Async / sync. Runs the built query. Returns (or passes to `callback`) the raw result rows, not model instances.
+**`:get()`** / **`:getAsync(callback)`**
+Sync / async. Runs the built query. On a bare `QueryBuilder.new(tableName)` (no owning model), returns (or passes to `callback`) the raw result rows. On a query opened off a model (`self.model` set, e.g. via `BaseModel:newQuery()` or a model's query-proxy methods), decodes any JSON casts and wraps each row into a model instance via `newFromQuery`, returning model instances instead.
 
-**`:first(callback)`** / **`:firstSync()`**
-Async / sync. Same as `get`, but with `limit(1)` applied first, returning a single row (or `nil`) instead of a list.
+**`:with(path)`**
+Sync. Returns `self`. Appends `path` to `self.withPaths` (chainable, so `:with('a'):with('b')` accumulates two independent paths rather than overwriting). Only meaningful on a query opened off a model (`self.model` set, e.g. via `BaseModel:newQuery()` or a model's `with`/query-proxy methods) — a bare `QueryBuilder.new(tableName)` has nothing to resolve relation names against. Once the query resolves via `get()`/`getAsync()` and returns model instances, every recorded path is eager-loaded via `BaseModel:eagerLoad`, one batched query per path segment across the whole result set, before the result is returned. `path` may be dot-separated (`'a.b.c'`) to eager-load a chain of nested relations.
 
-**`:count(callback)`** / **`:countSync()`**
-Async / sync. Temporarily swaps in `selectRaw('COUNT(*) as count')`, runs the query, restores the prior select, and returns a `number` (coerced via `tonumber`, defaulting to `0`; this also handles Postgres returning the count as a string).
+**`:first()`** / **`:firstAsync(callback)`**
+Sync / async. Same as `get`, but with `limit(1)` applied first, returning a single row (or `nil`) instead of a list.
 
-**`:insert(data, callback)`**
-Dual mode. With a `callback`: async, calls `callback(insertId)`. Without one: sync, returns `number insertId` directly. Builds `INSERT INTO ... (...) VALUES (...)`, appending the dialect's `RETURNING` clause where applicable (Postgres).
+**`:firstOr(callback)`**
+Sync only. Runs `:first()`; if it found a row, returns it; if not, calls `callback()` and returns its return value instead. `callback` here is a fallback-value function (Laravel's `firstOr` convention) — not an async completion handler like every other `callback` param in this file. There is no `firstOrAsync`.
 
-**`:update(data, callback)`**
-Dual mode, same pattern as `insert`. Returns/callbacks `number affectedRows`. Builds `UPDATE ... SET ...`, honoring any `where()` conditions already added to the builder.
+**`:count()`** / **`:countAsync(callback)`**
+Sync / async. Temporarily swaps in `selectRaw('COUNT(*) as count')`, runs the query, restores the prior select, and returns a `number` (coerced via `tonumber`, defaulting to `0`; this also handles Postgres returning the count as a string).
 
-**`:delete(callback)`**
-Dual mode, same pattern. Returns/callbacks `number affectedRows`. Builds `DELETE FROM ...`, honoring any `where()` conditions already added.
+**`:insert(data)`** / **`:insertAsync(data, callback)`**
+Sync / async. `insert` returns `number insertId` directly; `insertAsync` calls `callback(insertId)`. Builds `INSERT INTO ... (...) VALUES (...)`, appending the dialect's `RETURNING` clause where applicable (Postgres).
 
-**`:paginate(page, perPage, callback)`**
-Async only. `page` defaults to `1`, `perPage` to `15`. Runs a count, then a `limit`/`offset` query, and calls `callback({ data, total, perPage, currentPage, lastPage })`.
+**`:update(data)`** / **`:updateAsync(data, callback)`**
+Sync / async, same pattern as `insert`. Returns/callbacks `number affectedRows`. Builds `UPDATE ... SET ...`, honoring any `where()` conditions already added to the builder.
+
+**`:delete()`** / **`:deleteAsync(callback)`**
+Sync / async, same pattern. Returns/callbacks `number affectedRows`. Builds `DELETE FROM ...`, honoring any `where()` conditions already added.
+
+**`:paginateAsync(page, perPage, callback)`**
+Async only — bare-named `paginate` doesn't exist; internally it drives `count()`/`get()` via their Async forms and never returns synchronously, so it's named with the `Async` suffix like every other callback-only method. `page` defaults to `1`, `perPage` to `15`. Runs a count, then a `limit`/`offset` query, and calls `callback({ data, total, perPage, currentPage, lastPage })`.
 
 ```lua
 local recent = QueryBuilder.new('inventories')
@@ -180,7 +186,7 @@ local recent = QueryBuilder.new('inventories')
     :whereIn('item', {'water', 'bread'})
     :orderBy('created_at', 'DESC')
     :limit(10)
-    :getSync()
+    :get()
 ```
 
 ## Schema
@@ -188,7 +194,7 @@ local recent = QueryBuilder.new('inventories')
 Table creation and migration helpers. All functions below are static, called as `Schema.x(...)`.
 
 **`Schema.create(tableName, callback)`**
-Sync. Returns `table` (the result of the last statement run). `callback(blueprint)` populates a `Blueprint`; every statement `blueprint:toSql()` produces (the `CREATE TABLE` plus any standalone `CREATE INDEX` statements a dialect needs) runs in order via `Database.querySync`.
+Sync. Returns `table` (the result of the last statement run). `callback(blueprint)` populates a `Blueprint`; every statement `blueprint:toSql()` produces (the `CREATE TABLE` plus any standalone `CREATE INDEX` statements a dialect needs) runs in order via `Database.query`.
 
 **`Schema.table(tableName, callback)`**
 Sync. No meaningful return. Same `callback(blueprint)` pattern as `create`, but every new column becomes an `ALTER TABLE ... ADD COLUMN ...` statement and every index becomes the dialect's `ALTER`-time index statement, for adding columns/indexes to an existing table. A column marked with `:change()` is altered instead of added — see [Altering an existing column](#altering-an-existing-column).
@@ -238,7 +244,7 @@ BOOLEAN column. Defaults to `0`.
 DATE / DATETIME / TIMESTAMP column.
 
 **`:timestamps()`**
-Adds both `created_at` and `updated_at` as TIMESTAMP columns defaulting to `CURRENT_TIMESTAMP` at the database level. Note that `updated_at` isn't auto-refreshed by the database (there's no portable Postgres equivalent of MySQL's `ON UPDATE CURRENT_TIMESTAMP`); `BaseModel:save`/`saveSync` set it explicitly via `Database.now()` on every save instead.
+Adds both `created_at` and `updated_at` as TIMESTAMP columns defaulting to `CURRENT_TIMESTAMP` at the database level. Note that `updated_at` isn't auto-refreshed by the database (there's no portable Postgres equivalent of MySQL's `ON UPDATE CURRENT_TIMESTAMP`); `BaseModel:save` and `saveAsync` set it explicitly via `Database.now()` on every save instead.
 
 **`:enum(name, values)`**
 ENUM column restricted to `values` (a list of strings).
@@ -409,33 +415,39 @@ Constructor. Returns an instance with the given `attributes` (defaults to `{}`),
 **`:newQuery()`**
 Sync. Returns a `QueryBuilder.new(self.table, self.primaryKey)`, the query object every other model method builds on.
 
-**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**
-Proxies onto the same-named `QueryBuilder` method: each opens a fresh `newQuery()` and forwards straight to it, letting you skip the explicit `newQuery()` call, e.g. `Inventory:where('owner', id):getSync()`. Same parameters, same return value (a `QueryBuilder`, so the rest of the chain and its terminal `getSync`/`first`/etc. behave exactly as documented under [QueryBuilder](#querybuilder) above), and the same raw-rows result, not model instances.
+**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**, **`:get()`**, **`:firstOr(callback)`**
+Proxies onto the same-named `QueryBuilder` method: each opens a fresh `newQuery()` (which attaches `.model`) and forwards straight to it, letting you skip the explicit `newQuery()` call, e.g. `Inventory:where('owner', id):get()`. Same parameters and return value as documented under [QueryBuilder](#querybuilder) above — for the chainable starters that's a `QueryBuilder` (so the rest of the chain and its terminal `get`/`getAsync`/`first`/etc. behave identically); for the `get` proxy specifically, because `.model` is attached, the result is JSON-cast-decoded model instances, not raw rows. `firstOr`'s `callback` is a fallback-value function (Laravel convention), not an async completion handler — there is no `firstOrAsync`.
 
-**`:find(id, callback)`** / **`:findSync(id)`**
-Async / sync. Looks up a row by primary key. Returns the wrapped model instance, or `nil` if not found.
+**`:find(id)`** / **`:findAsync(id, callback)`**
+Sync / async. Looks up a row by primary key. Returns the wrapped model instance, or `nil` if not found.
 
-**`:all(callback)`** / **`:allSync()`**
-Async / sync. Returns every row in the table as an array of model instances.
+**`:firstOrNew(attributes, values)`**
+Sync only. Looks up the first row matching every key/value pair in `attributes` (AND'd together). Found → returns it. Not found → returns a new, **unsaved** instance (`exists = false`) built from `attributes` merged with `values` (`values`' keys win on conflict); the caller calls `:save()`/`:saveAsync()` themselves. No async form — the only I/O is the lookup.
+
+**`:firstOrCreate(attributes, values)`** / **`:firstOrCreateAsync(attributes, values, callback)`**
+Sync / async. Same lookup as `firstOrNew`. Found → returns/callbacks it as-is (`values` is ignored). Not found → creates and saves a new instance from `attributes` merged with `values` (equivalent to `:create(...)`/`:createAsync(...)`) — no separate `:save()` call needed.
+
+**`:updateOrCreate(attributes, values)`** / **`:updateOrCreateAsync(attributes, values, callback)`**
+Sync / async. Same lookup. Found → applies every key in `values` via `:set()`, then `:save()`s/`:saveAsync()`s it, returns/callbacks the updated instance. Not found → same create-with-merge as `firstOrCreate`.
+
+**`:get()`** / **`:getAsync(callback)`**
+Sync / async. Returns every row in the table as an array of model instances. (This replaces the old `all()`/`allSync()` methods.)
 
 **`:newFromQuery(attributes)`**
-Sync. Returns a model instance built from a raw result row, marked `exists = true` with `original` set to a copy of `attributes`. Used internally by `find`/`all`/relationship loaders; rarely called directly.
+Sync. Returns a model instance built from a raw result row, marked `exists = true` with `original` set to a copy of `attributes`. Used internally by `find`/`get`/relationship loaders; rarely called directly.
 
 ### Saving and deleting
 
-**`:create(attributes, callback)`** / **`:createSync(attributes)`**
-Async / sync. Builds a new instance from `attributes` and saves it in one call. Returns the saved instance.
+**`:create(attributes)`** / **`:createAsync(attributes, callback)`**
+Sync / async. Builds a new instance from `attributes` and saves it in one call. Returns the saved instance.
 
-**`:save(callback)`** / **`:saveSync()`**
-Async / sync. Inserts if `self.exists` is `false`, updates by primary key otherwise. When `self.timestamps` is `true`, sets `created_at` (insert only) and `updated_at` (every save) via `Database.now()`. Returns `self`.
+**`:save()`** / **`:saveAsync(callback)`**
+Sync / async. Inserts if `self.exists` is `false`, updates by primary key otherwise. When `self.timestamps` is `true`, sets `created_at` (insert only) and `updated_at` (every save) via `Database.now()`. Returns `self`.
 
-**`:delete(callback)`** / **`:deleteSync()`**
-Async / sync. Deletes the row by primary key and sets `self.exists = false`. Returns/callbacks `false` immediately, without touching the database, if the instance doesn't already exist.
+**`:delete()`** / **`:deleteAsync(callback)`**
+Sync / async. Deletes the row by primary key and sets `self.exists = false`. Returns/callbacks `false` immediately, without touching the database, if the instance doesn't already exist.
 
 ### Attributes
-
-**`:get(key)`**
-Sync. Returns `self.attributes[key]`.
 
 **`:set(key, value)`**
 Sync. Sets `self.attributes[key] = value`. No return.
@@ -449,10 +461,13 @@ Sync. Returns a `table`, a deep copy of `attributes` with every key listed in `s
 **`:copyTable(t)`**
 Sync helper. Returns a deep copy of `t`. Used internally by `toTable` and elsewhere; safe to call directly if you need a deep copy of a plain table.
 
+**`.field` direct access**
+Every model instance's metatable `__index` (set in `BaseModel.__index`/the per-subclass `__index` built by `extend`) is a function, not a plain table, that checks `attributes[key]`, then `relations[key]`, then falls through to the class's method table (`BaseModel[key]` or `child[key]`). So `instance.name` reads `instance.attributes.name` (or, if not an attribute, a loaded `instance.relations.name`) without an explicit `.attributes`/`.relations` lookup. `instance.attributes.field` and `instance.relations.name` still work unchanged; `.field` is a transparent read-only fallback on top of them, not a separate storage location. An attribute takes precedence over a same-named relation.
+
 ### Relationships
 
 **`:hasOne(relatedModel, foreignKey, localKey)`** / **`:hasMany(relatedModel, foreignKey, localKey)`**
-Sync. Return a relationship descriptor (a plain table, not a query) for `load`/`loadSync` to resolve later. `localKey` defaults to `self.primaryKey`.
+Sync. Return a relationship descriptor (a plain table, not a query) for `load`/`loadAsync` to resolve later. `localKey` defaults to `self.primaryKey`.
 
 **`:belongsTo(relatedModel, foreignKey, ownerKey)`**
 Sync. Returns a relationship descriptor. `ownerKey` defaults to `relatedModel.primaryKey`.
@@ -460,21 +475,27 @@ Sync. Returns a relationship descriptor. `ownerKey` defaults to `relatedModel.pr
 **`:belongsToMany(relatedModel, pivotTable, foreignPivotKey, relatedPivotKey)`**
 Sync. Returns a relationship descriptor for a many-to-many relation through `pivotTable`.
 
-**`:load(relationName, callback)`** / **`:loadSync(relationName)`**
-Async / sync. Resolves the relationship method named `relationName` on the model (e.g. `self:owner()`), runs the appropriate query for its type, caches the result on `self.relations[relationName]`, and returns it. Returns the cached value directly on a repeat call, without re-querying. `relationName` must name a method defined on the model that returns one of the four descriptors above.
+**`:load(relationName)`** / **`:loadAsync(relationName, callback)`**
+Sync / async. Resolves the relationship method named `relationName` on the model (e.g. `self:owner()`), runs the appropriate query for its type, caches the result on `self.relations[relationName]`, and returns it. Returns the cached value directly on a repeat call, without re-querying. `relationName` must name a method defined on the model that returns one of the four descriptors above.
+
+**`BaseModel:with(path)`**
+Sync. Returns a `QueryBuilder` — sugar for `self:newQuery():with(path)`, so it opens a fresh model-bound query and forwards straight to `QueryBuilder:with` (see [QueryBuilder: `:with(path)`](#building-and-executing)). Chainable ahead of a terminal `get()`/`getAsync()`; each call records another independent path rather than replacing the previous one.
+
+**`BaseModel:eagerLoad(instances, path)`**
+Sync. No return; mutates `instances` in place. The engine `get()`/`getAsync()` call once per recorded `with()` path once the initial fetch resolves. Splits `path` into its first segment and the remaining dot-separated `rest`, resolves the relationship descriptor for that segment off `instances[1]`, and runs one batched query (`whereIn` on the relevant key across every instance) to fetch every related row in a single round trip, instead of one query per instance. Populates `inst.relations[segment]` on every instance in `instances` from that one query's results. For a `belongsToMany` segment, related rows sharing the same primary key across different owners are interned to one shared model instance (rather than one distinct instance per pivot row), so a nested path continues to populate correctly for every owner. If `rest` is non-empty, recurses into `related:eagerLoad(nextLevelInstances, rest)` against the deduplicated set of related instances just populated, to resolve the next segment of the path.
 
 **`:attach(relationName, id, pivotData, callback)`**
-Dual mode (delegates to `QueryBuilder:insert`, so pass `callback` for async, omit it for sync returning the pivot row's insert id). Inserts a pivot row linking the current instance to `id`, merging in any extra `pivotData`. Only valid on a `belongsToMany` relationship; throws otherwise.
+Async only, despite the bare name — there is no `attachAsync` and no sync form. Delegates to `QueryBuilder:insertAsync`. Inserts a pivot row linking the current instance to `id`, merging in any extra `pivotData`, and calls `callback(insertId)`. Only valid on a `belongsToMany` relationship; throws otherwise.
 
 **`:detach(relationName, id, callback)`**
-Dual mode (delegates to `QueryBuilder:delete`). Removes the pivot row linking the current instance to `id`. Omit `id` to detach every related row. Only valid on a `belongsToMany` relationship; throws otherwise.
+Async only, despite the bare name — there is no `detachAsync` and no sync form. Delegates to `QueryBuilder:deleteAsync`. Removes the pivot row linking the current instance to `id` and calls `callback(affectedRows)`. Omit `id` to detach every related row. Only valid on a `belongsToMany` relationship; throws otherwise.
 
 ```lua
 function Inventory:owner()
     return self:belongsTo(Character, 'owner', 'id')
 end
 
-local character = item:loadSync('owner')
+local character = item:load('owner')
 ```
 
 ## Dialects

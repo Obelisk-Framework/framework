@@ -9,11 +9,11 @@ return {
             table:integer('action_id_int'):nullable()
         end)
 
-        local rows = Database.querySync('SELECT id, action_id FROM keybinds', {})
+        local rows = Database.query('SELECT id, action_id FROM keybinds', {})
         for _, row in ipairs(rows or {}) do
-            local action = Database.querySync('SELECT id FROM actions WHERE action_id = ?', {row.action_id})
+            local action = Database.query('SELECT id FROM actions WHERE action_id = ?', {row.action_id})
             if action and action[1] then
-                Database.updateSync('UPDATE keybinds SET action_id_int = ? WHERE id = ?', {action[1].id, row.id})
+                Database.update('UPDATE keybinds SET action_id_int = ? WHERE id = ?', {action[1].id, row.id})
             else
                 print('[Migration] WARNING: keybind #' .. row.id .. ' references unknown action_id "' .. tostring(row.action_id) .. '", leaving action_id_int NULL')
             end

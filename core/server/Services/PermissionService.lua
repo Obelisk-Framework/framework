@@ -35,7 +35,7 @@ function PermissionService.grant(ownerType, ownerId, key)
     assertRegistered(ownerType)
 
     local existing = QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):firstSync()
+        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):first()
     if existing then
         return
     end
@@ -81,7 +81,7 @@ end
 --- @return boolean
 function PermissionService.has(ownerType, ownerId, key)
     local row = QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):firstSync()
+        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):first()
     return row ~= nil
 end
 
@@ -90,7 +90,7 @@ end
 --- @return string[] every granted permission_key for this owner
 function PermissionService.list(ownerType, ownerId)
     local rows = QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):getSync()
+        :where('owner_type', ownerType):where('owner_id', ownerId):get()
 
     local keys = {}
     for _, row in ipairs(rows) do

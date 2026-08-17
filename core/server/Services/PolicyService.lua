@@ -56,21 +56,21 @@ function PolicyService.attach(resourceType, resourceId, policyId, config)
     local table_name, id_column = resolveResourceTable(resourceType)
     
     -- Check if already attached
-    local existing = Database.querySync(
+    local existing = Database.query(
         'SELECT * FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ? AND policy_id = ?',
         {resourceId, policyId}
     )
     
     if existing and #existing > 0 then
         -- Update existing
-        Database.updateSync(
+        Database.update(
             'UPDATE ' .. table_name .. ' SET data = ?, updated_at = ? WHERE ' .. id_column .. ' = ? AND policy_id = ?',
             {json.encode(config or {}), Database.now(), resourceId, policyId}
         )
         print('[PolicyService] Updated policy ' .. policyId .. ' for ' .. resourceType .. '#' .. tostring(resourceId))
     else
         -- Insert new
-        Database.insertSync(
+        Database.insert(
             'INSERT INTO ' .. table_name .. ' (' .. id_column .. ', policy_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
             {resourceId, policyId, json.encode(config or {}), Database.now(), Database.now()}
         )
@@ -89,14 +89,14 @@ function PolicyService.detach(resourceType, resourceId, policyId)
     
     if policyId then
         -- Remove specific policy
-        Database.deleteSync(
+        Database.delete(
             'DELETE FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ? AND policy_id = ?',
             {resourceId, policyId}
         )
         print('[PolicyService] Detached policy ' .. policyId .. ' from ' .. resourceType .. '#' .. tostring(resourceId))
     else
         -- Remove all policies
-        Database.deleteSync(
+        Database.delete(
             'DELETE FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
             {resourceId}
         )
@@ -111,7 +111,7 @@ end
 function PolicyService.getPolicies(resourceType, resourceId)
     local table_name, id_column = resolveResourceTable(resourceType)
     
-    local results = Database.querySync(
+    local results = Database.query(
         'SELECT policy_id, data FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
         {resourceId}
     )
