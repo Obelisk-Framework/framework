@@ -2390,6 +2390,15 @@ end)
 --------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
+
+test('Blueprint:mediumBlob emits MEDIUMBLOB', function()
+    local bp2 = Schema.Blueprint.new('blobs')
+    bp2:id()
+    bp2:mediumBlob('data')
+    local sql = bp2:toSql()
+    assert(sql[1]:find('`data` MEDIUMBLOB NOT NULL'), 'mediumBlob should emit MEDIUMBLOB')
+end)
+
 print('Running ORM unit tests\n')
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)

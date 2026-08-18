@@ -45,6 +45,12 @@ function Blueprint:text(name)
     return self
 end
 
+--- Add a mediumBlob column
+function Blueprint:mediumBlob(name)
+    table.insert(self.columns, { name = name, kind = 'mediumBlob', opts = {}, nullable = false })
+    return self
+end
+
 --- Add a JSON column
 function Blueprint:json(name)
     table.insert(self.columns, { name = name, kind = 'json', opts = {}, nullable = false })
