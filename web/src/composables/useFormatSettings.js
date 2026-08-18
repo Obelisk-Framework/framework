@@ -18,17 +18,11 @@ const DEFAULTS = {
 
 let cached = null
 
-export function loadFormatSettings() {
-  if (cached) return Promise.resolve(cached)
-  return new Promise((resolve) => {
-    function handler(format) {
-      Obelisk.off('core:client:formatSettings', handler)
-      cached = { ...DEFAULTS, ...format }
-      resolve(cached)
-    }
-    Obelisk.on('core:client:formatSettings', handler)
-    Obelisk.emit('core:client:getFormatSettings', {})
-  })
+export async function loadFormatSettings() {
+  if (cached) return cached
+  const format = await Obelisk.emit('core:client:getFormatSettings', {})
+  cached = { ...DEFAULTS, ...format }
+  return cached
 }
 
 function tokens(format, epochSeconds) {
