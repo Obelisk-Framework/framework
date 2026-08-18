@@ -484,12 +484,24 @@ function BaseModel:isDirty(key)
     return false
 end
 
+--- Strip a trailing 's' off a table name to get its singular form (e.g.
+--- 'characters' -> 'character'), used to default a relation's foreignKey
+--- to `<this model's singular name>_id`. Matches this codebase's existing
+--- convention at every current hasOne/hasMany call site; irregular
+--- plurals aren't handled -- pass `foreignKey` explicitly for those.
+--- @param tableName string
+--- @return string
+local function singularize(tableName)
+    return (tableName:gsub('s$', ''))
+end
+
 --- Define a hasOne relationship
 --- @param relatedModel BaseModel
 --- @param foreignKey string
 --- @param localKey string
 --- @return table
 function BaseModel:hasOne(relatedModel, foreignKey, localKey)
+    foreignKey = foreignKey or (singularize(self.table) .. '_id')
     localKey = localKey or self.primaryKey
     return {
         type = 'hasOne',
@@ -505,6 +517,7 @@ end
 --- @param localKey string
 --- @return table
 function BaseModel:hasMany(relatedModel, foreignKey, localKey)
+    foreignKey = foreignKey or (singularize(self.table) .. '_id')
     localKey = localKey or self.primaryKey
     return {
         type = 'hasMany',

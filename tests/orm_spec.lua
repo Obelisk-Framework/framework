@@ -1068,6 +1068,30 @@ test('BaseModel load: hasMany does not double-wrap related model instances', fun
         'related instance attributes should contain only real db columns')
 end)
 
+test('BaseModel hasMany/hasOne: foreignKey defaults to singularize(self.table) .. "_id"', function()
+    local Character = BaseModel:extend('characters')
+    local ShellOwner = BaseModel:extend('shell_owners')
+    function Character.relations:shellOwners() return self:hasMany(ShellOwner) end
+
+    local capturedParams
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `characters`') then return {{ id = 1 }} end
+        if sql:find('FROM `shell_owners`') then
+            capturedParams = params
+            return {{ id = 10, character_id = 1, shell_id = 5 }}
+        end
+        return {}
+    end
+
+    local character = Character:find(1)
+    local owners = character.shellOwners
+    Database.query = original
+
+    eq(#owners, 1)
+    eqList(capturedParams, {1}, 'hasMany with no explicit foreignKey should filter by character_id')
+end)
+
 test('BaseModel.relations: bare property access lazily resolves and caches', function()
     local Customer = BaseModel:extend('customers')
     local Order = BaseModel:extend('orders')
@@ -2027,7 +2051,7 @@ test('BaseModel load: morphOne returns the single related row for this owner', f
     Interaction.primaryKey = 'id'
     Interaction.timestamps = false
 
-    function ATMMachine:interaction()
+    function ATMMachine.relations:interaction()
         return self:morphOne(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
     end
 
@@ -2064,7 +2088,7 @@ test('BaseModel load: morphOne returns nil when no matching row exists', functio
     Tag.primaryKey = 'id'
     Tag.timestamps = false
 
-    function Widget:tag() return self:morphOne(Tag, 'owner_id', 'owner_type', 'Widget') end
+    function Widget.relations:tag() return self:morphOne(Tag, 'owner_id', 'owner_type', 'Widget') end
 
     local original = Database.query
     Database.query = function(sql, params)
@@ -2088,7 +2112,7 @@ test('BaseModel load: morphMany returns all related rows for this owner', functi
     Comment.primaryKey = 'id'
     Comment.timestamps = false
 
-    function Post:comments()
+    function Post.relations:comments()
         return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
     end
 
@@ -2122,7 +2146,7 @@ test('BaseModel load: morphMany returns empty table when no related rows exist',
     Comment.primaryKey = 'id'
     Comment.timestamps = false
 
-    function Post:comments()
+    function Post.relations:comments()
         return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
     end
 
@@ -2149,7 +2173,7 @@ test('BaseModel load: morphTo resolves owner via _G[owner_type]:find(owner_id)',
     Interaction.primaryKey = 'id'
     Interaction.timestamps = false
 
-    function Interaction:owner()
+    function Interaction.relations:owner()
         return self:morphTo('owner_type', 'owner_id')
     end
 
@@ -2180,7 +2204,7 @@ test('BaseModel load: morphTo returns nil when owner_type resolves to nil global
     Interaction.primaryKey = 'id'
     Interaction.timestamps = false
 
-    function Interaction:owner()
+    function Interaction.relations:owner()
         return self:morphTo('owner_type', 'owner_id')
     end
 
@@ -2208,7 +2232,7 @@ test('BaseModel.with: morphOne batches one query for all instances with WHERE IN
     Interaction.primaryKey = 'id'
     Interaction.timestamps = false
 
-    function ATMMachine:interaction()
+    function ATMMachine.relations:interaction()
         return self:morphOne(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
     end
 
@@ -2249,7 +2273,7 @@ test('BaseModel.with: morphMany distributes all related rows per instance', func
     Comment.primaryKey = 'id'
     Comment.timestamps = false
 
-    function Post:comments()
+    function Post.relations:comments()
         return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
     end
 
@@ -2281,7 +2305,7 @@ test('BaseModel.with: morphTo eagerLoad batches by owner_type and groups correct
     Interaction.primaryKey = 'id'
     Interaction.timestamps = false
 
-    function Interaction:owner()
+    function Interaction.relations:owner()
         return self:morphTo('owner_type', 'owner_id')
     end
 

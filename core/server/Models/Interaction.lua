@@ -8,7 +8,7 @@ Interaction.fillable = {
 }
 Interaction.casts = { options = 'json' }
 
-function Interaction:owner()
+function Interaction.relations:owner()
     return self:morphTo('owner_type', 'owner_id')
 end
 
