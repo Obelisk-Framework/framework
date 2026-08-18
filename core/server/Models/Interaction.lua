@@ -1,1 +1,1 @@
-Interaction = BaseModel:extend()
+Interaction = BaseModel:extend('interactions')

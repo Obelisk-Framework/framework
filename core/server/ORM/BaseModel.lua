@@ -423,6 +423,24 @@ function BaseModel:hasOne(relatedModel, foreignKey, localKey)
     }
 end
 
+--- Define a polymorphic one-to-one relationship.
+--- Queries: relatedModel WHERE foreignKey = self.id AND morphType = typeValue
+--- @param relatedModel BaseModel
+--- @param foreignKey string  e.g. 'owner_id'
+--- @param morphType string   e.g. 'owner_type'
+--- @param typeValue string   e.g. 'Shop'
+--- @return table
+function BaseModel:morphOne(relatedModel, foreignKey, morphType, typeValue)
+    return {
+        type = 'morphOne',
+        relatedModel = relatedModel,
+        foreignKey = foreignKey,
+        morphType = morphType,
+        typeValue = typeValue,
+        localKey = self.primaryKey,
+    }
+end
+
 --- Define a hasMany relationship
 --- @param relatedModel BaseModel
 --- @param foreignKey string
@@ -479,7 +497,15 @@ function BaseModel:load(relationName)
 
     local relation = self[relationName](self)
 
-    if relation.type == 'hasOne' then
+    if relation.type == 'morphOne' then
+        local localValue = self.attributes[relation.localKey]
+        local result = relation.relatedModel:newQuery()
+            :where(relation.foreignKey, localValue)
+            :where(relation.morphType, relation.typeValue)
+            :first()
+        if result then self.relations[relationName] = result end
+        return self.relations[relationName]
+    elseif relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
         -- newQuery() attaches `.model`, so `first()` already returns a
         -- wrapped model instance (or nil) -- do not re-wrap it.
@@ -521,7 +547,16 @@ function BaseModel:loadAsync(relationName, callback)
 
     local relation = self[relationName](self)
 
-    if relation.type == 'hasOne' then
+    if relation.type == 'morphOne' then
+        local localValue = self.attributes[relation.localKey]
+        relation.relatedModel:newQuery()
+            :where(relation.foreignKey, localValue)
+            :where(relation.morphType, relation.typeValue)
+            :firstAsync(function(result)
+                if result then self.relations[relationName] = result end
+                callback(self.relations[relationName])
+            end)
+    elseif relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
         -- firstAsync() is model-aware and already returns a wrapped model
         -- instance (or nil) -- do not re-wrap it.
@@ -575,7 +610,23 @@ function BaseModel:eagerLoad(instances, path)
     local relation = instances[1][segment](instances[1])
     local related = relation.relatedModel
 
-    if relation.type == 'hasOne' or relation.type == 'hasMany' then
+    if relation.type == 'morphOne' then
+        local localValues = {}
+        for _, inst in ipairs(instances) do
+            table.insert(localValues, inst.attributes[relation.localKey])
+        end
+        local rows = related:newQuery()
+            :whereIn(relation.foreignKey, localValues)
+            :where(relation.morphType, relation.typeValue)
+            :get()
+        local byForeign = {}
+        for _, row in ipairs(rows) do
+            byForeign[row.attributes[relation.foreignKey]] = row
+        end
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = byForeign[inst.attributes[relation.localKey]]
+        end
+    elseif relation.type == 'hasOne' or relation.type == 'hasMany' then
         local localValues = {}
         for _, inst in ipairs(instances) do
             table.insert(localValues, inst.attributes[relation.localKey])

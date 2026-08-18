@@ -7,7 +7,9 @@ FakeQueryBuilder.__index = FakeQueryBuilder
 local function rowMatches(row, wheres, whereNulls)
     for _, w in ipairs(wheres) do
         local val = row[w.column]
-        if w.operator == '=' or w.operator == '==' then
+        if w.operator == 'IN' then
+            if not w.set[val] then return false end
+        elseif w.operator == '=' or w.operator == '==' then
             if val ~= w.value then return false end
         elseif w.operator == '<' then
             if not (val < w.value) then return false end
@@ -28,6 +30,18 @@ local function rowMatches(row, wheres, whereNulls)
         if row[col] ~= nil then return false end
     end
     return true
+end
+
+function FakeQueryBuilder:whereIn(column, values)
+    local set = {}
+    for _, v in ipairs(values) do set[v] = true end
+    table.insert(self.wheres, { column = column, operator = 'IN', set = set })
+    return self
+end
+
+function FakeQueryBuilder:with(path)
+    table.insert(self.withPaths, path)
+    return self
 end
 
 function FakeQueryBuilder:where(column, a, b)
@@ -124,6 +138,11 @@ function FakeQueryBuilder:get()
         for _, row in ipairs(results) do
             table.insert(models, self.model:newFromQuery(row))
         end
+        if #self.withPaths > 0 then
+            for _, path in ipairs(self.withPaths) do
+                self.model:eagerLoad(models, path)
+            end
+        end
         return models
     end
 
@@ -183,6 +202,7 @@ local function makeFakeQueryBuilderModule(tables)
             nextIds = nextIds,
             wheres = {},
             whereNulls = {},
+            withPaths = {},
         }, FakeQueryBuilder)
     end
     function Module.tables()
