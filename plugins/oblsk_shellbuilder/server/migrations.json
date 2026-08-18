@@ -1,7 +1,0 @@
-{
-  "migrations": [
-    "2026_08_15_100000_create_shells_table",
-    "2026_08_15_100001_create_shell_owners_table",
-    "2026_08_15_100002_create_shell_objects_table"
-  ]
-}
