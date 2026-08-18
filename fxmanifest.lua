@@ -46,7 +46,10 @@ server_scripts {
     'core/server/Services/KeybindService.lua',
     'core/server/Services/storage/*.lua',
     'core/server/Services/*.lua',
-    
+
+    -- Config
+    'core/server/Config/*.lua',
+
     -- Models
     'core/server/Models/**/*.lua',
     

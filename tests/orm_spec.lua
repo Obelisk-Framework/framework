@@ -1068,6 +1068,75 @@ test('BaseModel load: hasMany does not double-wrap related model instances', fun
         'related instance attributes should contain only real db columns')
 end)
 
+test('BaseModel.relations: bare property access lazily resolves and caches', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+
+    function Customer.relations:orders()
+        return self:hasMany(Order, 'customer_id')
+    end
+
+    local queryCount = 0
+    Database.query = function(sql)
+        queryCount = queryCount + 1
+        if sql:find('FROM `customers`') then return {{ id = 1, name = 'Ada' }} end
+        if sql:find('FROM `orders`') then return {{ id = 10, customer_id = 1, total = 5 }} end
+        return {}
+    end
+
+    local customer = Customer:find(1)
+    local orders = customer.orders
+    eq(#orders, 1, 'bare .orders should lazily resolve via Model.relations')
+    eq(orders[1].total, 5)
+
+    local queryCountAfterFirst = queryCount
+    local ordersAgain = customer.orders
+    eq(ordersAgain, orders, 'second access should return the cached table')
+    eq(queryCount, queryCountAfterFirst, 'second access should not requery')
+end)
+
+test('BaseModel.relations: does not collide with regular methods', function()
+    local Widget = BaseModel:extend('widgets')
+    function Widget:describe() return 'a widget' end
+
+    local widget = Widget.new({id = 1})
+    eq(widget:describe(), 'a widget', 'a plain method (not registered via .relations) is untouched')
+end)
+
+test('BaseModel:relation() returns the descriptor, both from a class and an instance', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local fromClass = Customer:relation('orders')
+    eq(fromClass.type, 'hasMany')
+    eq(fromClass.relatedModel, Order)
+
+    local customer = Customer.new({id = 1})
+    local fromInstance = customer:relation('orders')
+    eq(fromInstance.type, 'hasMany')
+    eq(fromInstance.relatedModel, Order)
+end)
+
+test('BaseModel.relations: old-style (function directly on the model) relations still work via :with()', function()
+    -- Backward compatibility: `function Model:xRelation() return
+    -- self:hasOne(...) end` (not registered via `Model.relations`) must
+    -- keep working for :with()/eagerLoad -- it just doesn't get the new
+    -- bare-property lazy-load behavior.
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer:ordersRelation() return self:hasMany(Order, 'customer_id') end
+
+    Database.query = function(sql)
+        if sql:find('FROM `customers`') then return {{ id = 1, name = 'Ada' }} end
+        if sql:find('FROM `orders`') then return {{ id = 10, customer_id = 1, total = 5 }} end
+        return {}
+    end
+
+    local customers = Customer:with('ordersRelation'):get()
+    eq(#customers[1].ordersRelation, 1, 'old-style definer still eager-loads via :with()')
+end)
+
 test('BaseModel instance: .field reads attributes directly', function()
     local Widget = BaseModel:extend('widgets')
     local widget = Widget.new({id = 1, name = 'gizmo'})

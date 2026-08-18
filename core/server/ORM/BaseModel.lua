@@ -1,5 +1,36 @@
 --- BaseModel - Active Record pattern with relationships
 --- Inspired by Laravel's Eloquent ORM
+--- Per-relation lazy-load counters, for the N+1 warning in resolveRelation
+--- below. Dev-only signal, not enforcement -- reset per process, not per
+--- request, so it's a "this relation gets loaded a lot, consider :with()"
+--- nudge rather than a hard limit.
+local LAZY_LOAD_WARN_THRESHOLD = 10
+local lazyLoadCounts = {}
+
+--- Declare `key` as a relation on `class` (backing store for the
+--- `class.relations` __newindex below) and resolve+cache it for `instance`
+--- if not already loaded. Shared by both BaseModel's own instances and
+--- every extend()'d child's instances.
+--- @param class table
+--- @param instance table
+--- @param key string
+--- @return any|nil the resolved (and now cached) relation value, or nil if
+---   `key` isn't a declared relation
+local function resolveRelation(class, instance, key)
+    local def = class.__relationDefs[key]
+    if not def then
+        return nil
+    end
+    local countKey = class.table .. '.' .. key
+    lazyLoadCounts[countKey] = (lazyLoadCounts[countKey] or 0) + 1
+    if lazyLoadCounts[countKey] == LAZY_LOAD_WARN_THRESHOLD then
+        print(("[ORM] relation '%s' lazy-loaded %d+ times -- consider :with('%s')")
+            :format(countKey, LAZY_LOAD_WARN_THRESHOLD, key))
+    end
+    class:eagerLoad({ instance }, key)
+    return rawget(instance, 'relations')[key]
+end
+
 BaseModel = {}
 BaseModel.__index = function(instance, key)
     local attrs = rawget(instance, 'attributes')
@@ -9,6 +40,13 @@ BaseModel.__index = function(instance, key)
     local rels = rawget(instance, 'relations')
     if rels and rels[key] ~= nil then
         return rels[key]
+    end
+    local loaded = rawget(instance, '__loaded')
+    if loaded and loaded[key] then
+        return nil
+    end
+    if BaseModel.__relationDefs[key] then
+        return resolveRelation(BaseModel, instance, key)
     end
     return BaseModel[key]
 end
@@ -21,6 +59,44 @@ BaseModel.fillable = {}
 BaseModel.hidden = {}
 BaseModel.casts = {}
 
+--- Relation definers, keyed by name -- populated only via `class.relations`
+--- (see below), never written to directly.
+BaseModel.__relationDefs = {}
+
+--- `Model.relations` is the registration surface for lazily-loaded
+--- relations, e.g. `function Character.relations:shellOwners() return
+--- self:hasMany(ShellOwner, 'character_id') end`. Assigning a function
+--- here (not on the model table itself) makes `key` resolve, on instance
+--- property access, as a lazily-fetched-and-cached relation instead of a
+--- plain method -- so relation methods and regular methods never collide,
+--- and nothing needs to inspect or speculatively call anything.
+BaseModel.relations = setmetatable({}, {
+    __newindex = function(_, key, fn)
+        assert(type(fn) == 'function', ("relation %q must be a function"):format(key))
+        rawset(BaseModel.__relationDefs, key, fn)
+    end,
+    __index = BaseModel.__relationDefs,
+})
+
+--- Explicit accessor for the relation *definer* (the query descriptor
+--- itself, e.g. to build on `hasMany`/`hasOne`/etc's own attributes) --
+--- for when you want that instead of the resolved-and-cached value that
+--- bare `instance.relationName` property access gives you. Lazy property
+--- access and this accessor can't both use the same `instance:relationName()`
+--- call syntax (once `.relationName` resolves to data, colon-calling it
+--- calls the data, not the definer) so this is the escape hatch.
+--- @param key string
+--- @return table relation descriptor, e.g. `{type='hasMany', ...}`
+function BaseModel:relation(key)
+    -- `self` may be a class (called as `Customer:relation(...)`, which
+    -- holds __relationDefs directly) or an instance (`customer:relation(...)`,
+    -- which only has it via its metatable).
+    local relationDefs = rawget(self, '__relationDefs') or getmetatable(self).__relationDefs
+    local def = relationDefs[key]
+    assert(def, ("no relation %q"):format(key))
+    return def(self)
+end
+
 --- Create a new model instance
 --- @param attributes table
 --- @return BaseModel
@@ -29,6 +105,7 @@ function BaseModel.new(attributes)
     instance.attributes = attributes or {}
     instance.original = {}
     instance.relations = {}
+    instance.__loaded = {}
     instance.exists = false
 
     return instance
@@ -41,6 +118,15 @@ end
 --- @return table The new model class
 function BaseModel:extend(tableName)
     local child = {}
+    child.__relationDefs = setmetatable({}, { __index = self.__relationDefs })
+    child.relations = setmetatable({}, {
+        __newindex = function(_, key, fn)
+            assert(type(fn) == 'function', ("relation %q must be a function"):format(key))
+            rawset(child.__relationDefs, key, fn)
+        end,
+        __index = child.__relationDefs,
+    })
+
     child.__index = function(instance, key)
         local attrs = rawget(instance, 'attributes')
         if attrs and attrs[key] ~= nil then
@@ -49,6 +135,13 @@ function BaseModel:extend(tableName)
         local rels = rawget(instance, 'relations')
         if rels and rels[key] ~= nil then
             return rels[key]
+        end
+        local loaded = rawget(instance, '__loaded')
+        if loaded and loaded[key] then
+            return nil
+        end
+        if child.__relationDefs[key] then
+            return resolveRelation(child, instance, key)
         end
         return child[key]
     end
@@ -66,6 +159,7 @@ function BaseModel:extend(tableName)
         instance.attributes = attributes or {}
         instance.original = {}
         instance.relations = {}
+        instance.__loaded = {}
         instance.exists = false
 
         instance.table = child.table
@@ -495,7 +589,11 @@ function BaseModel:load(relationName)
         return self.relations[relationName]
     end
 
-    local relation = self[relationName](self)
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
 
     if relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
@@ -559,7 +657,11 @@ function BaseModel:loadAsync(relationName, callback)
         return
     end
 
-    local relation = self[relationName](self)
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
 
     if relation.type == 'hasOne' then
         local localValue = self.attributes[relation.localKey]
@@ -642,7 +744,10 @@ function BaseModel:eagerLoad(instances, path)
         return
     end
 
-    local relation = instances[1][segment](instances[1])
+    -- self.__relationDefs, not instances[1][segment] -- reading it off an
+    -- instance would re-enter the lazy-relation __index hook for `segment`
+    -- and recurse; the class's registry is unaffected by instance state.
+    local relation = (self.__relationDefs[segment] or self[segment])(instances[1])
     local related = relation.relatedModel
 
     if relation.type == 'hasOne' or relation.type == 'hasMany' then
@@ -660,6 +765,7 @@ function BaseModel:eagerLoad(instances, path)
         for _, inst in ipairs(instances) do
             local matches = byForeign[inst.attributes[relation.localKey]] or {}
             inst.relations[segment] = (relation.type == 'hasOne') and matches[1] or matches
+            inst.__loaded[segment] = true
         end
     elseif relation.type == 'belongsTo' then
         local foreignValues = {}
@@ -673,6 +779,7 @@ function BaseModel:eagerLoad(instances, path)
         end
         for _, inst in ipairs(instances) do
             inst.relations[segment] = byOwner[inst.attributes[relation.foreignKey]]
+            inst.__loaded[segment] = true
         end
     elseif relation.type == 'belongsToMany' then
         local localIds = {}
@@ -695,6 +802,7 @@ function BaseModel:eagerLoad(instances, path)
         local byOwner = {}
         for _, inst in ipairs(instances) do
             inst.relations[segment] = {}
+            inst.__loaded[segment] = true
             byOwner[inst.attributes[inst.primaryKey]] = inst
         end
         -- Intern one shared model instance per unique related primary key.
@@ -822,7 +930,11 @@ end
 --- @param pivotData table Optional pivot attributes
 --- @param callback function
 function BaseModel:attach(relationName, id, pivotData, callback)
-    local relation = self[relationName](self)
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
     
     if relation.type ~= 'belongsToMany' then
         error('attach() only works with belongsToMany relationships')
@@ -847,7 +959,11 @@ end
 --- @param id any Optional, detaches all if nil
 --- @param callback function
 function BaseModel:detach(relationName, id, callback)
-    local relation = self[relationName](self)
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
     
     if relation.type ~= 'belongsToMany' then
         error('detach() only works with belongsToMany relationships')
