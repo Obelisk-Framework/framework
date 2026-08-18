@@ -541,6 +541,22 @@ function Schema.dropColumn(tableName, columnName)
     return Database.query(sql, {})
 end
 
+--- Drop a foreign key constraint (name derived by convention: table_column_foreign)
+function Schema.dropForeign(tableName, columnName)
+    local q = Database.dialect.quoteIdentifier
+    local constraintName = tableName .. '_' .. columnName .. '_foreign'
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP FOREIGN KEY ' .. q(constraintName)
+    return Database.query(sql, {})
+end
+
+--- Drop a unique index (name derived by convention: table_column_unique)
+function Schema.dropUnique(tableName, columnName)
+    local q = Database.dialect.quoteIdentifier
+    local indexName = tableName .. '_' .. columnName .. '_unique'
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP INDEX ' .. q(indexName)
+    return Database.query(sql, {})
+end
+
 --- Rename a column
 function Schema.renameColumn(tableName, from, to)
     local sql = Database.dialect.renameColumnSQL(tableName, from, to)
