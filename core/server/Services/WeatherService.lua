@@ -130,7 +130,6 @@ function WeatherService.tick(now)
         window_start  = window.window_start,
         window_end    = window.window_end,
     })
-    TriggerEvent('core:server:weather-window-changed')
     -- trim stale windows older than 1 day
     WeatherForecast
         :where('window_end', '<', now - 86400)
