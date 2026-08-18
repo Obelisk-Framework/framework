@@ -20,6 +20,10 @@ _G.GetResourceState = _G.GetResourceState or function() return 'stopped' end
 _G.GetConvar = _G.GetConvar or function(_, default) return default end
 _G.GetConvarInt = _G.GetConvarInt or function(_, default) return default end
 _G.IsDuplicityVersion = _G.IsDuplicityVersion or function() return true end
+_G.GetPlayerName = _G.GetPlayerName or function(source) return 'Player' .. tostring(source) end
+_G.GetPlayerIdentifierByType = _G.GetPlayerIdentifierByType or function(source, idType)
+    return idType .. ':fake-' .. tostring(source)
+end
 _G.RegisterNetEvent = _G.RegisterNetEvent or function() end
 _G.AddEventHandler = _G.AddEventHandler or function() end
 _G.TriggerEvent = _G.TriggerEvent or function() end

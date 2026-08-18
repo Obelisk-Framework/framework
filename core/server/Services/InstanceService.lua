@@ -18,7 +18,7 @@ local bucketMembers = {}
 --- @param key string
 --- @return number bucketId
 function InstanceService.getOrCreateBucket(key)
-    local existing = QueryBuilder.new('instance_buckets'):where('key', key):firstSync()
+    local existing = QueryBuilder.new('instance_buckets'):where('key', key):first()
     if existing then
         return existing.bucket_id
     end
@@ -38,8 +38,9 @@ end
 
 --- Private: clears stale membership bookkeeping without resetting the bucket native.
 --- Used by enter() before assigning the player to a new bucket.
---- @param source number
-local function clearStaleMembership(source)
+--- @param player Player
+local function clearStaleMembership(player)
+    local source = player:getSource()
     local key = playerBucketKey[source]
     if key and bucketMembers[key] then
         bucketMembers[key][source] = nil
@@ -47,17 +48,18 @@ local function clearStaleMembership(source)
     playerBucketKey[source] = nil
 end
 
---- Moves `source` into `key`'s bucket, disabling ambient population/traffic
+--- Moves `player` into `key`'s bucket, disabling ambient population/traffic
 --- in it the first time this process resolves that key. Records membership
 --- so getPlayersIn/leave/playerDropped cleanup can find this player again.
---- @param source number
+--- @param player Player
 --- @param key string
 --- @return number bucketId
-function InstanceService.enter(source, key)
+function InstanceService.enter(player, key)
+    local source = player:getSource()
     local bucketId = InstanceService.getOrCreateBucket(key)
 
     -- Clear any previous membership first, but do NOT call the bucket native yet.
-    clearStaleMembership(source)
+    clearStaleMembership(player)
 
     -- Set the bucket as the final native call so the player ends up in it.
     SetPlayerRoutingBucket(source, bucketId)
@@ -72,12 +74,27 @@ function InstanceService.enter(source, key)
     return bucketId
 end
 
---- Moves `source` back to the default overworld bucket (0) and clears their
+--- Moves `player` back to the default overworld bucket (0) and clears their
 --- membership from whatever key they were previously in, if any.
---- @param source number
-function InstanceService.leave(source)
-    clearStaleMembership(source)
-    SetPlayerRoutingBucket(source, 0)
+--- @param player Player
+function InstanceService.leave(player)
+    clearStaleMembership(player)
+    SetPlayerRoutingBucket(player:getSource(), 0)
+end
+
+--- @param player Player
+--- @return number the bucket id this player is currently tracked in, or 0
+function InstanceService.getCurrentBucket(player)
+    local key = playerBucketKey[player:getSource()]
+    if not key then return 0 end
+    return InstanceService.getOrCreateBucket(key)
+end
+
+--- @param player Player
+--- @return string|nil the key this player is currently tracked as inside
+---   (e.g. "shellbuilder:shell:42"), or nil if they're not in any bucket
+function InstanceService.getCurrentKey(player)
+    return playerBucketKey[player:getSource()]
 end
 
 --- @param key string
@@ -90,9 +107,9 @@ function InstanceService.getPlayersIn(key)
     return sources
 end
 
-AddEventHandler('playerDropped', function()
-    local source = source
-    InstanceService.leave(source)
+Obelisk.on('playerDropped', function()
+    local player = PlayerService.get(source)
+    if player then InstanceService.leave(player) end
 end)
 
 --- Test-only: resets module state between spec cases.

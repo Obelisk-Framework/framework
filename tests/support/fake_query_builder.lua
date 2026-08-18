@@ -6,7 +6,23 @@ FakeQueryBuilder.__index = FakeQueryBuilder
 
 local function rowMatches(row, wheres, whereNulls)
     for _, w in ipairs(wheres) do
-        if row[w.column] ~= w.value then return false end
+        local val = row[w.column]
+        if w.operator == '=' or w.operator == '==' then
+            if val ~= w.value then return false end
+        elseif w.operator == '<' then
+            if not (val < w.value) then return false end
+        elseif w.operator == '<=' then
+            if not (val <= w.value) then return false end
+        elseif w.operator == '>' then
+            if not (val > w.value) then return false end
+        elseif w.operator == '>=' then
+            if not (val >= w.value) then return false end
+        elseif w.operator == '~=' or w.operator == '!=' then
+            if not (val ~= w.value) then return false end
+        else
+            -- default to equality for backward compatibility
+            if val ~= w.value then return false end
+        end
     end
     for _, col in ipairs(whereNulls) do
         if row[col] ~= nil then return false end
@@ -15,8 +31,15 @@ local function rowMatches(row, wheres, whereNulls)
 end
 
 function FakeQueryBuilder:where(column, a, b)
-    local value = b ~= nil and b or a
-    table.insert(self.wheres, { column = column, value = value })
+    local operator, value
+    if b ~= nil then
+        operator = a
+        value = b
+    else
+        operator = '='
+        value = a
+    end
+    table.insert(self.wheres, { column = column, operator = operator, value = value })
     return self
 end
 
@@ -36,16 +59,32 @@ function FakeQueryBuilder:limit(n)
     return self
 end
 
-function FakeQueryBuilder:firstSync()
+function FakeQueryBuilder:first()
+    local match
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
-            return row
+            match = row
+            break
         end
     end
-    return nil
+    if not match then
+        return nil
+    end
+
+    -- Mirror the real QueryBuilder:first() (core/server/ORM/QueryBuilder.lua),
+    -- which delegates to `get()` and is therefore just as model-aware: wrap
+    -- the raw row into a model instance via `model:newFromQuery` when a
+    -- BaseModel has attached itself via `.model`. Kept in sync with `get()`
+    -- above so `find()`/`load()` (which go through `first()`) exercise the
+    -- same wrapping behavior as production instead of silently diverging.
+    if self.model then
+        return self.model:newFromQuery(match)
+    end
+
+    return match
 end
 
-function FakeQueryBuilder:getSync()
+function FakeQueryBuilder:get()
     local results = {}
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
@@ -71,6 +110,21 @@ function FakeQueryBuilder:getSync()
             limited[i] = results[i]
         end
         results = limited
+    end
+
+    -- Mirror the real QueryBuilder:get() (core/server/ORM/QueryBuilder.lua):
+    -- when a BaseModel has attached itself via `.model` (set by
+    -- BaseModel:newQuery()), wrap each raw row into a model instance via
+    -- `model:newFromQuery`, which JSON-decodes any `casts[key] == 'json'`
+    -- columns. Without this, every spec using this fake would silently
+    -- exercise a different code path than production for model-backed
+    -- reads (raw undecoded rows), even though `.model` was set.
+    if self.model then
+        local models = {}
+        for _, row in ipairs(results) do
+            table.insert(models, self.model:newFromQuery(row))
+        end
+        return models
     end
 
     return results
@@ -117,7 +171,7 @@ function FakeQueryBuilder:delete()
 end
 
 --- @param tables table tableName -> array of row tables (shared, mutated in place across calls)
---- @return table a QueryBuilder-shaped module (has .new(tableName))
+--- @return table a QueryBuilder-shaped module (has .new(tableName) and .tables())
 local function makeFakeQueryBuilderModule(tables)
     local nextIds = {}
     local Module = {}
@@ -130,6 +184,9 @@ local function makeFakeQueryBuilderModule(tables)
             wheres = {},
             whereNulls = {},
         }, FakeQueryBuilder)
+    end
+    function Module.tables()
+        return tables
     end
     return Module
 end

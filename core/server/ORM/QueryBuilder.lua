@@ -58,6 +58,7 @@ function QueryBuilder.new(tableName, primaryKey)
     self.havingConditions = {}
     self.params = {}
     self.paramIndex = 1
+    self.withPaths = {}
     return self
 end
 
@@ -81,6 +82,17 @@ end
 --- @return QueryBuilder
 function QueryBuilder:selectRaw(expression)
     self.rawSelect = expression
+    return self
+end
+
+--- Record a relation path (single-level or dot-separated) to eager-load
+--- after the terminal fetch resolves. Chainable, so multiple calls
+--- accumulate multiple independent paths (e.g.
+--- `Model:with('a'):with('b')`).
+--- @param path string
+--- @return QueryBuilder
+function QueryBuilder:with(path)
+    table.insert(self.withPaths, path)
     return self
 end
 
@@ -395,69 +407,127 @@ function QueryBuilder:toSql()
     return sql, self.params
 end
 
+--- Execute the query synchronously
+--- @return table Results (raw rows, or model instances if opened via a BaseModel)
+function QueryBuilder:get()
+    local sql, params = self:toSql()
+    local results = Database.query(sql, params)
+    if not self.model then
+        return results
+    end
+    local models = {}
+    for _, result in ipairs(results) do
+        table.insert(models, self.model:newFromQuery(result))
+    end
+    if #self.withPaths > 0 then
+        for _, path in ipairs(self.withPaths) do
+            self.model:eagerLoad(models, path)
+        end
+    end
+    return models
+end
+
 --- Execute the query and return results (async)
 --- @param callback function
-function QueryBuilder:get(callback)
+function QueryBuilder:getAsync(callback)
     local sql, params = self:toSql()
-    Database.query(sql, params, callback)
-end
-
---- Execute the query synchronously
---- @return table Results
-function QueryBuilder:getSync()
-    local sql, params = self:toSql()
-    return Database.querySync(sql, params)
-end
-
---- Get first result (async)
---- @param callback function
-function QueryBuilder:first(callback)
-    self:limit(1)
-    self:get(function(results)
-        callback(results[1])
+    Database.queryAsync(sql, params, function(results)
+        if not self.model then
+            callback(results)
+            return
+        end
+        local models = {}
+        for _, result in ipairs(results) do
+            table.insert(models, self.model:newFromQuery(result))
+        end
+        if #self.withPaths > 0 then
+            for _, path in ipairs(self.withPaths) do
+                self.model:eagerLoad(models, path)
+            end
+        end
+        callback(models)
     end)
 end
 
 --- Get first result synchronously
 --- @return table|nil
-function QueryBuilder:firstSync()
+function QueryBuilder:first()
     self:limit(1)
-    local results = self:getSync()
+    local results = self:get()
     return results[1]
 end
 
---- Count results
+--- Get first result (async)
 --- @param callback function
-function QueryBuilder:count(callback)
-    local originalRaw = self.rawSelect
-    self:selectRaw('COUNT(*) as count')
-
-    self:first(function(result)
-        self.rawSelect = originalRaw
-        callback(tonumber(result and result.count) or 0)
+function QueryBuilder:firstAsync(callback)
+    self:limit(1)
+    self:getAsync(function(results)
+        callback(results[1])
     end)
+end
+
+--- Get first result synchronously, or invoke a fallback if none is found.
+--- NOTE: `callback` here is a fallback-value function (Laravel's `firstOr`
+--- convention), not a completion callback -- unlike every `...Async` method
+--- in this file, `firstOr` is itself synchronous. There is no `firstOrAsync`.
+--- @param callback function Called (and its return value returned) when no row matches
+--- @return any The found row, or the fallback's return value
+function QueryBuilder:firstOr(callback)
+    local result = self:first()
+    if result then
+        return result
+    end
+    return callback()
 end
 
 --- Count synchronously
 --- @return number
-function QueryBuilder:countSync()
+function QueryBuilder:count()
     local originalRaw = self.rawSelect
     self:selectRaw('COUNT(*) as count')
 
-    local result = self:firstSync()
+    local result = self:first()
     self.rawSelect = originalRaw
 
     return tonumber(result and result.count) or 0
 end
 
---- Insert data
+--- Count results (async)
+--- @param callback function
+function QueryBuilder:countAsync(callback)
+    local originalRaw = self.rawSelect
+    self:selectRaw('COUNT(*) as count')
+
+    self:firstAsync(function(result)
+        self.rawSelect = originalRaw
+        callback(tonumber(result and result.count) or 0)
+    end)
+end
+
+--- Insert data (sync)
+--- @param data table Key-value pairs
+--- @return number insertId
+function QueryBuilder:insert(data)
+    local sql, values = self:buildInsertSql(data)
+    return Database.insert(sql, values)
+end
+
+--- Insert data (async)
 --- @param data table Key-value pairs
 --- @param callback function Receives insertId
-function QueryBuilder:insert(data, callback)
+function QueryBuilder:insertAsync(data, callback)
+    local sql, values = self:buildInsertSql(data)
+    Database.insertAsync(sql, values, callback)
+end
+
+--- Build the INSERT SQL + values, shared by insert()/insertAsync()
+--- @param data table
+--- @return string sql, table values
+function QueryBuilder:buildInsertSql(data)
     local columns = {}
     local placeholders = {}
     local values = {}
-    
+
     for column, value in pairs(data) do
         table.insert(columns, QueryBuilder.quoteIdentifier(column))
         table.insert(placeholders, '?')
@@ -469,20 +539,32 @@ function QueryBuilder:insert(data, callback)
                 table.concat(placeholders, ', ') .. ')' ..
                 Database.dialect.insertReturningClause(self.primaryKey)
 
-    if callback then
-        Database.insert(sql, values, callback)
-    else
-        return Database.insertSync(sql, values)
-    end
+    return sql, values
 end
 
---- Update data
+--- Update data (sync)
+--- @param data table Key-value pairs
+--- @return number affectedRows
+function QueryBuilder:update(data)
+    local sql, values = self:buildUpdateSql(data)
+    return Database.update(sql, values)
+end
+
+--- Update data (async)
 --- @param data table Key-value pairs
 --- @param callback function Receives affectedRows
-function QueryBuilder:update(data, callback)
+function QueryBuilder:updateAsync(data, callback)
+    local sql, values = self:buildUpdateSql(data)
+    Database.updateAsync(sql, values, callback)
+end
+
+--- Build the UPDATE SQL + values, shared by update()/updateAsync()
+--- @param data table
+--- @return string sql, table values
+function QueryBuilder:buildUpdateSql(data)
     local setClauses = {}
     local values = {}
-    
+
     for column, value in pairs(data) do
         if value == Database.NULL then
             table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = NULL')
@@ -493,7 +575,7 @@ function QueryBuilder:update(data, callback)
     end
 
     local sql = 'UPDATE ' .. QueryBuilder.quoteIdentifier(self.tableName) .. ' SET ' .. table.concat(setClauses, ', ')
-    
+
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
         sql = sql .. ' ' .. whereClause
@@ -501,46 +583,56 @@ function QueryBuilder:update(data, callback)
             table.insert(values, param)
         end
     end
-    
-    if callback then
-        Database.update(sql, values, callback)
-    else
-        return Database.updateSync(sql, values)
-    end
+
+    return sql, values
 end
 
---- Delete records
+--- Delete records (sync)
+--- @return number affectedRows
+function QueryBuilder:delete()
+    local sql = self:buildDeleteSql()
+    return Database.update(sql, self.params)
+end
+
+--- Delete records (async)
 --- @param callback function
-function QueryBuilder:delete(callback)
+function QueryBuilder:deleteAsync(callback)
+    local sql = self:buildDeleteSql()
+    Database.updateAsync(sql, self.params, callback)
+end
+
+--- Build the DELETE SQL, shared by delete()/deleteAsync()
+--- @return string sql
+function QueryBuilder:buildDeleteSql()
     local sql = 'DELETE FROM ' .. QueryBuilder.quoteIdentifier(self.tableName)
-    
+
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
         sql = sql .. ' ' .. whereClause
     end
-    
-    if callback then
-        Database.update(sql, self.params, callback)
-    else
-        return Database.updateSync(sql, self.params)
-    end
+
+    return sql
 end
 
 --- Paginate results
+--- Named with the Async suffix (unlike every other bare-named QueryBuilder
+--- method) because it is callback-only internally -- it drives count()/get()
+--- via their Async forms and never returns synchronously, so a bare
+--- `paginate` name would violate the "bare = sync" convention.
 --- @param page number
 --- @param perPage number
 --- @param callback function Receives {data, total, lastPage, currentPage}
-function QueryBuilder:paginate(page, perPage, callback)
+function QueryBuilder:paginateAsync(page, perPage, callback)
     page = page or 1
     perPage = perPage or 15
     
     -- First get total count
-    self:count(function(total)
+    self:countAsync(function(total)
         local lastPage = math.ceil(total / perPage)
         local offset = (page - 1) * perPage
         
         -- Now get the actual data
-        self:limit(perPage):offset(offset):get(function(data)
+        self:limit(perPage):offset(offset):getAsync(function(data)
             callback({
                 data = data,
                 total = total,

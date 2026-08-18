@@ -4,14 +4,14 @@
 local cooldowns = {}
 
 --- Policy validator function
---- @param source number Player server ID
+--- @param player Player
 --- @param resource table Resource being accessed {type, id}
 --- @param config table Configuration from pivot data
 --- @return boolean allowed
 --- @return string reason Optional denial reason
-local function cooldownValidator(source, resource, config)
+local function cooldownValidator(player, resource, config)
     local duration = config.duration or 5000 -- milliseconds
-    local key = source .. ':' .. resource.type .. ':' .. tostring(resource.id)
+    local key = player:getSource() .. ':' .. resource.type .. ':' .. tostring(resource.id)
     
     local lastUse = cooldowns[key]
     local now = GetGameTimer()

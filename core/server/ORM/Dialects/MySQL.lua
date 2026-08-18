@@ -106,14 +106,22 @@ function MySQLDialect.alterAddIndexStatements(tableName, idx, q)
     return { 'ALTER TABLE ' .. q(tableName) .. ' ADD INDEX ' .. q(idx.name) .. ' (' .. list .. ');' }
 end
 
---- Preserves the pre-existing behavior byte-for-byte: CHANGE always retypes
---- to VARCHAR(255) regardless of the column's real type. That's a known
---- limitation of the original implementation (see the comment that used to
---- live on Schema.renameColumn) — not introduced here, and out of scope to
---- fix as part of dialect abstraction.
+--- MySQL 8.0.3+/MariaDB 10.5.2+ support RENAME COLUMN directly, same as
+--- Postgres already does below — no need to restate the column's type
+--- (the old CHANGE-based form here used to hardcode VARCHAR(255) as the
+--- restated type regardless of the real column type, silently corrupting
+--- any non-string column on rename; RENAME COLUMN has no such landmine).
 function MySQLDialect.renameColumnSQL(tableName, from, to)
     local q = MySQLDialect.quoteIdentifier
-    return 'ALTER TABLE ' .. q(tableName) .. ' CHANGE ' .. q(from) .. ' ' .. q(to) .. ' VARCHAR(255)'
+    return 'ALTER TABLE ' .. q(tableName) .. ' RENAME COLUMN ' .. q(from) .. ' TO ' .. q(to)
+end
+
+--- @param from string
+--- @param to string
+--- @return string
+function MySQLDialect.renameTableSQL(from, to)
+    local q = MySQLDialect.quoteIdentifier
+    return 'ALTER TABLE ' .. q(from) .. ' RENAME TO ' .. q(to)
 end
 
 --- MySQL connectors return connector-native insertId; no RETURNING needed.
@@ -131,7 +139,7 @@ function MySQLDialect.introspectColumn(tableName, columnName)
                 'FROM information_schema.COLUMNS WHERE ' ..
                 MySQLDialect.tableExistsPredicate() ..
                 ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    local rows = Database.querySync(sql, {tableName, columnName})
+    local rows = Database.query(sql, {tableName, columnName})
     if not rows or not rows[1] then return nil end
 
     local row = rows[1]

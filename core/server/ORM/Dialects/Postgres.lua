@@ -129,6 +129,14 @@ function PostgresDialect.renameColumnSQL(tableName, from, to)
     return 'ALTER TABLE ' .. q(tableName) .. ' RENAME COLUMN ' .. q(from) .. ' TO ' .. q(to)
 end
 
+--- @param from string
+--- @param to string
+--- @return string
+function PostgresDialect.renameTableSQL(from, to)
+    local q = PostgresDialect.quoteIdentifier
+    return 'ALTER TABLE ' .. q(from) .. ' RENAME TO ' .. q(to)
+end
+
 --- Postgres connectors have no connector-native insertId; RETURNING the
 --- primary key is how oblsk_connector's Postgres path recovers it (see
 --- oblsk_connector/index.js).
@@ -146,7 +154,7 @@ function PostgresDialect.introspectColumn(tableName, columnName)
                 'FROM information_schema.columns WHERE ' ..
                 PostgresDialect.tableExistsPredicate() ..
                 ' AND table_name = $1 AND column_name = $2'
-    local rows = Database.querySync(sql, {tableName, columnName})
+    local rows = Database.query(sql, {tableName, columnName})
     if not rows or not rows[1] then return nil end
 
     local row = rows[1]

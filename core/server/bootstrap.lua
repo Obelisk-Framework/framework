@@ -46,7 +46,7 @@ Citizen.CreateThread(function()
         local migrations = migrationsData.migrations or {}
 
         for _, migration in ipairs(migrations) do
-            local result = Database.querySync('SELECT * FROM migrations WHERE migration = ?', {migration})
+            local result = Database.query('SELECT * FROM migrations WHERE migration = ?', {migration})
             if not result or #result == 0 then
                 print('[Obelisk] Running migration (' .. label .. '): ' .. migration)
                 local migrationModule = LoadResourceFile(GetCurrentResourceName(), basePath .. 'migrations/' .. migration .. '.lua')
@@ -57,7 +57,7 @@ Citizen.CreateThread(function()
                         if migrationTable and migrationTable.up then
                             local success, err = pcall(migrationTable.up)
                             if success then
-                                local res = Database.insertSync('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
+                                local res = Database.insert('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
                                                   {migration, 1, Database.now()})
                                 print("Result: " .. tostring(res))
                                 print('[Obelisk] Migration completed (' .. label .. '): ' .. migration)
@@ -163,48 +163,45 @@ Citizen.CreateThread(function()
     -- Register core actions
     print('[Obelisk] Registering core actions...')
     
-    ActionService.register('use_interaction', function(source, data)
+    ActionService.register('use_interaction', function(player, data)
         -- This is handled by InteractionService
-        print('[Action] use_interaction called by player ' .. source)
+        print('[Action] use_interaction called by player ' .. player:getSource())
     end, { label = 'Interact', default_key = 'E' })
     
     print('[Obelisk] Core actions registered')
-    
+
+    -- Start the scheduler's poll loop last, once every other boot step
+    -- (migrations, seeders, core actions) has completed -- scheduled jobs
+    -- may reference actions that were only just registered above.
+    SchedulerService.startTickLoop()
+
+    -- Weather
+    WeatherService.boot(os.time())
+    WeatherService.startTick()
+    WeatherService.startExposureTick()
+
     print([[
-  
+
   ╔═══════════════════════════════════════╗
   ║     OBELISK FRAMEWORK - READY        ║
   ╚═══════════════════════════════════════╝
-  
+
 ]])
 end)
 
 -- Player connection handler
-AddEventHandler('playerConnecting', function(name, setKickReason, deferrals)
+Obelisk.on('playerConnecting', function(name, setKickReason, deferrals)
     deferrals.defer()
-    
+
     Wait(0)
     deferrals.update('Loading Obelisk Framework...')
-    
+
     Wait(100)
     deferrals.done()
 end)
 
--- Player joined handler
-AddEventHandler('playerJoining', function()
-    local source = source
-    print('[Obelisk] Player ' .. source .. ' joined, syncing data...')
-    SpawnManagerService.markConnecting(source)
-end)
-
--- Player dropped handler
-AddEventHandler('playerDropped', function(reason)
-    local source = source
-    print('[Obelisk] Player ' .. source .. ' left (' .. reason .. ')')
-end)
-
 -- Resource stop handler
-AddEventHandler('onResourceStop', function(resourceName)
+Obelisk.on('onResourceStop', function(resourceName)
     if resourceName == GetCurrentResourceName() then
         print('[Obelisk] Framework stopping...')
     end

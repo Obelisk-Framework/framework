@@ -4,4 +4,5 @@ modules/*
 plugins/*
 !plugins/oblsk_shellbuilder/
 .superpowers/
+docs/superpowers/
 storage/

@@ -40,9 +40,12 @@ function ProgressService.start(target, data, onComplete, onCancel)
     
     -- Set up auto-complete timer (server-side tracking)
     SetTimeout(progress.duration, function()
-        if ProgressService.activeProgress[target] and 
+        if ProgressService.activeProgress[target] and
            ProgressService.activeProgress[target][progressId] then
-            ProgressService.complete(target, progressId)
+            local player = PlayerService.get(target)
+            if player then
+                ProgressService.complete(player, progressId)
+            end
         end
     end)
     
@@ -52,58 +55,61 @@ function ProgressService.start(target, data, onComplete, onCancel)
 end
 
 --- Complete a progress bar
---- @param target number Player server ID
+--- @param player Player
 --- @param progressId string
-function ProgressService.complete(target, progressId)
-    if not ProgressService.activeProgress[target] then return end
-    
-    local progress = ProgressService.activeProgress[target][progressId]
+function ProgressService.complete(player, progressId)
+    if not ProgressService.activeProgress[player:getSource()] then return end
+
+    local progress = ProgressService.activeProgress[player:getSource()][progressId]
     if not progress then return end
-    
+
     -- Remove from active
-    ProgressService.activeProgress[target][progressId] = nil
-    
+    ProgressService.activeProgress[player:getSource()][progressId] = nil
+
     -- Notify client
-    Obelisk.emitClient('core:server:progress-complete', target, progressId)
-    
+    Obelisk.emitClient('core:server:progress-complete', player, progressId)
+
     -- Call completion callback
     if progress.onComplete then
-        progress.onComplete(target)
+        progress.onComplete(player)
     end
-    
-    print('[ProgressService] Completed progress ' .. progressId .. ' for player ' .. target)
+
+    print('[ProgressService] Completed progress ' .. progressId .. ' for player ' .. player:getSource())
 end
 
 --- Cancel a progress bar
---- @param target number Player server ID
+--- @param player Player
 --- @param progressId string
-function ProgressService.cancel(target, progressId)
-    if not ProgressService.activeProgress[target] then return end
-    
-    local progress = ProgressService.activeProgress[target][progressId]
+function ProgressService.cancel(player, progressId)
+    if not ProgressService.activeProgress[player:getSource()] then return end
+
+    local progress = ProgressService.activeProgress[player:getSource()][progressId]
     if not progress then return end
-    
+
     -- Remove from active
-    ProgressService.activeProgress[target][progressId] = nil
-    
+    ProgressService.activeProgress[player:getSource()][progressId] = nil
+
     -- Notify client
-    Obelisk.emitClient('core:server:progress-cancel', target, progressId)
-    
+    Obelisk.emitClient('core:server:progress-cancel', player, progressId)
+
     -- Call cancellation callback
     if progress.onCancel then
-        progress.onCancel(target)
+        progress.onCancel(player)
     end
-    
-    print('[ProgressService] Cancelled progress ' .. progressId .. ' for player ' .. target)
+
+    print('[ProgressService] Cancelled progress ' .. progressId .. ' for player ' .. player:getSource())
 end
 
 --- Cancel all progress bars for a player
 --- @param target number Player server ID
 function ProgressService.cancelAll(target)
     if not ProgressService.activeProgress[target] then return end
-    
+
+    local player = PlayerService.get(target)
+    if not player then return end
+
     for progressId, _ in pairs(ProgressService.activeProgress[target]) do
-        ProgressService.cancel(target, progressId)
+        ProgressService.cancel(player, progressId)
     end
 end
 
@@ -115,19 +121,17 @@ function ProgressService.getActive(target)
 end
 
 --- Net event: Client reports progress completion
-Obelisk.onServer('core:client:progress-complete', function(progressId)
-    local source = source
-    ProgressService.complete(source, progressId)
+Obelisk.onClient('core:client:progress-complete', function(player, progressId)
+    ProgressService.complete(player, progressId)
 end)
 
 --- Net event: Client reports progress cancellation
-Obelisk.onServer('core:client:progress-cancel', function(progressId)
-    local source = source
-    ProgressService.cancel(source, progressId)
+Obelisk.onClient('core:client:progress-cancel', function(player, progressId)
+    ProgressService.cancel(player, progressId)
 end)
 
 --- Clean up on player disconnect
-AddEventHandler('playerDropped', function()
+Obelisk.on('playerDropped', function()
     local source = source
     ProgressService.activeProgress[source] = nil
 end)

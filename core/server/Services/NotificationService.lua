@@ -14,9 +14,9 @@ NotificationService.TYPES = {
 }
 
 --- Send notification to a player
---- @param target number Player server ID or -1 for all
+--- @param player Player
 --- @param data table {type, title, description, duration, color}
-function NotificationService.notify(target, data)
+function NotificationService.notify(player, data)
     local notification = {
         type = data.type or NotificationService.TYPES.DEFAULT,
         title = data.title or 'Notification',
@@ -25,7 +25,7 @@ function NotificationService.notify(target, data)
         color = data.color, -- Optional custom color
         timestamp = os.time()
     }
-    
+
     -- Validate type
     local validType = false
     for _, t in pairs(NotificationService.TYPES) do
@@ -34,27 +34,25 @@ function NotificationService.notify(target, data)
             break
         end
     end
-    
+
     if not validType and not notification.color then
         notification.type = NotificationService.TYPES.DEFAULT
     end
-    
-    -- Send to client(s)
-    Obelisk.emitClient('core:server:notification-show', target, notification)
-    
+
+    -- Send to client
+    player:emit('core:server:notification-show', notification)
+
     -- Run hook for extensibility
-    if target ~= -1 then
-        Hooks.runHook('notification:sent', function() end, target, notification)
-    end
+    Hooks.runHook('notification:sent', function() end, player, notification)
 end
 
 --- Send success notification
---- @param target number
+--- @param player Player
 --- @param title string
 --- @param description string
 --- @param duration number Optional
-function NotificationService.success(target, title, description, duration)
-    NotificationService.notify(target, {
+function NotificationService.success(player, title, description, duration)
+    NotificationService.notify(player, {
         type = NotificationService.TYPES.SUCCESS,
         title = title,
         description = description,
@@ -63,12 +61,12 @@ function NotificationService.success(target, title, description, duration)
 end
 
 --- Send error notification
---- @param target number
+--- @param player Player
 --- @param title string
 --- @param description string
 --- @param duration number Optional
-function NotificationService.error(target, title, description, duration)
-    NotificationService.notify(target, {
+function NotificationService.error(player, title, description, duration)
+    NotificationService.notify(player, {
         type = NotificationService.TYPES.ERROR,
         title = title,
         description = description,
@@ -77,12 +75,12 @@ function NotificationService.error(target, title, description, duration)
 end
 
 --- Send warning notification
---- @param target number
+--- @param player Player
 --- @param title string
 --- @param description string
 --- @param duration number Optional
-function NotificationService.warning(target, title, description, duration)
-    NotificationService.notify(target, {
+function NotificationService.warning(player, title, description, duration)
+    NotificationService.notify(player, {
         type = NotificationService.TYPES.WARNING,
         title = title,
         description = description,
@@ -91,12 +89,12 @@ function NotificationService.warning(target, title, description, duration)
 end
 
 --- Send info notification
---- @param target number
+--- @param player Player
 --- @param title string
 --- @param description string
 --- @param duration number Optional
-function NotificationService.info(target, title, description, duration)
-    NotificationService.notify(target, {
+function NotificationService.info(player, title, description, duration)
+    NotificationService.notify(player, {
         type = NotificationService.TYPES.INFO,
         title = title,
         description = description,
@@ -105,10 +103,8 @@ function NotificationService.info(target, title, description, duration)
 end
 
 --- Net event: Client requests to show notification (client-side triggered)
-Obelisk.onServer('core:client:notification-show', function(data)
-    local source = source
-    -- Client is allowed to trigger notifications for themselves
-    NotificationService.notify(source, data)
+Obelisk.onClient('core:client:notification-show', function(player, data)
+    NotificationService.notify(player, data)
 end)
 
 return NotificationService

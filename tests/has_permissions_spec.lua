@@ -68,7 +68,7 @@ test('grant/can: an instance can grant itself a key and then see it as true', fu
         HasPermissions.apply(Widget, 'widget')
 
         tables.widgets = { { id = 7, name = 'thingamajig' } }
-        local instance = Widget:findSync(7)
+        local instance = Widget:find(7)
 
         eq(instance:can('spin'), false)
         instance:grant('spin')
@@ -82,7 +82,7 @@ test('revoke: removes a previously granted key', function()
         HasPermissions.apply(Widget, 'widget')
 
         tables.widgets = { { id = 7, name = 'thingamajig' } }
-        local instance = Widget:findSync(7)
+        local instance = Widget:find(7)
 
         instance:grant('spin')
         instance:revoke('spin')
@@ -96,7 +96,7 @@ test('permissionList: returns every key granted to this instance', function()
         HasPermissions.apply(Widget, 'widget')
 
         tables.widgets = { { id = 7, name = 'thingamajig' } }
-        local instance = Widget:findSync(7)
+        local instance = Widget:find(7)
 
         instance:grant('spin')
         instance:grant('paint')

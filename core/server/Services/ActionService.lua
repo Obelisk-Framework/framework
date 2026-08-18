@@ -8,7 +8,7 @@ ActionService.pendingRegistrations = {}
 
 --- Register a new action
 --- @param actionId string Unique identifier for the action
---- @param handler function Function to execute: function(source, data)
+--- @param handler function Function to execute: function(player, data)
 --- @param options table Optional metadata (description, etc.)
 function ActionService.register(actionId, handler, options)
     options = options or {}
@@ -35,7 +35,7 @@ function ActionService.flushPendingRegistrations()
         local entry = ActionService.registry[actionId]
         if entry and not entry.dbId then
             local options = entry.options
-            local existing = QueryBuilder.new('actions'):where('action_id', actionId):firstSync()
+            local existing = QueryBuilder.new('actions'):where('action_id', actionId):first()
             local dbId
             if existing then
                 dbId = existing.id
@@ -78,18 +78,18 @@ function ActionService.resolveDbId(dbId)
     return ActionService.idToActionId[dbId]
 end
 
---- Execute an action
---- @param source number Player server ID
+--- Execute a registered action, running its policy checks and hook chain.
+--- @param player Player
 --- @param actionId string Action to execute
 --- @param data table Optional data passed to handler
-function ActionService.execute(source, actionId, data)
+function ActionService.execute(player, actionId, data)
     local action = ActionService.registry[actionId]
-    
+
     if not action then
         print('[ActionService] Error: Action not found: ' .. actionId)
         return false
     end
-    
+
     -- Runs the hook chain and the action handler. Only reached once the
     -- action's policies (if any) have passed.
     local function runAction()
@@ -103,7 +103,7 @@ function ActionService.execute(source, actionId, data)
             end
 
             -- Execute the action handler
-            local success, err = pcall(action.handler, source, data)
+            local success, err = pcall(action.handler, player, data)
 
             if not success then
                 print('[ActionService] Error executing action ' .. actionId .. ': ' .. tostring(err))
@@ -113,8 +113,8 @@ function ActionService.execute(source, actionId, data)
             -- Run after hooks
             Hooks.runHook('action:after:' .. actionId, function()
                 -- After hooks complete
-            end, source, data)
-        end, source, data)
+            end, player, data)
+        end, player, data)
     end
 
     -- Enforce any policies attached to this action BEFORE running it. This is
@@ -123,11 +123,11 @@ function ActionService.execute(source, actionId, data)
     -- it, any client could invoke any registered action with arbitrary data.
     -- Actions with no attached policies are allowed by default.
     if PolicyService then
-        PolicyService.check(source, 'action', actionId, function(allowed, reason)
+        PolicyService.check(player, 'action', actionId, function(allowed, reason)
             if not allowed then
-                print('[ActionService] Action denied by policy: ' .. actionId .. ' for player ' .. tostring(source))
+                print('[ActionService] Action denied by policy: ' .. actionId .. ' for player ' .. tostring(player:getSource()))
                 if NotificationService then
-                    NotificationService.notify(source, {
+                    NotificationService.notify(player, {
                         type = 'error',
                         title = 'Access Denied',
                         description = reason or 'You cannot perform this action'
@@ -172,9 +172,8 @@ function ActionService.unregister(actionId)
 end
 
 --- Net event handler for client-triggered actions
-Obelisk.onServer('core:client:action-execute', function(actionId, data)
-    local source = source
-    ActionService.execute(source, actionId, data)
+Obelisk.onClient('core:client:action-execute', function(player, actionId, data)
+    ActionService.execute(player, actionId, data)
 end)
 
 return ActionService

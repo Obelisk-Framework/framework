@@ -21,6 +21,27 @@ end
 function SetRoutingBucketPopulationEnabled(bucket, enabled) end
 function SetRoutingBucketEntityLockdownMode(bucket, mode) end
 
+_G.Obelisk = _G.Obelisk or {
+    on = function(eventName, callback) AddEventHandler(eventName, callback) end,
+}
+
+-- InstanceService's playerDropped handler resolves a Player via
+-- PlayerService.get before calling InstanceService.leave -- these tests
+-- never dispatch the playerDropped event, so a stub that always reports
+-- "no such player" is enough to let the module load without error.
+_G.PlayerService = _G.PlayerService or {
+    get = function(source) return nil end,
+}
+
+-- A minimal fake Player: source/getSource matches PlayerService's real
+-- Player, so InstanceService's player:getSource() calls resolve correctly.
+local function fakePlayer(source)
+    return {
+        source = source,
+        getSource = function(self) return self.source end,
+    }
+end
+
 dofile(ROOT .. '/core/server/Services/InstanceService.lua')
 
 local tests, failures, passed = {}, {}, 0
@@ -64,7 +85,7 @@ end)
 
 test('enter moves the player into the key\'s bucket and tracks membership', function()
     withFreshState(function()
-        local bucketId = InstanceService.enter(7, 'shellbuilder:shell:1')
+        local bucketId = InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
         eq(bucketId, 1001)
         -- Verify the player's final bucket is the target bucket (not reset to 0)
         eq(lastBucketPerSource[7], 1001, 'player final bucket should be 1001')
@@ -77,8 +98,8 @@ end)
 
 test('leave moves the player back to bucket 0 and clears membership', function()
     withFreshState(function()
-        InstanceService.enter(7, 'shellbuilder:shell:1')
-        InstanceService.leave(7)
+        InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
+        InstanceService.leave(fakePlayer(7))
 
         -- Verify the player's final bucket is 0 (default overworld bucket)
         eq(lastBucketPerSource[7], 0, 'player final bucket should be 0 after leave')
@@ -88,11 +109,53 @@ end)
 
 test('getPlayersIn reflects multiple players sharing one shell\'s bucket', function()
     withFreshState(function()
-        InstanceService.enter(7, 'shellbuilder:shell:1')
-        InstanceService.enter(9, 'shellbuilder:shell:1')
+        InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
+        InstanceService.enter(fakePlayer(9), 'shellbuilder:shell:1')
 
         local players = InstanceService.getPlayersIn('shellbuilder:shell:1')
         eq(#players, 2)
+    end)
+end)
+
+test('getCurrentBucket returns 0 for a source with no active bucket', function()
+    withFreshState(function()
+        eq(InstanceService.getCurrentBucket(fakePlayer(7)), 0)
+    end)
+end)
+
+test('getCurrentBucket returns the active bucket after enter', function()
+    withFreshState(function()
+        local bucketId = InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
+        eq(InstanceService.getCurrentBucket(fakePlayer(7)), bucketId)
+    end)
+end)
+
+test('getCurrentBucket returns 0 again after leave', function()
+    withFreshState(function()
+        InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
+        InstanceService.leave(fakePlayer(7))
+        eq(InstanceService.getCurrentBucket(fakePlayer(7)), 0)
+    end)
+end)
+
+test('getCurrentKey returns nil for a source with no active bucket', function()
+    withFreshState(function()
+        eq(InstanceService.getCurrentKey(fakePlayer(7)), nil)
+    end)
+end)
+
+test('getCurrentKey returns the key a player entered', function()
+    withFreshState(function()
+        InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
+        eq(InstanceService.getCurrentKey(fakePlayer(7)), 'shellbuilder:shell:1')
+    end)
+end)
+
+test('getCurrentKey returns nil again after leave', function()
+    withFreshState(function()
+        InstanceService.enter(fakePlayer(7), 'shellbuilder:shell:1')
+        InstanceService.leave(fakePlayer(7))
+        eq(InstanceService.getCurrentKey(fakePlayer(7)), nil)
     end)
 end)
 

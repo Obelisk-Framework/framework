@@ -7,9 +7,21 @@ local ROOT = scriptDir .. '..'
 dofile(scriptDir .. 'support/fivem_stubs.lua')
 
 local emitted = {}
-_G.Obelisk = _G.Obelisk or {}
+_G.Obelisk = nil
+dofile(ROOT .. '/core/shared/Obelisk.lua')
 Obelisk.emitClient = function(eventName, target, ...)
     emitted[#emitted + 1] = { eventName = eventName, target = target, args = { ... } }
+end
+
+-- A minimal fake Player: source/getSource/emit match PlayerService's real
+-- Player, so SpawnManagerService's player:getSource()/player:emit() calls
+-- resolve correctly.
+local function fakePlayer(source)
+    return {
+        source = source,
+        getSource = function(self) return self.source end,
+        emit = function(self, event, ...) Obelisk.emitClient(event, self, ...) end,
+    }
 end
 
 dofile(ROOT .. '/core/server/Services/SpawnManagerService.lua')
@@ -23,28 +35,32 @@ local function eq(actual, expected, msg)
     end
 end
 
-test('markConnecting sets stage to connecting and emits spawn-begin', function()
+test('markConnecting sets stage to connecting (keyed by numeric source) and emits spawn-begin', function()
     emitted = {}
-    SpawnManagerService.markConnecting(7)
-    eq(SpawnManagerService.getStage(7), 'connecting')
+    local player = fakePlayer(7)
+    SpawnManagerService.markConnecting(player)
+    eq(SpawnManagerService.getStage(player), 'connecting')
+    eq(SpawnManagerService.stages[7], 'connecting', 'stages table must be keyed by numeric source, not the Player object')
     eq(#emitted, 1)
     eq(emitted[1].eventName, 'core:server:spawn-begin')
-    eq(emitted[1].target, 7)
+    eq(emitted[1].target, player)
 end)
 
-test('readyToSpawn sets stage to spawned and emits spawn-complete', function()
-    SpawnManagerService.markConnecting(9)
+test('readyToSpawn sets stage to spawned (keyed by numeric source) and emits spawn-complete', function()
+    local player = fakePlayer(9)
+    SpawnManagerService.markConnecting(player)
     emitted = {}
-    SpawnManagerService.readyToSpawn(9, 42)
-    eq(SpawnManagerService.getStage(9), 'spawned')
+    SpawnManagerService.readyToSpawn(player, 42)
+    eq(SpawnManagerService.getStage(player), 'spawned')
+    eq(SpawnManagerService.stages[9], 'spawned', 'stages table must be keyed by numeric source, not the Player object')
     eq(#emitted, 1)
     eq(emitted[1].eventName, 'core:server:spawn-complete')
-    eq(emitted[1].target, 9)
+    eq(emitted[1].target, player)
     eq(emitted[1].args[1], 42)
 end)
 
 test('getStage returns nil for an unknown source', function()
-    eq(SpawnManagerService.getStage(999), nil)
+    eq(SpawnManagerService.getStage(fakePlayer(999)), nil)
 end)
 
 for _, t in ipairs(tests) do

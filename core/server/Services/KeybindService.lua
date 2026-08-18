@@ -73,41 +73,42 @@ local function resolveIdsForSource(source)
 end
 
 --- Send this player's fully-resolved keybind map to their client.
---- @param source number
-function KeybindService.syncToClient(source)
-    local accountId, characterId = resolveIdsForSource(source)
+--- @param player Player
+function KeybindService.syncToClient(player)
+    local accountId, characterId = resolveIdsForSource(player:getSource())
     local resolved = KeybindService.resolveAll(accountId, characterId)
-    Obelisk.emitClient('core:server:keybinds-sync', source, resolved)
+    player:emit('core:server:keybinds-sync', resolved)
 end
 
 --- Client pressed a key already known (client-side) to map to this action.
---- @param source number
+--- @param player Player
 --- @param actionId string
-function KeybindService.handlePress(source, actionId)
+function KeybindService.handlePress(player, actionId)
     if not ActionService.exists(actionId) then
         print('[KeybindService] Error: Action not found: ' .. tostring(actionId))
         return
     end
-    ActionService.execute(source, actionId, {})
+    ActionService.execute(player, actionId, {})
 end
 
 --- Net event: Client requests keybind sync
-Obelisk.onServer('core:client:keybinds-requestSync', function()
-    local source = source
-    KeybindService.syncToClient(source)
+Obelisk.onClient('core:client:keybinds-requestSync', function(player)
+    KeybindService.syncToClient(player)
 end)
 
 --- Net event: Client pressed a keybind
-Obelisk.onServer('core:client:keybinds-pressed', function(actionId)
-    local source = source
-    KeybindService.handlePress(source, actionId)
+Obelisk.onClient('core:client:keybinds-pressed', function(player, actionId)
+    KeybindService.handlePress(player, actionId)
 end)
 
 --- On player connect, sync keybinds
-AddEventHandler('playerJoining', function()
+Obelisk.on('playerJoining', function()
     local source = source
     SetTimeout(1000, function()
-        KeybindService.syncToClient(source)
+        local player = PlayerService.get(source)
+        if player then
+            KeybindService.syncToClient(player)
+        end
     end)
 end)
 

@@ -86,7 +86,7 @@ end
 --- Wire up the server->client relay: every clientMethodName in
 --- WebViewRelayMethods becomes callable by the server via Obelisk.emitClient.
 for _, clientMethodName in pairs(WebViewRelayMethods) do
-    Obelisk.onClient('core:server:webview-' .. clientMethodName, function(...)
+    Obelisk.onServer('core:server:webview-' .. clientMethodName, function(...)
         WebView[clientMethodName](...)
     end)
 end

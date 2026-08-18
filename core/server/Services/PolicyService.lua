@@ -26,7 +26,7 @@ end
 
 --- Register a policy validator
 --- @param policyId string Unique policy identifier
---- @param validator function function(source, resource, config) return boolean, reason
+--- @param validator function function(player, resource, config) return boolean, reason
 --- @param options table Optional metadata
 function PolicyService.register(policyId, validator, options)
     if PolicyService.registry[policyId] then
@@ -56,21 +56,21 @@ function PolicyService.attach(resourceType, resourceId, policyId, config)
     local table_name, id_column = resolveResourceTable(resourceType)
     
     -- Check if already attached
-    local existing = Database.querySync(
+    local existing = Database.query(
         'SELECT * FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ? AND policy_id = ?',
         {resourceId, policyId}
     )
     
     if existing and #existing > 0 then
         -- Update existing
-        Database.updateSync(
+        Database.update(
             'UPDATE ' .. table_name .. ' SET data = ?, updated_at = ? WHERE ' .. id_column .. ' = ? AND policy_id = ?',
             {json.encode(config or {}), Database.now(), resourceId, policyId}
         )
         print('[PolicyService] Updated policy ' .. policyId .. ' for ' .. resourceType .. '#' .. tostring(resourceId))
     else
         -- Insert new
-        Database.insertSync(
+        Database.insert(
             'INSERT INTO ' .. table_name .. ' (' .. id_column .. ', policy_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
             {resourceId, policyId, json.encode(config or {}), Database.now(), Database.now()}
         )
@@ -89,14 +89,14 @@ function PolicyService.detach(resourceType, resourceId, policyId)
     
     if policyId then
         -- Remove specific policy
-        Database.deleteSync(
+        Database.delete(
             'DELETE FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ? AND policy_id = ?',
             {resourceId, policyId}
         )
         print('[PolicyService] Detached policy ' .. policyId .. ' from ' .. resourceType .. '#' .. tostring(resourceId))
     else
         -- Remove all policies
-        Database.deleteSync(
+        Database.delete(
             'DELETE FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
             {resourceId}
         )
@@ -111,7 +111,7 @@ end
 function PolicyService.getPolicies(resourceType, resourceId)
     local table_name, id_column = resolveResourceTable(resourceType)
     
-    local results = Database.querySync(
+    local results = Database.query(
         'SELECT policy_id, data FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
         {resourceId}
     )
@@ -138,98 +138,98 @@ function PolicyService.getPolicies(resourceType, resourceId)
 end
 
 --- Check if player passes all policies for a resource
---- @param source number Player server ID
+--- @param player Player
 --- @param resourceType string
 --- @param resourceId any
 --- @param callback function function(allowed, reason)
-function PolicyService.check(source, resourceType, resourceId, callback)
+function PolicyService.check(player, resourceType, resourceId, callback)
     local policies = PolicyService.getPolicies(resourceType, resourceId)
-    
+
     -- No policies = allow by default
     if #policies == 0 then
         callback(true)
         return
     end
-    
+
     local index = 1
-    
+
     local function checkNext()
         if index > #policies then
             -- All policies passed
             callback(true)
             return
         end
-        
+
         local attachment = policies[index]
         index = index + 1
-        
+
         local policy = PolicyService.registry[attachment.policyId]
-        
+
         if not policy then
             print('[PolicyService] Warning: Policy not found: ' .. attachment.policyId)
             checkNext()
             return
         end
-        
+
         -- Execute policy validator
-        local success, allowed, reason = pcall(policy.validator, source, {
+        local success, allowed, reason = pcall(policy.validator, player, {
             type = resourceType,
             id = resourceId
         }, attachment.config)
-        
+
         if not success then
             print('[PolicyService] Error in policy ' .. attachment.policyId .. ': ' .. tostring(allowed))
             callback(false, 'Policy check failed')
             return
         end
-        
+
         if not allowed then
             -- Policy failed - abort
-            print('[PolicyService] Policy ' .. attachment.policyId .. ' denied access for player ' .. source)
+            print('[PolicyService] Policy ' .. attachment.policyId .. ' denied access for player ' .. player:getSource())
             callback(false, reason or 'Access denied by policy')
             return
         end
-        
+
         -- Policy passed, check next
         checkNext()
     end
-    
+
     checkNext()
 end
 
 --- Synchronous version of check (for use in sync contexts)
---- @param source number
+--- @param player Player
 --- @param resourceType string
 --- @param resourceId any
 --- @return boolean allowed
 --- @return string reason
-function PolicyService.checkSync(source, resourceType, resourceId)
+function PolicyService.checkSync(player, resourceType, resourceId)
     local policies = PolicyService.getPolicies(resourceType, resourceId)
-    
+
     if #policies == 0 then
         return true
     end
-    
+
     for _, attachment in ipairs(policies) do
         local policy = PolicyService.registry[attachment.policyId]
-        
+
         if policy then
-            local success, allowed, reason = pcall(policy.validator, source, {
+            local success, allowed, reason = pcall(policy.validator, player, {
                 type = resourceType,
                 id = resourceId
             }, attachment.config)
-            
+
             if not success then
                 print('[PolicyService] Error in policy ' .. attachment.policyId .. ': ' .. tostring(allowed))
                 return false, 'Policy check failed'
             end
-            
+
             if not allowed then
                 return false, reason or 'Access denied by policy'
             end
         end
     end
-    
+
     return true
 end
 
