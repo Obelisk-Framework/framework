@@ -594,21 +594,11 @@ function BaseModel:morphTo(ownerTypeKey, ownerIdKey)
     }
 end
 
---- Load relationship synchronously
---- @param relationName string
---- @return any
-function BaseModel:load(relationName)
-    if self.relations[relationName] then
-        return self.relations[relationName]
-    end
-
-    -- getmetatable(self).__relationDefs, not self[relationName] -- an
-    -- instance property lookup for relationName would re-enter the lazy-
-    -- relation __index hook and recurse; the class registry is unaffected.
-    local class = getmetatable(self)
-    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
-
-    if relation.type == 'hasOne' then
+--- One entry per relation type for BaseModel:load() (single-instance,
+--- synchronous): run(self, relationName, relation) resolves the relation
+--- for this one instance and caches it into self.relations[relationName].
+local LOAD_STRATEGIES = {
+    hasOne = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
         -- newQuery() attaches `.model`, so `first()` already returns a
         -- wrapped model instance (or nil) -- do not re-wrap it.
@@ -616,14 +606,17 @@ function BaseModel:load(relationName)
         if result then
             self.relations[relationName] = result
         end
-    elseif relation.type == 'hasMany' then
+    end,
+    hasMany = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
         -- `get()` is model-aware and already returns wrapped model instances.
         self.relations[relationName] = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
-    elseif relation.type == 'belongsTo' then
+    end,
+    belongsTo = function(self, relationName, relation)
         local foreignValue = self.attributes[relation.foreignKey]
         self.relations[relationName] = relation.relatedModel:find(foreignValue)
-    elseif relation.type == 'belongsToMany' then
+    end,
+    belongsToMany = function(self, relationName, relation)
         local localId = self.attributes[self.primaryKey]
         local query = relation.relatedModel:newQuery()
             :join(relation.pivotTable,
@@ -634,7 +627,8 @@ function BaseModel:load(relationName)
 
         -- `get()` is model-aware and already returns wrapped model instances.
         self.relations[relationName] = query:get()
-    elseif relation.type == 'morphOne' then
+    end,
+    morphOne = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
         local result = relation.relatedModel:newQuery()
             :where(relation.ownerTypeKey, relation.ownerTypeValue)
@@ -643,31 +637,33 @@ function BaseModel:load(relationName)
         if result then
             self.relations[relationName] = result
         end
-    elseif relation.type == 'morphMany' then
+    end,
+    morphMany = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
         self.relations[relationName] = relation.relatedModel:newQuery()
             :where(relation.ownerTypeKey, relation.ownerTypeValue)
             :where(relation.ownerIdKey, localValue)
             :get()
-    elseif relation.type == 'morphTo' then
+    end,
+    morphTo = function(self, relationName, relation)
         local ownerType = self.attributes[relation.ownerTypeKey]
         local ownerId   = self.attributes[relation.ownerIdKey]
         local model = ownerType and _G[ownerType]
         if model and ownerId then
             self.relations[relationName] = model:find(ownerId)
         end
-    end
+    end,
+}
 
-    return self.relations[relationName]
-end
-
---- Load a relationship (lazy loading, async)
+--- Load relationship synchronously
 --- @param relationName string
---- @param callback function
-function BaseModel:loadAsync(relationName, callback)
-    if self.relations[relationName] then
-        callback(self.relations[relationName])
-        return
+--- @return any
+function BaseModel:load(relationName)
+    if self.relations[relationName] ~= nil then
+        return self.relations[relationName]
+    end
+    if self.__loaded[relationName] then
+        return nil
     end
 
     -- getmetatable(self).__relationDefs, not self[relationName] -- an
@@ -676,32 +672,44 @@ function BaseModel:loadAsync(relationName, callback)
     local class = getmetatable(self)
     local relation = (class.__relationDefs[relationName] or class[relationName])(self)
 
-    if relation.type == 'hasOne' then
-        local localValue = self.attributes[relation.localKey]
+    local strategy = LOAD_STRATEGIES[relation.type]
+    assert(strategy, ("load: unknown relation type %q"):format(relation.type))
+    strategy(self, relationName, relation)
+    self.__loaded[relationName] = true
+
+    return self.relations[relationName]
+end
+
+--- One entry per relation type for BaseModel:loadAsync(): run(self,
+--- relationName, relation, callback) resolves the relation for this one
+--- instance, caches it into self.relations[relationName], and invokes
+--- `callback` with the result once the query completes.
+local LOAD_ASYNC_STRATEGIES = {
+    hasOne = function(self, relationName, relation, callback)
         -- firstAsync() is model-aware and already returns a wrapped model
         -- instance (or nil) -- do not re-wrap it.
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):firstAsync(function(result)
+        relation.relatedModel:newQuery():where(relation.foreignKey, self.attributes[relation.localKey]):firstAsync(function(result)
             if result then
                 self.relations[relationName] = result
             end
             callback(self.relations[relationName])
         end)
-    elseif relation.type == 'hasMany' then
-        local localValue = self.attributes[relation.localKey]
+    end,
+    hasMany = function(self, relationName, relation, callback)
         -- getAsync() is model-aware and already returns wrapped model instances.
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):getAsync(function(models)
+        relation.relatedModel:newQuery():where(relation.foreignKey, self.attributes[relation.localKey]):getAsync(function(models)
             self.relations[relationName] = models
             callback(models)
         end)
-    elseif relation.type == 'belongsTo' then
-        local foreignValue = self.attributes[relation.foreignKey]
-        relation.relatedModel:findAsync(foreignValue, function(model)
+    end,
+    belongsTo = function(self, relationName, relation, callback)
+        relation.relatedModel:findAsync(self.attributes[relation.foreignKey], function(model)
             self.relations[relationName] = model
             callback(model)
         end)
-    elseif relation.type == 'belongsToMany' then
+    end,
+    belongsToMany = function(self, relationName, relation, callback)
         local localId = self.attributes[self.primaryKey]
-
         local query = relation.relatedModel:newQuery()
             :join(relation.pivotTable,
                   relation.relatedModel.table .. '.' .. relation.relatedModel.primaryKey,
@@ -714,25 +722,26 @@ function BaseModel:loadAsync(relationName, callback)
             self.relations[relationName] = models
             callback(models)
         end)
-    elseif relation.type == 'morphOne' then
-        local localValue = self.attributes[relation.localKey]
+    end,
+    morphOne = function(self, relationName, relation, callback)
         relation.relatedModel:newQuery()
             :where(relation.ownerTypeKey, relation.ownerTypeValue)
-            :where(relation.ownerIdKey, localValue)
+            :where(relation.ownerIdKey, self.attributes[relation.localKey])
             :firstAsync(function(result)
                 if result then self.relations[relationName] = result end
                 callback(self.relations[relationName])
             end)
-    elseif relation.type == 'morphMany' then
-        local localValue = self.attributes[relation.localKey]
+    end,
+    morphMany = function(self, relationName, relation, callback)
         relation.relatedModel:newQuery()
             :where(relation.ownerTypeKey, relation.ownerTypeValue)
-            :where(relation.ownerIdKey, localValue)
+            :where(relation.ownerIdKey, self.attributes[relation.localKey])
             :getAsync(function(models)
                 self.relations[relationName] = models
                 callback(models)
             end)
-    elseif relation.type == 'morphTo' then
+    end,
+    morphTo = function(self, relationName, relation, callback)
         local ownerType = self.attributes[relation.ownerTypeKey]
         local ownerId   = self.attributes[relation.ownerIdKey]
         local model = ownerType and _G[ownerType]
@@ -744,7 +753,34 @@ function BaseModel:loadAsync(relationName, callback)
         else
             callback(nil)
         end
+    end,
+}
+
+--- Load a relationship (lazy loading, async)
+--- @param relationName string
+--- @param callback function
+function BaseModel:loadAsync(relationName, callback)
+    if self.relations[relationName] ~= nil then
+        callback(self.relations[relationName])
+        return
     end
+    if self.__loaded[relationName] then
+        callback(nil)
+        return
+    end
+
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
+
+    local strategy = LOAD_ASYNC_STRATEGIES[relation.type]
+    assert(strategy, ("loadAsync: unknown relation type %q"):format(relation.type))
+    strategy(self, relationName, relation, function(result)
+        self.__loaded[relationName] = true
+        callback(result)
+    end)
 end
 
 --- Shared by the hasOne and hasMany strategies below -- identical batching,
