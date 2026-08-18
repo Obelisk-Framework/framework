@@ -16,6 +16,8 @@ function MySQLDialect.columnType(kind, opts, isAutoIncrement)
         return 'VARCHAR(' .. (opts.length or 255) .. ')'
     elseif kind == 'text' then
         return 'TEXT'
+    elseif kind == 'mediumBlob' then
+        return 'MEDIUMBLOB'
     elseif kind == 'json' then
         return 'JSON'
     elseif kind == 'float' then
