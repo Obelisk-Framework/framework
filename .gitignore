@@ -2,6 +2,5 @@ node_modules
 .worktrees
 modules/*
 plugins/*
-.superpowers/
 docs/superpowers/
 storage/

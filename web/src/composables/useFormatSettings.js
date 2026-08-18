@@ -5,7 +5,7 @@
  * callback and falls back to the same defaults Settings.lua uses when
  * running outside FiveM (no window.invokeNative — see obelisk.js).
  */
-import obelisk from '../obelisk.js'
+import Obelisk from '../obelisk.js'
 
 const DEFAULTS = {
   dateFormat: 'YYYY-MM-DD',
@@ -20,7 +20,7 @@ let cached = null
 
 export async function loadFormatSettings() {
   if (cached) return cached
-  const format = await obelisk.emit('core:client:getFormatSettings', [])
+  const format = await Obelisk.emit('core:client:getFormatSettings', {})
   cached = { ...DEFAULTS, ...format }
   return cached
 }
