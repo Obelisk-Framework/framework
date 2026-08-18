@@ -1,5 +1,32 @@
 --- BaseModel - Active Record pattern with relationships
 --- Inspired by Laravel's Eloquent ORM
+--- Relation-descriptor tags returned by hasOne/hasMany/belongsTo/morphOne/
+--- belongsToMany. A class-level field holding one of these (assigned
+--- directly, e.g. `Shell.shellOwners = Shell:hasMany(ShellOwner,
+--- 'shell_id')`) resolves as a lazily-loaded relation on instance property
+--- access (`shell.shellOwners`); anything else (including the older style
+--- of a per-relation definer *method*, e.g. `function Model:xRelation()
+--- return self:hasOne(...) end`, still used for explicit `:with()` eager
+--- loading elsewhere) is returned as-is.
+local RELATION_TYPES = {
+    hasOne = true, hasMany = true, belongsTo = true,
+    morphOne = true, belongsToMany = true,
+}
+
+--- A relation field is either an already-built descriptor (new style,
+--- built once at class-definition time) or a definer method (old style,
+--- e.g. `function Model:xRelation() return self:hasOne(...) end`, called
+--- per instance). Resolve either to a descriptor.
+--- @param definer table|function
+--- @param instance table
+--- @return table relation descriptor
+local function resolveRelationDef(definer, instance)
+    if type(definer) == 'function' then
+        return definer(instance)
+    end
+    return definer
+end
+
 BaseModel = {}
 BaseModel.__index = function(instance, key)
     local attrs = rawget(instance, 'attributes')
@@ -11,7 +38,7 @@ BaseModel.__index = function(instance, key)
         return rels[key]
     end
     local classVal = BaseModel[key]
-    if type(classVal) == 'table' and classVal.isRelation then
+    if type(classVal) == 'table' and RELATION_TYPES[classVal.type] then
         BaseModel:eagerLoad({ instance }, key)
         return rels[key]
     end
@@ -25,20 +52,6 @@ BaseModel.timestamps = true
 BaseModel.fillable = {}
 BaseModel.hidden = {}
 BaseModel.casts = {}
-
---- Wrap a relation definer so it can be assigned directly, e.g.
---- `Shell.shellOwners = BaseModel.relation(function(self) return
---- self:hasMany(ShellOwner, 'shell_id') end)`. The wrapper stays callable
---- (`self[name](self)` still works, for `:with(name)`/eager loading), and
---- is tagged so instance property access (`shell.shellOwners`) knows to
---- lazily fetch and cache the relation instead of returning the definer.
---- @param fn function(self): table  relation descriptor, e.g. `self:hasMany(...)`
---- @return table callable, tagged relation wrapper
-function BaseModel.relation(fn)
-    return setmetatable({ isRelation = true }, {
-        __call = function(_, self) return fn(self) end
-    })
-end
 
 --- Create a new model instance
 --- @param attributes table
@@ -70,7 +83,7 @@ function BaseModel:extend(tableName)
             return rels[key]
         end
         local classVal = child[key]
-        if type(classVal) == 'table' and classVal.isRelation then
+        if type(classVal) == 'table' and RELATION_TYPES[classVal.type] then
             child:eagerLoad({ instance }, key)
             return rels[key]
         end
@@ -501,10 +514,10 @@ function BaseModel:load(relationName)
         return self.relations[relationName]
     end
 
-    -- getmetatable(self), not self[relationName] -- a tagged relation()
-    -- wrapper resolves through the instance's __index as already-loaded
-    -- relation data, not the definer itself; the class table is unaffected.
-    local relation = getmetatable(self)[relationName](self)
+    -- getmetatable(self), not self[relationName] -- a class-level relation
+    -- descriptor resolves through the instance's __index as already-loaded
+    -- relation data, not the descriptor itself; the class table is unaffected.
+    local relation = resolveRelationDef(getmetatable(self)[relationName], self)
 
     if relation.type == 'morphOne' then
         local localValue = self.attributes[relation.localKey]
@@ -555,7 +568,7 @@ function BaseModel:loadAsync(relationName, callback)
         return
     end
 
-    local relation = getmetatable(self)[relationName](self)
+    local relation = resolveRelationDef(getmetatable(self)[relationName], self)
 
     if relation.type == 'morphOne' then
         local localValue = self.attributes[relation.localKey]
@@ -621,8 +634,8 @@ function BaseModel:eagerLoad(instances, path)
 
     -- Read the relation definer off the class (self), not the instance --
     -- an instance property lookup for `segment` would re-enter the lazy
-    -- relation() wrapper hook in __index and recurse.
-    local relation = self[segment](instances[1])
+    -- relation-resolution hook in __index and recurse.
+    local relation = resolveRelationDef(self[segment], instances[1])
     local related = relation.relatedModel
 
     if relation.type == 'morphOne' then
@@ -741,7 +754,7 @@ end
 --- @param pivotData table Optional pivot attributes
 --- @param callback function
 function BaseModel:attach(relationName, id, pivotData, callback)
-    local relation = getmetatable(self)[relationName](self)
+    local relation = resolveRelationDef(getmetatable(self)[relationName], self)
     
     if relation.type ~= 'belongsToMany' then
         error('attach() only works with belongsToMany relationships')
@@ -766,7 +779,7 @@ end
 --- @param id any Optional, detaches all if nil
 --- @param callback function
 function BaseModel:detach(relationName, id, callback)
-    local relation = getmetatable(self)[relationName](self)
+    local relation = resolveRelationDef(getmetatable(self)[relationName], self)
     
     if relation.type ~= 'belongsToMany' then
         error('detach() only works with belongsToMany relationships')
