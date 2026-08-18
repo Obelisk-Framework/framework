@@ -59,8 +59,8 @@ function WebView.hideGlobalElement(name)
 end
 
 --- Generic escape hatch for any plugin-defined NUI message not covered above.
-function WebView.emit(eventName, data)
-    SendNUIMessage({ eventname = eventName, args = { data } })
+function WebView.emit(eventName, ...)
+    SendNUIMessage({ eventname = eventName, args = { ... } })
 end
 
 --- Registers an incoming NUI callback without the caller needing to touch
@@ -77,10 +77,29 @@ function WebView.on(eventName, handler)
     end)
 end
 
---- Convenience alias for Obelisk.emitServer, so a RegisterNUICallback handler
---- that needs to relay straight to the server doesn't separately require Obelisk.
-function WebView.emitServer(eventName, ...)
-    Obelisk.emitServer(eventName, ...)
+--- Opens a page and grants focus in one call.
+--- Client-side parallel of the server's WebView.openFor.
+function WebView.openFor(page)
+    WebView.openPage(page)
+    WebView.focus()
+end
+
+--- Bridges a NUI callback straight to an Obelisk server event.
+--- fieldNames are extracted positionally from the data table and forwarded
+--- as individual args. Pass no field names when the server handler takes none.
+---   WebView.bridge('plugin:client:open', 'plugin:server:open')
+---   WebView.bridge('garage:rename', 'garage:client:rename', 'vehicleId', 'name')
+function WebView.bridge(nuiEvent, serverEvent, ...)
+    local fields = { ... }
+    WebView.on(nuiEvent, function(data)
+        if #fields == 0 then
+            Obelisk.emitServer(serverEvent)
+        else
+            local args = {}
+            for i, field in ipairs(fields) do args[i] = data[field] end
+            Obelisk.emitServer(serverEvent, table.unpack(args))
+        end
+    end)
 end
 
 --- Wire up the server->client relay: every clientMethodName in
@@ -114,8 +133,7 @@ Citizen.CreateThread(function()
 end)
 
 exports('OpenNUI', function(page)
-    WebView.openPage(page)
-    WebView.focus()
+    WebView.openFor(page)
 end)
 exports('CloseNUI', WebView.hide)
 

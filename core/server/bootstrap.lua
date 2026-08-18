@@ -200,6 +200,11 @@ Obelisk.on('playerConnecting', function(name, setKickReason, deferrals)
     deferrals.done()
 end)
 
+-- Player disconnection handler - cleanup injury state
+Obelisk.on('playerDropped', function()
+    InjuryService.cancelBleedTimer(source)
+end)
+
 -- Resource stop handler
 Obelisk.on('onResourceStop', function(resourceName)
     if resourceName == GetCurrentResourceName() then

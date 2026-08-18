@@ -10,4 +10,12 @@ for serverMethodName, clientMethodName in pairs(WebViewRelayMethods) do
     end
 end
 
+--- Opens a page and grants focus for the given player in one call.
+--- Replaces the openPage(player, page) + focus(player) pair that every
+--- plugin's openForPlayer function repeated.
+function WebView.openFor(player, page)
+    WebView.openPage(player, page)
+    WebView.focus(player)
+end
+
 return WebView

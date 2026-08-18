@@ -19,14 +19,14 @@ function SpawnManagerService.SetHudVisible(visible)
     TriggerEvent('obelisk:hud:setVisible', visible)
 end
 
-Obelisk.onClient('core:server:spawn-begin', function()
+Obelisk.onServer('core:server:spawn-begin', function()
     SpawnManagerService.stage = 'connecting'
     SpawnManagerService.FreezePlayer(true)
     SpawnManagerService.SetHudVisible(false)
     TriggerEvent('obelisk:spawnStageChanged', 'connecting')
 end)
 
-Obelisk.onClient('core:server:spawn-complete', function(characterId)
+Obelisk.onServer('core:server:spawn-complete', function(characterId)
     SpawnManagerService.stage = 'spawned'
     SpawnManagerService.FreezePlayer(false)
     SpawnManagerService.SetHudVisible(true)
