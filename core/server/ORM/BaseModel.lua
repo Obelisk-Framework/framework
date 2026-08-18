@@ -1,5 +1,36 @@
 --- BaseModel - Active Record pattern with relationships
 --- Inspired by Laravel's Eloquent ORM
+--- Per-relation lazy-load counters, for the N+1 warning in resolveRelation
+--- below. Dev-only signal, not enforcement -- reset per process, not per
+--- request, so it's a "this relation gets loaded a lot, consider :with()"
+--- nudge rather than a hard limit.
+local LAZY_LOAD_WARN_THRESHOLD = 10
+local lazyLoadCounts = {}
+
+--- Declare `key` as a relation on `class` (backing store for the
+--- `class.relations` __newindex below) and resolve+cache it for `instance`
+--- if not already loaded. Shared by both BaseModel's own instances and
+--- every extend()'d child's instances.
+--- @param class table
+--- @param instance table
+--- @param key string
+--- @return any|nil the resolved (and now cached) relation value, or nil if
+---   `key` isn't a declared relation
+local function resolveRelation(class, instance, key)
+    local def = class.__relationDefs[key]
+    if not def then
+        return nil
+    end
+    local countKey = class.table .. '.' .. key
+    lazyLoadCounts[countKey] = (lazyLoadCounts[countKey] or 0) + 1
+    if lazyLoadCounts[countKey] == LAZY_LOAD_WARN_THRESHOLD then
+        print(("[ORM] relation '%s' lazy-loaded %d+ times -- consider :with('%s')")
+            :format(countKey, LAZY_LOAD_WARN_THRESHOLD, key))
+    end
+    class:eagerLoad({ instance }, key)
+    return rawget(instance, 'relations')[key]
+end
+
 BaseModel = {}
 BaseModel.__index = function(instance, key)
     local attrs = rawget(instance, 'attributes')
@@ -9,6 +40,13 @@ BaseModel.__index = function(instance, key)
     local rels = rawget(instance, 'relations')
     if rels and rels[key] ~= nil then
         return rels[key]
+    end
+    local loaded = rawget(instance, '__loaded')
+    if loaded and loaded[key] then
+        return nil
+    end
+    if BaseModel.__relationDefs[key] then
+        return resolveRelation(BaseModel, instance, key)
     end
     return BaseModel[key]
 end
@@ -21,6 +59,44 @@ BaseModel.fillable = {}
 BaseModel.hidden = {}
 BaseModel.casts = {}
 
+--- Relation definers, keyed by name -- populated only via `class.relations`
+--- (see below), never written to directly.
+BaseModel.__relationDefs = {}
+
+--- `Model.relations` is the registration surface for lazily-loaded
+--- relations, e.g. `function Character.relations:shellOwners() return
+--- self:hasMany(ShellOwner, 'character_id') end`. Assigning a function
+--- here (not on the model table itself) makes `key` resolve, on instance
+--- property access, as a lazily-fetched-and-cached relation instead of a
+--- plain method -- so relation methods and regular methods never collide,
+--- and nothing needs to inspect or speculatively call anything.
+BaseModel.relations = setmetatable({}, {
+    __newindex = function(_, key, fn)
+        assert(type(fn) == 'function', ("relation %q must be a function"):format(key))
+        rawset(BaseModel.__relationDefs, key, fn)
+    end,
+    __index = BaseModel.__relationDefs,
+})
+
+--- Explicit accessor for the relation *definer* (the query descriptor
+--- itself, e.g. to build on `hasMany`/`hasOne`/etc's own attributes) --
+--- for when you want that instead of the resolved-and-cached value that
+--- bare `instance.relationName` property access gives you. Lazy property
+--- access and this accessor can't both use the same `instance:relationName()`
+--- call syntax (once `.relationName` resolves to data, colon-calling it
+--- calls the data, not the definer) so this is the escape hatch.
+--- @param key string
+--- @return table relation descriptor, e.g. `{type='hasMany', ...}`
+function BaseModel:relation(key)
+    -- `self` may be a class (called as `Customer:relation(...)`, which
+    -- holds __relationDefs directly) or an instance (`customer:relation(...)`,
+    -- which only has it via its metatable).
+    local relationDefs = rawget(self, '__relationDefs') or getmetatable(self).__relationDefs
+    local def = relationDefs[key]
+    assert(def, ("no relation %q"):format(key))
+    return def(self)
+end
+
 --- Create a new model instance
 --- @param attributes table
 --- @return BaseModel
@@ -29,6 +105,7 @@ function BaseModel.new(attributes)
     instance.attributes = attributes or {}
     instance.original = {}
     instance.relations = {}
+    instance.__loaded = {}
     instance.exists = false
 
     return instance
@@ -41,6 +118,15 @@ end
 --- @return table The new model class
 function BaseModel:extend(tableName)
     local child = {}
+    child.__relationDefs = setmetatable({}, { __index = self.__relationDefs })
+    child.relations = setmetatable({}, {
+        __newindex = function(_, key, fn)
+            assert(type(fn) == 'function', ("relation %q must be a function"):format(key))
+            rawset(child.__relationDefs, key, fn)
+        end,
+        __index = child.__relationDefs,
+    })
+
     child.__index = function(instance, key)
         local attrs = rawget(instance, 'attributes')
         if attrs and attrs[key] ~= nil then
@@ -49,6 +135,13 @@ function BaseModel:extend(tableName)
         local rels = rawget(instance, 'relations')
         if rels and rels[key] ~= nil then
             return rels[key]
+        end
+        local loaded = rawget(instance, '__loaded')
+        if loaded and loaded[key] then
+            return nil
+        end
+        if child.__relationDefs[key] then
+            return resolveRelation(child, instance, key)
         end
         return child[key]
     end
@@ -66,6 +159,7 @@ function BaseModel:extend(tableName)
         instance.attributes = attributes or {}
         instance.original = {}
         instance.relations = {}
+        instance.__loaded = {}
         instance.exists = false
 
         instance.table = child.table
@@ -107,20 +201,6 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
     end
 end
 
---- Fetch all rows as model instances. Alias for Model:get() on a fresh query.
---- @return table[]
-BaseModel.all = BaseModel.get
-
---- Bulk-update a set of attributes on this instance and persist.
---- @param attributes table
---- @return BaseModel self
-function BaseModel:update(attributes)
-    for key, value in pairs(attributes) do
-        self.attributes[key] = value
-    end
-    return self:save()
-end
-
 --- Record a relation path (single-level or dot-separated) to eager-load
 --- after the terminal fetch resolves. Returns a QueryBuilder so further
 --- `:with(...)` calls chain (each accumulates its own independent path)
@@ -131,25 +211,21 @@ function BaseModel:with(path)
     return self:newQuery():with(path)
 end
 
---- Find synchronously by a column's value. Defaults to primaryKey, so
---- `find(id)` behaves as before; pass `column` to look up by any other
---- unique-ish column (e.g. belongsTo's ownerKey).
---- @param value any
---- @param column string|nil defaults to self.primaryKey
+--- Find synchronously
+--- @param id any
 --- @return BaseModel|nil
-function BaseModel:find(value, column)
+function BaseModel:find(id)
     -- newQuery() attaches `.model`, so `first()` already decodes JSON casts
     -- and returns a wrapped model instance (or nil) -- do not re-wrap it.
-    return self:newQuery():where(column or self.primaryKey, value):first()
+    return self:newQuery():where(self.primaryKey, id):first()
 end
 
---- Async form of find(). See find() for the `column` param.
---- @param value any
+--- Find a model by primary key (async)
+--- @param id any
 --- @param callback function
---- @param column string|nil defaults to self.primaryKey
-function BaseModel:findAsync(value, callback, column)
+function BaseModel:findAsync(id, callback)
     -- See find(): firstAsync() is already model-aware, result is pre-wrapped.
-    self:newQuery():where(column or self.primaryKey, value):firstAsync(callback)
+    self:newQuery():where(self.primaryKey, id):firstAsync(callback)
 end
 
 --- Create a new model instance from query result
@@ -408,12 +484,24 @@ function BaseModel:isDirty(key)
     return false
 end
 
+--- Strip a trailing 's' off a table name to get its singular form (e.g.
+--- 'characters' -> 'character'), used to default a relation's foreignKey
+--- to `<this model's singular name>_id`. Matches this codebase's existing
+--- convention at every current hasOne/hasMany call site; irregular
+--- plurals aren't handled -- pass `foreignKey` explicitly for those.
+--- @param tableName string
+--- @return string
+local function singularize(tableName)
+    return (tableName:gsub('s$', ''))
+end
+
 --- Define a hasOne relationship
 --- @param relatedModel BaseModel
 --- @param foreignKey string
 --- @param localKey string
 --- @return table
 function BaseModel:hasOne(relatedModel, foreignKey, localKey)
+    foreignKey = foreignKey or (singularize(self.table) .. '_id')
     localKey = localKey or self.primaryKey
     return {
         type = 'hasOne',
@@ -423,30 +511,13 @@ function BaseModel:hasOne(relatedModel, foreignKey, localKey)
     }
 end
 
---- Define a polymorphic one-to-one relationship.
---- Queries: relatedModel WHERE foreignKey = self.id AND morphType = typeValue
---- @param relatedModel BaseModel
---- @param foreignKey string  e.g. 'owner_id'
---- @param morphType string   e.g. 'owner_type'
---- @param typeValue string   e.g. 'Shop'
---- @return table
-function BaseModel:morphOne(relatedModel, foreignKey, morphType, typeValue)
-    return {
-        type = 'morphOne',
-        relatedModel = relatedModel,
-        foreignKey = foreignKey,
-        morphType = morphType,
-        typeValue = typeValue,
-        localKey = self.primaryKey,
-    }
-end
-
 --- Define a hasMany relationship
 --- @param relatedModel BaseModel
 --- @param foreignKey string
 --- @param localKey string
 --- @return table
 function BaseModel:hasMany(relatedModel, foreignKey, localKey)
+    foreignKey = foreignKey or (singularize(self.table) .. '_id')
     localKey = localKey or self.primaryKey
     return {
         type = 'hasMany',
@@ -487,25 +558,47 @@ function BaseModel:belongsToMany(relatedModel, pivotTable, foreignPivotKey, rela
     }
 end
 
---- Load relationship synchronously
---- @param relationName string
---- @return any
-function BaseModel:load(relationName)
-    if self.relations[relationName] then
-        return self.relations[relationName]
-    end
+--- Define a morphOne relationship (this model owns one related row via owner_type/owner_id)
+--- owner_type value must equal the Lua global name of this model class.
+function BaseModel:morphOne(relatedModel, ownerIdKey, ownerTypeKey, ownerTypeValue)
+    return {
+        type = 'morphOne',
+        relatedModel = relatedModel,
+        ownerIdKey = ownerIdKey,
+        ownerTypeKey = ownerTypeKey,
+        ownerTypeValue = ownerTypeValue,
+        localKey = self.primaryKey,
+    }
+end
 
-    local relation = self[relationName](self)
+--- Define a morphMany relationship (this model owns many related rows via owner_type/owner_id)
+function BaseModel:morphMany(relatedModel, ownerIdKey, ownerTypeKey, ownerTypeValue)
+    return {
+        type = 'morphMany',
+        relatedModel = relatedModel,
+        ownerIdKey = ownerIdKey,
+        ownerTypeKey = ownerTypeKey,
+        ownerTypeValue = ownerTypeValue,
+        localKey = self.primaryKey,
+    }
+end
 
-    if relation.type == 'morphOne' then
-        local localValue = self.attributes[relation.localKey]
-        local result = relation.relatedModel:newQuery()
-            :where(relation.foreignKey, localValue)
-            :where(relation.morphType, relation.typeValue)
-            :first()
-        if result then self.relations[relationName] = result end
-        return self.relations[relationName]
-    elseif relation.type == 'hasOne' then
+--- Define a morphTo relationship (resolve this row's polymorphic owner)
+--- Reads self.attributes[ownerTypeKey] as a _G key to find the model class,
+--- then calls :find(self.attributes[ownerIdKey]) on it.
+function BaseModel:morphTo(ownerTypeKey, ownerIdKey)
+    return {
+        type = 'morphTo',
+        ownerTypeKey = ownerTypeKey,
+        ownerIdKey = ownerIdKey,
+    }
+end
+
+--- One entry per relation type for BaseModel:load() (single-instance,
+--- synchronous): run(self, relationName, relation) resolves the relation
+--- for this one instance and caches it into self.relations[relationName].
+local LOAD_STRATEGIES = {
+    hasOne = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
         -- newQuery() attaches `.model`, so `first()` already returns a
         -- wrapped model instance (or nil) -- do not re-wrap it.
@@ -513,14 +606,17 @@ function BaseModel:load(relationName)
         if result then
             self.relations[relationName] = result
         end
-    elseif relation.type == 'hasMany' then
+    end,
+    hasMany = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
         -- `get()` is model-aware and already returns wrapped model instances.
         self.relations[relationName] = relation.relatedModel:newQuery():where(relation.foreignKey, localValue):get()
-    elseif relation.type == 'belongsTo' then
+    end,
+    belongsTo = function(self, relationName, relation)
         local foreignValue = self.attributes[relation.foreignKey]
-        self.relations[relationName] = relation.relatedModel:find(foreignValue, relation.ownerKey)
-    elseif relation.type == 'belongsToMany' then
+        self.relations[relationName] = relation.relatedModel:find(foreignValue)
+    end,
+    belongsToMany = function(self, relationName, relation)
         local localId = self.attributes[self.primaryKey]
         local query = relation.relatedModel:newQuery()
             :join(relation.pivotTable,
@@ -531,57 +627,89 @@ function BaseModel:load(relationName)
 
         -- `get()` is model-aware and already returns wrapped model instances.
         self.relations[relationName] = query:get()
+    end,
+    morphOne = function(self, relationName, relation)
+        local localValue = self.attributes[relation.localKey]
+        local result = relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, localValue)
+            :first()
+        if result then
+            self.relations[relationName] = result
+        end
+    end,
+    morphMany = function(self, relationName, relation)
+        local localValue = self.attributes[relation.localKey]
+        self.relations[relationName] = relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, localValue)
+            :get()
+    end,
+    morphTo = function(self, relationName, relation)
+        local ownerType = self.attributes[relation.ownerTypeKey]
+        local ownerId   = self.attributes[relation.ownerIdKey]
+        local model = ownerType and _G[ownerType]
+        if model and ownerId then
+            self.relations[relationName] = model:find(ownerId)
+        end
+    end,
+}
+
+--- Load relationship synchronously
+--- @param relationName string
+--- @return any
+function BaseModel:load(relationName)
+    if self.relations[relationName] ~= nil then
+        return self.relations[relationName]
     end
+    if self.__loaded[relationName] then
+        return nil
+    end
+
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
+
+    local strategy = LOAD_STRATEGIES[relation.type]
+    assert(strategy, ("load: unknown relation type %q"):format(relation.type))
+    strategy(self, relationName, relation)
+    self.__loaded[relationName] = true
 
     return self.relations[relationName]
 end
 
---- Load a relationship (lazy loading, async)
---- @param relationName string
---- @param callback function
-function BaseModel:loadAsync(relationName, callback)
-    if self.relations[relationName] then
-        callback(self.relations[relationName])
-        return
-    end
-
-    local relation = self[relationName](self)
-
-    if relation.type == 'morphOne' then
-        local localValue = self.attributes[relation.localKey]
-        relation.relatedModel:newQuery()
-            :where(relation.foreignKey, localValue)
-            :where(relation.morphType, relation.typeValue)
-            :firstAsync(function(result)
-                if result then self.relations[relationName] = result end
-                callback(self.relations[relationName])
-            end)
-    elseif relation.type == 'hasOne' then
-        local localValue = self.attributes[relation.localKey]
+--- One entry per relation type for BaseModel:loadAsync(): run(self,
+--- relationName, relation, callback) resolves the relation for this one
+--- instance, caches it into self.relations[relationName], and invokes
+--- `callback` with the result once the query completes.
+local LOAD_ASYNC_STRATEGIES = {
+    hasOne = function(self, relationName, relation, callback)
         -- firstAsync() is model-aware and already returns a wrapped model
         -- instance (or nil) -- do not re-wrap it.
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):firstAsync(function(result)
+        relation.relatedModel:newQuery():where(relation.foreignKey, self.attributes[relation.localKey]):firstAsync(function(result)
             if result then
                 self.relations[relationName] = result
             end
             callback(self.relations[relationName])
         end)
-    elseif relation.type == 'hasMany' then
-        local localValue = self.attributes[relation.localKey]
+    end,
+    hasMany = function(self, relationName, relation, callback)
         -- getAsync() is model-aware and already returns wrapped model instances.
-        relation.relatedModel:newQuery():where(relation.foreignKey, localValue):getAsync(function(models)
+        relation.relatedModel:newQuery():where(relation.foreignKey, self.attributes[relation.localKey]):getAsync(function(models)
             self.relations[relationName] = models
             callback(models)
         end)
-    elseif relation.type == 'belongsTo' then
-        local foreignValue = self.attributes[relation.foreignKey]
-        relation.relatedModel:findAsync(foreignValue, function(model)
+    end,
+    belongsTo = function(self, relationName, relation, callback)
+        relation.relatedModel:findAsync(self.attributes[relation.foreignKey], function(model)
             self.relations[relationName] = model
             callback(model)
-        end, relation.ownerKey)
-    elseif relation.type == 'belongsToMany' then
+        end)
+    end,
+    belongsToMany = function(self, relationName, relation, callback)
         local localId = self.attributes[self.primaryKey]
-
         local query = relation.relatedModel:newQuery()
             :join(relation.pivotTable,
                   relation.relatedModel.table .. '.' .. relation.relatedModel.primaryKey,
@@ -594,8 +722,269 @@ function BaseModel:loadAsync(relationName, callback)
             self.relations[relationName] = models
             callback(models)
         end)
+    end,
+    morphOne = function(self, relationName, relation, callback)
+        relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, self.attributes[relation.localKey])
+            :firstAsync(function(result)
+                if result then self.relations[relationName] = result end
+                callback(self.relations[relationName])
+            end)
+    end,
+    morphMany = function(self, relationName, relation, callback)
+        relation.relatedModel:newQuery()
+            :where(relation.ownerTypeKey, relation.ownerTypeValue)
+            :where(relation.ownerIdKey, self.attributes[relation.localKey])
+            :getAsync(function(models)
+                self.relations[relationName] = models
+                callback(models)
+            end)
+    end,
+    morphTo = function(self, relationName, relation, callback)
+        local ownerType = self.attributes[relation.ownerTypeKey]
+        local ownerId   = self.attributes[relation.ownerIdKey]
+        local model = ownerType and _G[ownerType]
+        if model and ownerId then
+            model:newQuery():where(model.primaryKey, ownerId):firstAsync(function(result)
+                self.relations[relationName] = result
+                callback(result)
+            end)
+        else
+            callback(nil)
+        end
+    end,
+}
+
+--- Load a relationship (lazy loading, async)
+--- @param relationName string
+--- @param callback function
+function BaseModel:loadAsync(relationName, callback)
+    if self.relations[relationName] ~= nil then
+        callback(self.relations[relationName])
+        return
+    end
+    if self.__loaded[relationName] then
+        callback(nil)
+        return
+    end
+
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
+
+    local strategy = LOAD_ASYNC_STRATEGIES[relation.type]
+    assert(strategy, ("loadAsync: unknown relation type %q"):format(relation.type))
+    strategy(self, relationName, relation, function(result)
+        self.__loaded[relationName] = true
+        callback(result)
+    end)
+end
+
+--- Shared by the hasOne and hasMany strategies below -- identical batching,
+--- differing only in whether each instance gets the first match or all of
+--- them.
+--- @param segment string
+--- @param relation table
+--- @param related BaseModel
+--- @param instances table
+--- @param single boolean
+local function eagerLoadHasOneOrMany(segment, relation, related, instances, single)
+    local localValues = {}
+    for _, inst in ipairs(instances) do
+        table.insert(localValues, inst.attributes[relation.localKey])
+    end
+    local rows = related:newQuery():whereIn(relation.foreignKey, localValues):get()
+    local byForeign = {}
+    for _, row in ipairs(rows) do
+        local fk = row.attributes[relation.foreignKey]
+        byForeign[fk] = byForeign[fk] or {}
+        table.insert(byForeign[fk], row)
+    end
+    for _, inst in ipairs(instances) do
+        local matches = byForeign[inst.attributes[relation.localKey]] or {}
+        inst.relations[segment] = single and matches[1] or matches
+        inst.__loaded[segment] = true
     end
 end
+
+--- Shared by the morphOne and morphMany strategies below -- identical
+--- batching (filtered by both localKey IN and a fixed ownerType), differing
+--- only in whether each instance gets the first match or all of them.
+--- @param segment string
+--- @param relation table
+--- @param related BaseModel
+--- @param instances table
+--- @param single boolean
+local function eagerLoadMorphOneOrMany(segment, relation, related, instances, single)
+    local localValues = {}
+    for _, inst in ipairs(instances) do
+        table.insert(localValues, inst.attributes[relation.localKey])
+    end
+    -- Embed owner_type as a SQL literal so only the IN-list IDs appear in params.
+    local typeFilter = QueryBuilder.quoteIdentifier(relation.ownerTypeKey)
+                    .. " = '" .. relation.ownerTypeValue:gsub("'", "''") .. "'"
+    local rows = related:newQuery()
+        :whereRaw(typeFilter)
+        :whereIn(relation.ownerIdKey, localValues)
+        :get()
+    if single then
+        local byOwnerId = {}
+        for _, row in ipairs(rows) do
+            byOwnerId[row.attributes[relation.ownerIdKey]] = row
+        end
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = byOwnerId[inst.attributes[relation.localKey]]
+            inst.__loaded[segment] = true
+        end
+    else
+        local byOwnerId = {}
+        for _, inst in ipairs(instances) do
+            inst.relations[segment] = {}
+            inst.__loaded[segment] = true
+            byOwnerId[inst.attributes[relation.localKey]] = inst
+        end
+        for _, row in ipairs(rows) do
+            local owner = byOwnerId[row.attributes[relation.ownerIdKey]]
+            if owner then
+                table.insert(owner.relations[segment], row)
+            end
+        end
+    end
+end
+
+--- One entry per relation type: `run` performs the batched eager-load for
+--- that type (populating `inst.relations[segment]`/`inst.__loaded[segment]`
+--- for every instance); `isList` says whether the resolved value is an
+--- array (hasMany/belongsToMany/morphMany) or a single instance/nil
+--- (everything else) -- eagerLoad's own dot-path recursion below needs to
+--- know which, to walk into the right shape.
+local EAGER_LOAD_STRATEGIES = {
+    hasOne = {
+        isList = false,
+        run = function(segment, relation, related, instances)
+            eagerLoadHasOneOrMany(segment, relation, related, instances, true)
+        end,
+    },
+    hasMany = {
+        isList = true,
+        run = function(segment, relation, related, instances)
+            eagerLoadHasOneOrMany(segment, relation, related, instances, false)
+        end,
+    },
+    belongsTo = {
+        isList = false,
+        run = function(segment, relation, related, instances)
+            local foreignValues = {}
+            for _, inst in ipairs(instances) do
+                table.insert(foreignValues, inst.attributes[relation.foreignKey])
+            end
+            local rows = related:newQuery():whereIn(relation.ownerKey, foreignValues):get()
+            local byOwner = {}
+            for _, row in ipairs(rows) do
+                byOwner[row.attributes[relation.ownerKey]] = row
+            end
+            for _, inst in ipairs(instances) do
+                inst.relations[segment] = byOwner[inst.attributes[relation.foreignKey]]
+                inst.__loaded[segment] = true
+            end
+        end,
+    },
+    belongsToMany = {
+        isList = true,
+        run = function(segment, relation, related, instances)
+            local localIds = {}
+            for _, inst in ipairs(instances) do
+                table.insert(localIds, inst.attributes[inst.primaryKey])
+            end
+            -- Grouping by owning instance requires the pivot's foreign key in the
+            -- selected columns; select it explicitly alongside the related row so
+            -- each returned row can be attributed back to the right instance(s)
+            -- instead of being handed to every instance indiscriminately.
+            local pivotFkColumn = relation.pivotTable .. '.' .. relation.foreignPivotKey
+            local rows = related:newQuery()
+                :select({related.table .. '.*', pivotFkColumn})
+                :join(relation.pivotTable,
+                      related.table .. '.' .. related.primaryKey,
+                      '=',
+                      relation.pivotTable .. '.' .. relation.relatedPivotKey)
+                :whereIn(pivotFkColumn, localIds)
+                :get()
+            local byOwner = {}
+            for _, inst in ipairs(instances) do
+                inst.relations[segment] = {}
+                inst.__loaded[segment] = true
+                byOwner[inst.attributes[inst.primaryKey]] = inst
+            end
+            -- Intern one shared model instance per unique related primary key.
+            -- Each joined pivot row otherwise produces its OWN distinct instance
+            -- even when it's the same related row shared by multiple owners
+            -- (e.g. one tag on two posts), which breaks the seenIds dedup in
+            -- eagerLoad's dot-path recursion below since it keys on primary
+            -- key expecting one shared object per row, like hasOne/hasMany/
+            -- belongsTo already provide via their byForeign/byOwner tables.
+            local byRelatedId = {}
+            for _, row in ipairs(rows) do
+                local owner = byOwner[row.attributes[relation.foreignPivotKey]]
+                if owner then
+                    local relatedId = row.attributes[row.primaryKey]
+                    local shared = byRelatedId[relatedId]
+                    if not shared then
+                        shared = row
+                        byRelatedId[relatedId] = shared
+                    end
+                    table.insert(owner.relations[segment], shared)
+                end
+            end
+        end,
+    },
+    morphOne = {
+        isList = false,
+        run = function(segment, relation, related, instances)
+            eagerLoadMorphOneOrMany(segment, relation, related, instances, true)
+        end,
+    },
+    morphMany = {
+        isList = true,
+        run = function(segment, relation, related, instances)
+            eagerLoadMorphOneOrMany(segment, relation, related, instances, false)
+        end,
+    },
+    morphTo = {
+        isList = false,
+        run = function(segment, relation, related, instances)
+            -- Group instances by owner_type; batch one query per distinct type.
+            local byType = {}
+            for _, inst in ipairs(instances) do
+                local ownerType = inst.attributes[relation.ownerTypeKey]
+                if ownerType then
+                    byType[ownerType] = byType[ownerType] or {}
+                    table.insert(byType[ownerType], inst)
+                end
+            end
+            for ownerType, group in pairs(byType) do
+                local model = _G[ownerType]
+                if model then
+                    local ids = {}
+                    for _, inst in ipairs(group) do
+                        table.insert(ids, inst.attributes[relation.ownerIdKey])
+                    end
+                    local rows = model:newQuery():whereIn(model.primaryKey, ids):get()
+                    local byId = {}
+                    for _, row in ipairs(rows) do
+                        byId[row.attributes[model.primaryKey]] = row
+                    end
+                    for _, inst in ipairs(group) do
+                        inst.relations[segment] = byId[inst.attributes[relation.ownerIdKey]]
+                        inst.__loaded[segment] = true
+                    end
+                end
+            end
+        end,
+    },
+}
 
 --- Eager-load a (possibly dot-separated) relation path across a batch of
 --- already-fetched model instances, one batched query per path segment.
@@ -607,105 +996,22 @@ function BaseModel:eagerLoad(instances, path)
         return
     end
 
-    local relation = instances[1][segment](instances[1])
+    -- self.__relationDefs, not instances[1][segment] -- reading it off an
+    -- instance would re-enter the lazy-relation __index hook for `segment`
+    -- and recurse; the class's registry is unaffected by instance state.
+    local relation = (self.__relationDefs[segment] or self[segment])(instances[1])
     local related = relation.relatedModel
 
-    if relation.type == 'morphOne' then
-        local localValues = {}
-        for _, inst in ipairs(instances) do
-            table.insert(localValues, inst.attributes[relation.localKey])
-        end
-        local rows = related:newQuery()
-            :whereIn(relation.foreignKey, localValues)
-            :where(relation.morphType, relation.typeValue)
-            :get()
-        local byForeign = {}
-        for _, row in ipairs(rows) do
-            byForeign[row.attributes[relation.foreignKey]] = row
-        end
-        for _, inst in ipairs(instances) do
-            inst.relations[segment] = byForeign[inst.attributes[relation.localKey]]
-        end
-    elseif relation.type == 'hasOne' or relation.type == 'hasMany' then
-        local localValues = {}
-        for _, inst in ipairs(instances) do
-            table.insert(localValues, inst.attributes[relation.localKey])
-        end
-        local rows = related:newQuery():whereIn(relation.foreignKey, localValues):get()
-        local byForeign = {}
-        for _, row in ipairs(rows) do
-            local fk = row.attributes[relation.foreignKey]
-            byForeign[fk] = byForeign[fk] or {}
-            table.insert(byForeign[fk], row)
-        end
-        for _, inst in ipairs(instances) do
-            local matches = byForeign[inst.attributes[relation.localKey]] or {}
-            inst.relations[segment] = (relation.type == 'hasOne') and matches[1] or matches
-        end
-    elseif relation.type == 'belongsTo' then
-        local foreignValues = {}
-        for _, inst in ipairs(instances) do
-            table.insert(foreignValues, inst.attributes[relation.foreignKey])
-        end
-        local rows = related:newQuery():whereIn(relation.ownerKey, foreignValues):get()
-        local byOwner = {}
-        for _, row in ipairs(rows) do
-            byOwner[row.attributes[relation.ownerKey]] = row
-        end
-        for _, inst in ipairs(instances) do
-            inst.relations[segment] = byOwner[inst.attributes[relation.foreignKey]]
-        end
-    elseif relation.type == 'belongsToMany' then
-        local localIds = {}
-        for _, inst in ipairs(instances) do
-            table.insert(localIds, inst.attributes[inst.primaryKey])
-        end
-        -- Grouping by owning instance requires the pivot's foreign key in the
-        -- selected columns; select it explicitly alongside the related row so
-        -- each returned row can be attributed back to the right instance(s)
-        -- instead of being handed to every instance indiscriminately.
-        local pivotFkColumn = relation.pivotTable .. '.' .. relation.foreignPivotKey
-        local rows = related:newQuery()
-            :select({related.table .. '.*', pivotFkColumn})
-            :join(relation.pivotTable,
-                  related.table .. '.' .. related.primaryKey,
-                  '=',
-                  relation.pivotTable .. '.' .. relation.relatedPivotKey)
-            :whereIn(pivotFkColumn, localIds)
-            :get()
-        local byOwner = {}
-        for _, inst in ipairs(instances) do
-            inst.relations[segment] = {}
-            byOwner[inst.attributes[inst.primaryKey]] = inst
-        end
-        -- Intern one shared model instance per unique related primary key.
-        -- Each joined pivot row otherwise produces its OWN distinct instance
-        -- even when it's the same related row shared by multiple owners
-        -- (e.g. one tag on two posts), which breaks the seenIds dedup below
-        -- (and any downstream `rest ~= ''` segment) since it keys on primary
-        -- key expecting one shared object per row, like hasOne/hasMany/
-        -- belongsTo already provide via their byForeign/byOwner tables.
-        local byRelatedId = {}
-        for _, row in ipairs(rows) do
-            local owner = byOwner[row.attributes[relation.foreignPivotKey]]
-            if owner then
-                local relatedId = row.attributes[row.primaryKey]
-                local shared = byRelatedId[relatedId]
-                if not shared then
-                    shared = row
-                    byRelatedId[relatedId] = shared
-                end
-                table.insert(owner.relations[segment], shared)
-            end
-        end
-    end
+    local strategy = EAGER_LOAD_STRATEGIES[relation.type]
+    assert(strategy, ("eagerLoad: unknown relation type %q"):format(relation.type))
+    strategy.run(segment, relation, related, instances)
 
     if rest ~= '' then
         local nextLevelInstances = {}
         local seenIds = {}
         for _, inst in ipairs(instances) do
             local rel = inst.relations[segment]
-            local relList = (relation.type == 'hasMany' or relation.type == 'belongsToMany') and rel or {rel}
+            local relList = strategy.isList and rel or {rel}
             for _, relInst in ipairs(relList) do
                 if relInst then
                     local id = relInst.attributes[relInst.primaryKey]
@@ -716,7 +1022,12 @@ function BaseModel:eagerLoad(instances, path)
                 end
             end
         end
-        related:eagerLoad(nextLevelInstances, rest)
+        -- morphTo resolves to a per-instance class at runtime; recursive eager-loading
+        -- on a polymorphic inverse is not supported — callers must load nested paths
+        -- on each concrete type separately.
+        if related then
+            related:eagerLoad(nextLevelInstances, rest)
+        end
     end
 end
 
@@ -726,7 +1037,11 @@ end
 --- @param pivotData table Optional pivot attributes
 --- @param callback function
 function BaseModel:attach(relationName, id, pivotData, callback)
-    local relation = self[relationName](self)
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
     
     if relation.type ~= 'belongsToMany' then
         error('attach() only works with belongsToMany relationships')
@@ -751,7 +1066,11 @@ end
 --- @param id any Optional, detaches all if nil
 --- @param callback function
 function BaseModel:detach(relationName, id, callback)
-    local relation = self[relationName](self)
+    -- getmetatable(self).__relationDefs, not self[relationName] -- an
+    -- instance property lookup for relationName would re-enter the lazy-
+    -- relation __index hook and recurse; the class registry is unaffected.
+    local class = getmetatable(self)
+    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
     
     if relation.type ~= 'belongsToMany' then
         error('detach() only works with belongsToMany relationships')

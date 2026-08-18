@@ -10,7 +10,10 @@ dofile(ROOT .. '/core/server/ORM/Dialects/MySQL.lua')
 dofile(ROOT .. '/core/server/ORM/Dialects/Postgres.lua')
 dofile(ROOT .. '/core/server/ORM/Database.lua')
 dofile(ROOT .. '/core/server/ORM/QueryBuilder.lua')
-dofile(ROOT .. '/core/server/Config/WeatherConfig.lua.example')
+dofile(ROOT .. '/core/server/ORM/BaseModel.lua')
+dofile(ROOT .. '/core/server/Models/WeatherForecast.lua')
+dofile(ROOT .. '/core/shared/Obelisk.lua')
+dofile(ROOT .. '/core/server/Config/WeatherConfig.lua')
 dofile(ROOT .. '/core/server/Services/WeatherService.lua')
 
 local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_builder.lua')
@@ -68,12 +71,14 @@ test('tick: advances window when expired', function()
     -- expire the current window
     local expiredNow = now + WeatherConfig.window_duration + 1
     local synced = {}
-    _G.TriggerClientEvent = function(event, target, data)
+    local origEmitClient = Obelisk.emitClient
+    Obelisk.emitClient = function(event, target, data)
         synced[#synced+1] = { event=event, data=data }
     end
 
     WeatherService.tick(expiredNow)
     QueryBuilder = orig
+    Obelisk.emitClient = origEmitClient
 
     truthy(#synced > 0, 'expected a sync event')
     eq(synced[1].event, 'oblsk:weather:sync')
@@ -89,20 +94,23 @@ test('tick: no-op when window still valid', function()
     WeatherService.generateForecast(now)
 
     local synced = {}
-    _G.TriggerClientEvent = function(e, t, d) synced[#synced+1] = d end
+    local origEmitClient = Obelisk.emitClient
+    Obelisk.emitClient = function(e, t, d) synced[#synced+1] = d end
     -- Reset _currentWindow so tick sees window fresh, then call once to prime it
     WeatherService._currentWindow = nil
     WeatherService.tick(now + 10)  -- prime: sets _currentWindow
     local syncedAfterPrime = #synced
     WeatherService.tick(now + 10)  -- same window: should not fire again
     QueryBuilder = orig
+    Obelisk.emitClient = origEmitClient
 
     eq(#synced, syncedAfterPrime, 'should not sync again for same window')
 end)
 
 test('emitExposure: emits cold event when temp below threshold and raining', function()
     local events = {}
-    _G.TriggerEvent = function(name, src, units)
+    local origEmit = Obelisk.emit
+    Obelisk.emit = function(name, src, units)
         events[#events+1] = { name=name, src=src, units=units }
     end
     _G.PlayerService = { getAll = function() return {{ getSource = function() return 1 end }} end }
@@ -113,25 +121,28 @@ test('emitExposure: emits cold event when temp below threshold and raining', fun
         precipitation = 0.8,
     }
     WeatherService.emitExposure(window, 1.0)
+    Obelisk.emit = origEmit
 
     eq(#events, 1)
-    eq(events[1].name, 'oblsk:weather:cold_exposure_tick')
+    eq(events[1].name, 'core:server:cold_exposure_tick')
     eq(events[1].src, 1)
     eq(events[1].units, WeatherConfig.exposure.cold_rate * WeatherConfig.exposure.rain_multiplier)
 end)
 
 test('emitExposure: emits heat event when temp above threshold', function()
     local events = {}
-    _G.TriggerEvent = function(name, src, units)
+    local origEmit = Obelisk.emit
+    Obelisk.emit = function(name, src, units)
         events[#events+1] = { name=name, src=src, units=units }
     end
     _G.PlayerService = { getAll = function() return {{ getSource = function() return 2 end }} end }
 
     local window = { weather_type='CLEAR', temperature=40, precipitation=0 }
     WeatherService.emitExposure(window, 1.0)
+    Obelisk.emit = origEmit
 
     eq(#events, 1)
-    eq(events[1].name, 'oblsk:weather:heat_exposure_tick')
+    eq(events[1].name, 'core:server:heat_exposure_tick')
 end)
 
 -- runner

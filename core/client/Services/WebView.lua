@@ -72,8 +72,8 @@ end
 --- @param handler function(data)
 function WebView.on(eventName, handler)
     RegisterNUICallback(eventName, function(data, cb)
-        handler(data)
-        cb('ok')
+        local result = handler(data)
+        cb(result ~= nil and result or 'ok')
     end)
 end
 

@@ -70,7 +70,7 @@ function WeatherService.generateForecast(now, startType)
         local wType  = WeatherService.getWeatherType(date.month, prevType, math.random)
         local temp   = WeatherService.getTemperature(date.month, wStart)
         local precip = (wType == 'RAIN' or wType == 'THUNDER') and math.random() * 0.8 + 0.2 or 0
-        QueryBuilder.new('weather_forecast'):insert({
+        WeatherForecast:create({
             window_start  = wStart,
             window_end    = wEnd,
             weather_type  = wType,
@@ -85,28 +85,28 @@ end
 
 --- @return table[] array of window rows ordered by window_start asc
 function WeatherService.getForecast()
-    return QueryBuilder.new('weather_forecast')
+    return WeatherForecast
         :orderBy('window_start', 'asc')
-        :getSync()
+        :get()
 end
 
 --- @param now number unix epoch
 --- @return table|nil current window row
 function WeatherService.getCurrentWindow(now)
-    return QueryBuilder.new('weather_forecast')
+    return WeatherForecast
         :where('window_start', '<=', now)
         :where('window_end', '>', now)
-        :firstSync()
+        :first()
 end
 
 --- Called on server boot. Clears stale forecast and regenerates if needed.
 --- @param now number unix epoch
 function WeatherService.boot(now)
-    local latest = QueryBuilder.new('weather_forecast')
+    local latest = WeatherForecast
         :orderBy('window_end', 'desc')
-        :firstSync()
+        :first()
     if not latest or latest.window_end < now + 86400 then
-        QueryBuilder.new('weather_forecast'):delete()
+        WeatherForecast:newQuery():delete()
         WeatherService.generateForecast(now)
     end
 end
@@ -122,7 +122,7 @@ function WeatherService.tick(now)
         return  -- same window, no change
     end
     WeatherService._currentWindow = window
-    TriggerClientEvent('oblsk:weather:sync', -1, {
+    Obelisk.emitClient('oblsk:weather:sync', -1, {
         weather_type  = window.weather_type,
         temperature   = window.temperature,
         precipitation = window.precipitation,
@@ -131,13 +131,13 @@ function WeatherService.tick(now)
         window_end    = window.window_end,
     })
     -- trim stale windows older than 1 day
-    QueryBuilder.new('weather_forecast')
+    WeatherForecast
         :where('window_end', '<', now - 86400)
         :delete()
     -- extend forecast if lookahead drops below 1 day
-    local farthest = QueryBuilder.new('weather_forecast')
+    local farthest = WeatherForecast
         :orderBy('window_end', 'desc')
-        :firstSync()
+        :first()
     if farthest and farthest.window_end < now + 86400 then
         WeatherService.generateForecast(farthest.window_end, farthest.weather_type)
     end
@@ -172,9 +172,9 @@ function WeatherService.emitExposure(window, tickMinutes)
         local src = player:getSource()
         if isCold then
             local rate = cfg.exposure.cold_rate * (isRain and cfg.exposure.rain_multiplier or 1.0)
-            TriggerEvent('oblsk:weather:cold_exposure_tick', src, rate * tickMinutes)
+            Obelisk.emit('core:server:cold_exposure_tick', src, rate * tickMinutes)
         elseif isHot then
-            TriggerEvent('oblsk:weather:heat_exposure_tick', src, cfg.exposure.heat_rate * tickMinutes)
+            Obelisk.emit('core:server:heat_exposure_tick', src, cfg.exposure.heat_rate * tickMinutes)
         end
     end
 end

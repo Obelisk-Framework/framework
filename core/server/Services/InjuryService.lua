@@ -27,7 +27,7 @@ function InjuryService.getState(playerId)
     local b = InjuryService.getBinding(playerId)
     local row = PlayerState:where('player_type', b.type)
         :where('player_id', b.id)
-        :firstSync()
+        :first()
     return row and row.state or 'healthy'
 end
 
@@ -38,7 +38,7 @@ function InjuryService.setState(playerId, newState)
     local now = Database.now()
     local existing = PlayerState:where('player_type', b.type)
         :where('player_id', b.id)
-        :firstSync()
+        :first()
     local oldState = existing and existing.state or 'healthy'
     if oldState == newState then return end
     if existing then
@@ -69,7 +69,7 @@ function InjuryService.addInjury(playerId, zone, woundType)
         :where('player_id', b.id)
         :where('zone', zone)
         :whereNull('treated_at')
-        :firstSync()
+        :first()
     local id
     if existing then
         -- original wound_type persists; subsequent hits increment hit_count only
@@ -107,7 +107,7 @@ function InjuryService.getInjuries(playerId)
     return PlayerInjury:where('player_type', b.type)
         :where('player_id', b.id)
         :whereNull('treated_at')
-        :getSync()
+        :get()
 end
 
 --- @param playerId number
@@ -133,7 +133,7 @@ end
 --- @param stage string 'incubating'|'active'|'severe'|'lethal'
 function InjuryService.progressIllness(playerId, illnessId, stage)
     PlayerIllness:where('id', illnessId):update({ stage = stage })
-    local illness = PlayerIllness:where('id', illnessId):firstSync()
+    local illness = PlayerIllness:where('id', illnessId):first()
     Obelisk.emit('oblsk:injury:illness_progressed', playerId, illness)
 end
 
@@ -152,7 +152,7 @@ function InjuryService.getIllnesses(playerId)
     return PlayerIllness:where('player_type', b.type)
         :where('player_id', b.id)
         :whereNull('treated_at')
-        :getSync()
+        :get()
 end
 
 local _bleedTimers = {}
