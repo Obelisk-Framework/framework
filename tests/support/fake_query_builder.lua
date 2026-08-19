@@ -83,6 +83,14 @@ function FakeQueryBuilder:limit(n)
     return self
 end
 
+function FakeQueryBuilder:firstSync()
+    return self:first()
+end
+
+function FakeQueryBuilder:getSync()
+    return self:get()
+end
+
 function FakeQueryBuilder:first()
     local match
     for _, row in ipairs(self.rows) do

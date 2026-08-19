@@ -1134,7 +1134,7 @@ end
 function BaseModel:copyTable(t)
     local copy = {}
     for k, v in pairs(t) do
-        if type(v) == 'table' then
+        if type(v) == 'table' and v ~= Database.NULL then
             copy[k] = self:copyTable(v)
         else
             copy[k] = v
