@@ -783,7 +783,7 @@ Obelisk.on('playerDropped', EntityStreamerService.handlePlayerDropped)
 --- an entity is destroyed without relying on playerDropped alone.
 local networkedBagEntities = {}
 
-AddStateBagChangeHandler('streamerId', 'entity:', function(bagName, _, value)
+Obelisk.onStateBag('streamerId', 'entity:', function(bagName, _, value)
     if value then
         networkedBagEntities[bagName] = value
     else
