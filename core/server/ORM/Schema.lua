@@ -11,6 +11,7 @@ function Blueprint.new(tableName)
     self.columns = {}
     self.indexes = {}
     self.foreignKeys = {}
+    self.dropForeignIds = {}
     return self
 end
 
@@ -368,6 +369,12 @@ function Blueprint:onUpdate(action)
     return self
 end
 
+--- Queue a drop of the unique index, foreign key constraint, and column for a foreignId column.
+function Blueprint:dropForeignId(name)
+    table.insert(self.dropForeignIds, name)
+    return self
+end
+
 --- Build the CREATE TABLE statement(s). Returns a list because Postgres
 --- can't express non-unique indexes inline (see Dialects/Postgres.lua) — the
 --- first element is always the CREATE TABLE itself; any further elements are
@@ -478,6 +485,10 @@ function Schema.table(tableName, callback)
     local blueprint = Blueprint.new(tableName)
     blueprint.isAltering = true
     callback(blueprint)
+
+    for _, col in ipairs(blueprint.dropForeignIds) do
+        Schema.dropForeignId(tableName, col)
+    end
 
     local statements = {}
 
