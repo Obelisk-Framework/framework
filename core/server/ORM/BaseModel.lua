@@ -561,14 +561,16 @@ end
 --- @param pivotTable string
 --- @param foreignPivotKey string
 --- @param relatedPivotKey string
+--- @param pivotColumns table|nil extra columns to pluck from the pivot row and expose as instance.pivot
 --- @return table
-function BaseModel:belongsToMany(relatedModel, pivotTable, foreignPivotKey, relatedPivotKey)
+function BaseModel:belongsToMany(relatedModel, pivotTable, foreignPivotKey, relatedPivotKey, pivotColumns)
     return {
         type = 'belongsToMany',
         relatedModel = relatedModel,
         pivotTable = pivotTable,
         foreignPivotKey = foreignPivotKey,
-        relatedPivotKey = relatedPivotKey
+        relatedPivotKey = relatedPivotKey,
+        pivotColumns = pivotColumns,
     }
 end
 
@@ -632,15 +634,32 @@ local LOAD_STRATEGIES = {
     end,
     belongsToMany = function(self, relationName, relation)
         local localId = self.attributes[self.primaryKey]
-        local query = relation.relatedModel:newQuery()
-            :join(relation.pivotTable,
-                  relation.relatedModel.table .. '.' .. relation.relatedModel.primaryKey,
-                  '=',
-                  relation.pivotTable .. '.' .. relation.relatedPivotKey)
-            :where(relation.pivotTable .. '.' .. relation.foreignPivotKey, localId)
-
-        -- `get()` is model-aware and already returns wrapped model instances.
-        self.relations[relationName] = query:get()
+        local related = relation.relatedModel
+        -- Step 1: fetch pivot rows for this owner
+        local pivotRows = QueryBuilder.new(relation.pivotTable)
+            :where(relation.foreignPivotKey, localId)
+            :get()
+        -- Step 2: collect related ids + build pivot map keyed by related id
+        local relatedIds = {}
+        local pivotByRelatedId = {}
+        for _, row in ipairs(pivotRows) do
+            local relatedId = row[relation.relatedPivotKey]
+            table.insert(relatedIds, relatedId)
+            local pivot = { [relation.foreignPivotKey] = localId, [relation.relatedPivotKey] = relatedId }
+            if relation.pivotColumns then
+                for _, col in ipairs(relation.pivotColumns) do pivot[col] = row[col] end
+            end
+            pivotByRelatedId[relatedId] = pivot
+        end
+        -- Step 3: fetch related models and attach pivot
+        local results = {}
+        if #relatedIds > 0 then
+            results = related:whereIn(related.primaryKey, relatedIds):get()
+            for _, inst in ipairs(results) do
+                inst.pivot = pivotByRelatedId[inst.attributes[inst.primaryKey]]
+            end
+        end
+        self.relations[relationName] = results
     end,
     morphOne = function(self, relationName, relation)
         local localValue = self.attributes[relation.localKey]
@@ -910,46 +929,67 @@ local EAGER_LOAD_STRATEGIES = {
         isList = true,
         run = function(segment, relation, related, instances)
             local localIds = {}
-            for _, inst in ipairs(instances) do
-                table.insert(localIds, inst.attributes[inst.primaryKey])
-            end
-            -- Grouping by owning instance requires the pivot's foreign key in the
-            -- selected columns; select it explicitly alongside the related row so
-            -- each returned row can be attributed back to the right instance(s)
-            -- instead of being handed to every instance indiscriminately.
-            local pivotFkColumn = relation.pivotTable .. '.' .. relation.foreignPivotKey
-            local rows = related:newQuery()
-                :select({related.table .. '.*', pivotFkColumn})
-                :join(relation.pivotTable,
-                      related.table .. '.' .. related.primaryKey,
-                      '=',
-                      relation.pivotTable .. '.' .. relation.relatedPivotKey)
-                :whereIn(pivotFkColumn, localIds)
-                :get()
             local byOwner = {}
             for _, inst in ipairs(instances) do
+                local id = inst.attributes[inst.primaryKey]
+                table.insert(localIds, id)
                 inst.relations[segment] = {}
                 inst.__loaded[segment] = true
-                byOwner[inst.attributes[inst.primaryKey]] = inst
+                byOwner[id] = inst
             end
-            -- Intern one shared model instance per unique related primary key.
-            -- Each joined pivot row otherwise produces its OWN distinct instance
-            -- even when it's the same related row shared by multiple owners
-            -- (e.g. one tag on two posts), which breaks the seenIds dedup in
-            -- eagerLoad's dot-path recursion below since it keys on primary
-            -- key expecting one shared object per row, like hasOne/hasMany/
-            -- belongsTo already provide via their byForeign/byOwner tables.
+            -- Step 1: fetch all pivot rows for all owner ids in one query
+            local pivotRows = QueryBuilder.new(relation.pivotTable)
+                :whereIn(relation.foreignPivotKey, localIds)
+                :get()
+            -- Step 2: collect unique related ids and build per-owner pivot maps
+            local relatedIds = {}
+            local seenRelated = {}
+            -- pivotsByOwner[ownerId] = list of { relatedId, pivot }
+            local pivotsByOwner = {}
+            for _, row in ipairs(pivotRows) do
+                local ownerId = row[relation.foreignPivotKey]
+                local relatedId = row[relation.relatedPivotKey]
+                if not seenRelated[relatedId] then
+                    table.insert(relatedIds, relatedId)
+                    seenRelated[relatedId] = true
+                end
+                if not pivotsByOwner[ownerId] then pivotsByOwner[ownerId] = {} end
+                local pivot = { [relation.foreignPivotKey] = ownerId, [relation.relatedPivotKey] = relatedId }
+                if relation.pivotColumns then
+                    for _, col in ipairs(relation.pivotColumns) do pivot[col] = row[col] end
+                end
+                table.insert(pivotsByOwner[ownerId], { relatedId = relatedId, pivot = pivot })
+            end
+            if #relatedIds == 0 then return end
+            -- Step 3: fetch related models keyed by their primary key
+            local relatedInstances = related:whereIn(related.primaryKey, relatedIds):get()
             local byRelatedId = {}
-            for _, row in ipairs(rows) do
-                local owner = byOwner[row.attributes[relation.foreignPivotKey]]
+            for _, inst in ipairs(relatedInstances) do
+                byRelatedId[inst.attributes[inst.primaryKey]] = inst
+            end
+            -- Step 4: assign to owners.
+            -- Without pivot columns: share one interned instance per related id so
+            -- nested dot-path eagerLoad can deduplicate by object identity and fire
+            -- only one downstream batch query for shared related rows (e.g. two posts
+            -- sharing tag 100 yield exactly one creator query).
+            -- With pivot columns: each owner gets a fresh clone so pivot fields
+            -- (e.g. price_per_liter per station) don't clobber each other.
+            for ownerId, entries in pairs(pivotsByOwner) do
+                local owner = byOwner[ownerId]
                 if owner then
-                    local relatedId = row.attributes[row.primaryKey]
-                    local shared = byRelatedId[relatedId]
-                    if not shared then
-                        shared = row
-                        byRelatedId[relatedId] = shared
+                    for _, entry in ipairs(entries) do
+                        local src = byRelatedId[entry.relatedId]
+                        if src then
+                            local inst
+                            if relation.pivotColumns then
+                                inst = related:newFromQuery(src.attributes)
+                            else
+                                inst = src
+                            end
+                            inst.pivot = entry.pivot
+                            table.insert(owner.relations[segment], inst)
+                        end
                     end
-                    table.insert(owner.relations[segment], shared)
                 end
             end
         end,

@@ -1353,11 +1353,16 @@ test('BaseModel.with: belongsToMany assigns each instance only its own related r
     Database.query = function(sql, params)
         if sql:find('FROM `posts`') then
             return {{id = 1, title = 'First'}, {id = 2, title = 'Second'}, {id = 3, title = 'Third'}}
-        elseif sql:find('FROM `tags`') then
+        elseif sql:find('FROM `post_tags`') then
             -- Post 1 -> tag A only, Post 2 -> tag B only, Post 3 -> no tags.
             return {
-                {id = 100, name = 'A', post_id = 1},
-                {id = 200, name = 'B', post_id = 2},
+                {post_id = 1, tag_id = 100},
+                {post_id = 2, tag_id = 200},
+            }
+        elseif sql:find('FROM `tags`') then
+            return {
+                {id = 100, name = 'A'},
+                {id = 200, name = 'B'},
             }
         end
         return {}
@@ -1387,13 +1392,14 @@ test('BaseModel.with: belongsToMany interns one shared instance per related row 
     Database.query = function(sql, params)
         if sql:find('FROM `posts`') then
             return {{id = 1, title = 'First'}, {id = 2, title = 'Second'}}
-        elseif sql:find('FROM `tags`') then
-            -- Both posts share the SAME tag (id = 100) via two distinct
-            -- pivot rows.
+        elseif sql:find('FROM `post_tags`') then
+            -- Both posts share the SAME tag (id = 100) via two distinct pivot rows.
             return {
-                {id = 100, name = 'A', post_id = 1},
-                {id = 100, name = 'A', post_id = 2},
+                {post_id = 1, tag_id = 100},
+                {post_id = 2, tag_id = 100},
             }
+        elseif sql:find('FROM `tags`') then
+            return {{id = 100, name = 'A'}}
         elseif sql:find('FROM `creators`') then
             creatorQueryCount = creatorQueryCount + 1
             creatorWhereInParams = params
@@ -2385,6 +2391,165 @@ test('BaseModel.with: morphTo eagerLoad batches by owner_type and groups correct
     truthy(int2.relations['owner'], 'morphTo eagerLoad: int2 has owner loaded')
     eq(int1.relations['owner'].name, 'Test ATM', 'morphTo eagerLoad: int1 owner is ATM')
     eq(int2.relations['owner'].name, 'Test Garage', 'morphTo eagerLoad: int2 owner is Garage')
+end)
+
+--------------------------------------------------------------------------------
+-- whereHas / has / whereRelation / orWhereHas
+--------------------------------------------------------------------------------
+
+test('whereHas: hasMany emits a correlated EXISTS with the callback conditions applied', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local capturedSql, capturedParams
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql, capturedParams = sql, params
+        return {}
+    end
+
+    Customer:whereHas('orders', function(query)
+        query:where('total', '>', 100)
+    end):get()
+    Database.query = original
+
+    truthy(capturedSql:find('EXISTS %('), 'whereHas: wraps subquery in EXISTS')
+    truthy(capturedSql:find('FROM `orders`'), 'whereHas: subquery selects from related table')
+    truthy(capturedSql:find('`orders`%.`customer_id` = `customers`%.`id`'), 'whereHas: correlates on foreignKey = localKey')
+    truthy(capturedSql:find('`total` > %?'), 'whereHas: callback condition present')
+    eqList(capturedParams, {100}, 'whereHas: callback param bound')
+end)
+
+test('has: no callback still constrains to rows with at least one related row', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {}
+    end
+
+    Customer:has('orders'):get()
+    Database.query = original
+
+    truthy(capturedSql:find('EXISTS %('), 'has: wraps subquery in EXISTS')
+    truthy(capturedSql:find('WHERE `orders`%.`customer_id` = `customers`%.`id`%)$'),
+        'has: only the correlation condition, no extra callback conditions')
+end)
+
+test('whereRelation: shorthand for whereHas + single where', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local capturedSql, capturedParams
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql, capturedParams = sql, params
+        return {}
+    end
+
+    Customer:whereRelation('orders', 'status', 'paid'):get()
+    Database.query = original
+
+    truthy(capturedSql:find('`status` = %?'), 'whereRelation: equality condition on related column')
+    eqList(capturedParams, {'paid'}, 'whereRelation: value bound as param')
+end)
+
+test('orWhereHas: joins the EXISTS clause with OR', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    local Invoice = BaseModel:extend('invoices')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+    function Customer.relations:invoices() return self:hasMany(Invoice, 'customer_id') end
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {}
+    end
+
+    Customer:has('orders'):orWhereHas('invoices'):get()
+    Database.query = original
+
+    truthy(capturedSql:find('EXISTS %(.-%) OR EXISTS %('), 'orWhereHas: two EXISTS clauses joined by OR')
+end)
+
+test('whereHas chained multiple times ANDs together', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    local Invoice = BaseModel:extend('invoices')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+    function Customer.relations:invoices() return self:hasMany(Invoice, 'customer_id') end
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {}
+    end
+
+    Customer:has('orders'):has('invoices'):get()
+    Database.query = original
+
+    truthy(capturedSql:find('EXISTS %(.-%) AND EXISTS %('), 'whereHas chaining: two EXISTS clauses joined by AND')
+end)
+
+test('whereHas: belongsToMany correlates through the pivot table', function()
+    local Tag = BaseModel:extend('tags')
+    local Post = BaseModel:extend('posts')
+    function Post.relations:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {}
+    end
+
+    Post:whereHas('tags', function(query)
+        query:where('name', 'featured')
+    end):get()
+    Database.query = original
+
+    truthy(capturedSql:find('FROM `tags`'), 'belongsToMany whereHas: subquery selects from related table')
+    truthy(capturedSql:find('JOIN `post_tags`'), 'belongsToMany whereHas: subquery joins the pivot table')
+    truthy(capturedSql:find('`post_tags`%.`post_id` = `posts`%.`id`'), 'belongsToMany whereHas: correlates pivot FK to outer PK')
+end)
+
+test('whereHas: morphMany correlates on owner_type literal + owner_id', function()
+    local Post = BaseModel:extend('posts')
+    local Comment = BaseModel:extend('comments')
+    function Post.relations:comments()
+        return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
+    end
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {}
+    end
+
+    Post:has('comments'):get()
+    Database.query = original
+
+    truthy(capturedSql:find("`comments`%.`owner_type` = 'Post'"), 'morphMany whereHas: owner_type literal embedded')
+    truthy(capturedSql:find('`comments`%.`owner_id` = `posts`%.`id`'), 'morphMany whereHas: owner_id correlates to outer PK')
+end)
+
+test('whereHas: unsupported relation type (morphTo) raises', function()
+    local Interaction = BaseModel:extend('interactions')
+    function Interaction.relations:owner() return self:morphTo('owner_type', 'owner_id') end
+
+    throws(function()
+        Interaction:has('owner')
+    end, 'whereHas: morphTo should raise since its target model is dynamic')
 end)
 
 --------------------------------------------------------------------------------
