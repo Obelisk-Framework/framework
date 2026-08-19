@@ -557,6 +557,13 @@ function Schema.dropUnique(tableName, columnName)
     return Database.query(sql, {})
 end
 
+--- Drop foreign key constraint, unique index, and column for a foreignId column
+function Schema.dropForeignId(tableName, columnName)
+    Schema.dropUnique(tableName, columnName)
+    Schema.dropForeign(tableName, columnName)
+    Schema.dropColumn(tableName, columnName)
+end
+
 --- Rename a column
 function Schema.renameColumn(tableName, from, to)
     local sql = Database.dialect.renameColumnSQL(tableName, from, to)
