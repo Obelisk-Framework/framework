@@ -40,6 +40,7 @@ _G.AddEventHandler = _G.AddEventHandler or function() end
 _G.TriggerEvent = _G.TriggerEvent or function() end
 _G.TriggerServerEvent = _G.TriggerServerEvent or function() end
 _G.TriggerClientEvent = _G.TriggerClientEvent or function() end
+_G.AddStateBagChangeHandler = _G.AddStateBagChangeHandler or function() end
 
 --- Minimal but real JSON encode/decode. Good enough for flat/simple-nested
 --- fixtures in the test suite; not a general-purpose JSON library (no

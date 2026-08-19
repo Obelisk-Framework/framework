@@ -39,6 +39,16 @@ function FakeQueryBuilder:whereIn(column, values)
     return self
 end
 
+function FakeQueryBuilder:whereRaw(sql)
+    -- Parse simple backtick-quoted `column` = 'value' expressions for morphOne support.
+    -- Handles the shape eagerLoadMorphOneOrMany emits: "`owner_type` = 'ATMMachine'"
+    local col, val = sql:match('^`([^`]+)`%s*=%s*\'(.-)\'$')
+    if col and val then
+        table.insert(self.wheres, { column = col, operator = '=', value = val })
+    end
+    return self
+end
+
 function FakeQueryBuilder:with(path)
     table.insert(self.withPaths, path)
     return self
@@ -207,6 +217,9 @@ local function makeFakeQueryBuilderModule(tables)
     end
     function Module.tables()
         return tables
+    end
+    function Module.quoteIdentifier(identifier)
+        return '`' .. identifier .. '`'
     end
     return Module
 end

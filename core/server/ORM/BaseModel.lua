@@ -191,7 +191,8 @@ end
 --- Each just opens a new query and forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
-    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get', 'firstOr'
+    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get', 'firstOr',
+    'whereHas', 'orWhereHas', 'has', 'whereRelation'
 }
 
 for _, methodName in ipairs(QUERY_PROXY_METHODS) do
@@ -200,6 +201,9 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
         return query[methodName](query, ...)
     end
 end
+
+--- Fetch all rows (alias for :get() with no where clause)
+BaseModel.all = BaseModel.get
 
 --- Record a relation path (single-level or dot-separated) to eager-load
 --- after the terminal fetch resolves. Returns a QueryBuilder so further
@@ -431,6 +435,16 @@ function BaseModel:saveAsync(callback)
             if callback then callback(self) end
         end)
     end
+end
+
+--- Update specific attributes and persist the instance
+--- @param attributes table
+--- @return BaseModel self
+function BaseModel:update(attributes)
+    for k, v in pairs(attributes) do
+        self.attributes[k] = v
+    end
+    return self:save()
 end
 
 --- Delete synchronously
