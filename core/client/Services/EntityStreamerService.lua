@@ -39,7 +39,15 @@ function EntityStreamerService.spawnEntity(entityId, entityType, entityData)
             handle = handle,
             data = entityData
         }
-        
+
+        -- Networked entities: publish entityId into the entity's state bag so
+        -- the server can detect deletion and auto-release ownership without
+        -- relying solely on the playerDropped path (which misses cases where
+        -- the entity outlives the owning player, e.g. vehicle handoffs).
+        if entityData.networked then
+            Entity(handle).state:set('streamerId', entityId, true)
+        end
+
         print('[EntityStreamerService] Spawned ' .. entityType .. ' #' .. entityId)
     end
 end
