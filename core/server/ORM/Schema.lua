@@ -557,24 +557,6 @@ function Schema.dropUnique(tableName, columnName)
     return Database.query(sql, {})
 end
 
---- Backfill polymorphic owner_type/owner_id on the interactions table from a
---- ownerTable.interactionIdColumn FK, then row count is printed. Used by
---- drop_interaction_id migrations when pivoting from a direct FK to morphOne.
---- @param ownerTable string  e.g. 'bank_branches'
---- @param interactionIdColumn string  e.g. 'interaction_id'
---- @param ownerType string  e.g. 'BankBranch'
-function Schema.backfillMorphType(ownerTable, interactionIdColumn, ownerType)
-    local q = Database.dialect.quoteIdentifier
-    local sql = 'UPDATE ' .. q('interactions') ..
-        ' INNER JOIN ' .. q(ownerTable) ..
-        ' ON ' .. q('interactions') .. '.' .. q('id') ..
-        ' = ' .. q(ownerTable) .. '.' .. q(interactionIdColumn) ..
-        ' SET ' .. q('interactions') .. '.' .. q('owner_type') .. ' = ?' ..
-        ', ' .. q('interactions') .. '.' .. q('owner_id') .. ' = ' .. q(ownerTable) .. '.' .. q('id')
-    Database.query(sql, { ownerType })
-    print('[Migration] Backfilled owner_type=' .. ownerType .. ' on interactions from ' .. ownerTable .. '.' .. interactionIdColumn)
-end
-
 --- Rename a column
 function Schema.renameColumn(tableName, from, to)
     local sql = Database.dialect.renameColumnSQL(tableName, from, to)
