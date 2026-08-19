@@ -369,6 +369,13 @@ function Blueprint:onUpdate(action)
     return self
 end
 
+function Blueprint:cascadeOnDelete() return self:onDelete('CASCADE') end
+function Blueprint:nullOnDelete()    return self:onDelete('SET NULL') end
+function Blueprint:restrictOnDelete() return self:onDelete('RESTRICT') end
+function Blueprint:cascadeOnUpdate() return self:onUpdate('CASCADE') end
+function Blueprint:nullOnUpdate()    return self:onUpdate('SET NULL') end
+function Blueprint:restrictOnUpdate() return self:onUpdate('RESTRICT') end
+
 --- Queue a drop of the unique index, foreign key constraint, and column for a foreignId column.
 function Blueprint:dropForeignId(name)
     table.insert(self.dropForeignIds, name)
