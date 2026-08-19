@@ -190,6 +190,89 @@ function QueryBuilder:whereNotNull(column)
     return self
 end
 
+--- Build a correlated `EXISTS` subquery for `relationName` and add it as a
+--- WHERE condition. The subquery selects `1` from the related table, filtered
+--- to rows belonging to this query's current row (via the relation's own
+--- foreign/local keys, same as BaseModel's eager-load strategies), plus
+--- whatever extra conditions `callback` adds via the sub-QueryBuilder it
+--- receives. Requires a model-backed query (`self.model` set by
+--- `BaseModel:newQuery()`), since only the model knows its relation defs.
+--- @param relationName string
+--- @param callback function|nil receives the related QueryBuilder to add extra conditions
+--- @param booleanOp string 'AND'|'OR'
+--- @return QueryBuilder
+function QueryBuilder:whereHas(relationName, callback, booleanOp)
+    assert(self.model, 'whereHas(): requires a model-backed query, e.g. Model:whereHas(...) or Model:newQuery():whereHas(...)')
+    booleanOp = booleanOp or 'AND'
+
+    local relation = self.model:relation(relationName)
+    local related = relation.relatedModel
+    local sub = related:newQuery()
+    sub:selectRaw('1')
+
+    if relation.type == 'hasOne' or relation.type == 'hasMany' then
+        sub:whereRaw(QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.foreignKey) ..
+            ' = ' .. QueryBuilder.quoteIdentifier(self.tableName .. '.' .. relation.localKey))
+    elseif relation.type == 'belongsTo' then
+        sub:whereRaw(QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerKey) ..
+            ' = ' .. QueryBuilder.quoteIdentifier(self.tableName .. '.' .. relation.foreignKey))
+    elseif relation.type == 'belongsToMany' then
+        sub:join(relation.pivotTable, related.table .. '.' .. related.primaryKey, '=',
+            relation.pivotTable .. '.' .. relation.relatedPivotKey)
+        sub:whereRaw(QueryBuilder.quoteIdentifier(relation.pivotTable .. '.' .. relation.foreignPivotKey) ..
+            ' = ' .. QueryBuilder.quoteIdentifier(self.tableName .. '.' .. self.primaryKey))
+    elseif relation.type == 'morphOne' or relation.type == 'morphMany' then
+        -- Embed owner_type as a SQL literal, same trick as BaseModel's morph eager-load.
+        sub:whereRaw(QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerTypeKey) ..
+            " = '" .. relation.ownerTypeValue:gsub("'", "''") .. "'")
+        sub:whereRaw(QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerIdKey) ..
+            ' = ' .. QueryBuilder.quoteIdentifier(self.tableName .. '.' .. relation.localKey))
+    else
+        error(('whereHas(): unsupported relation type %q'):format(relation.type), 2)
+    end
+
+    if callback then
+        callback(sub)
+    end
+
+    local sql, params = sub:toSql()
+    table.insert(self.whereConditions, {
+        type = 'exists',
+        sql = sql,
+        params = params,
+        boolean = booleanOp,
+    })
+    return self
+end
+
+--- `OR`-boolean form of `whereHas`.
+--- @param relationName string
+--- @param callback function|nil
+--- @return QueryBuilder
+function QueryBuilder:orWhereHas(relationName, callback)
+    return self:whereHas(relationName, callback, 'OR')
+end
+
+--- Filter to rows that have at least one related row for `relationName`,
+--- with no extra conditions on the related rows.
+--- @param relationName string
+--- @return QueryBuilder
+function QueryBuilder:has(relationName)
+    return self:whereHas(relationName, nil)
+end
+
+--- Shorthand for `whereHas(relationName, function(q) q:where(column, operator, value) end)`.
+--- @param relationName string
+--- @param column string
+--- @param operator string|any If only 3 args given, this is the value
+--- @param value any
+--- @return QueryBuilder
+function QueryBuilder:whereRelation(relationName, column, operator, value)
+    return self:whereHas(relationName, function(query)
+        query:where(column, operator, value)
+    end)
+end
+
 --- Add ORDER BY clause
 --- @param column string
 --- @param direction string 'ASC' or 'DESC'
@@ -298,6 +381,11 @@ function QueryBuilder:buildWhereClause()
             clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NOT NULL'
         elseif condition.type == 'raw' then
             clause = clause .. condition.sql
+        elseif condition.type == 'exists' then
+            clause = clause .. 'EXISTS (' .. condition.sql .. ')'
+            for _, param in ipairs(condition.params) do
+                table.insert(self.params, param)
+            end
         end
         
         table.insert(clauses, clause)
@@ -470,6 +558,13 @@ function QueryBuilder:first()
     self:limit(1)
     local results = self:get()
     return results[1]
+end
+
+--- Find by primary key within the current query scope
+--- @param id any
+--- @return table|nil
+function QueryBuilder:find(id)
+    return self:where(self.primaryKey, id):first()
 end
 
 --- Get first result (async)

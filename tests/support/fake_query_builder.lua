@@ -83,6 +83,10 @@ function FakeQueryBuilder:limit(n)
     return self
 end
 
+function FakeQueryBuilder:find(id)
+    return self:where(self.primaryKey or 'id', id):first()
+end
+
 function FakeQueryBuilder:firstSync()
     return self:first()
 end
@@ -212,10 +216,11 @@ end
 local function makeFakeQueryBuilderModule(tables)
     local nextIds = {}
     local Module = {}
-    function Module.new(tableName)
+    function Module.new(tableName, primaryKey)
         tables[tableName] = tables[tableName] or {}
         return setmetatable({
             tableName = tableName,
+            primaryKey = primaryKey or 'id',
             rows = tables[tableName],
             nextIds = nextIds,
             wheres = {},
