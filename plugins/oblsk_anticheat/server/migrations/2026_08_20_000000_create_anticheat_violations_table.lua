@@ -7,6 +7,8 @@ return {
             table:string('detail', 255)
             table:string('severity', 10)
             table:timestamps()
+
+            table:index({'player_id', 'created_at'})
         end)
 
         print('[Migration] Created anticheat_violations table')
