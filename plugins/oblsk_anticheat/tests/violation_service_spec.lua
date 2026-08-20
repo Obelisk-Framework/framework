@@ -102,6 +102,22 @@ test('record() bans once violationsBeforeBan is reached in-window', function()
     eq(#bans, 1)
 end)
 
+test('record() drops the violation silently when accountId is nil (not authenticated yet)', function()
+    inserted, notifications, kicks, bans = {}, {}, {}, {}
+    local player = fakePlayer(1)
+    local originalGetAccountId = AccountService.getAccountId
+    AccountService.getAccountId = function(source) return nil end
+
+    ViolationService.record(player, 'movement', 'speed 3x max', 'soft')
+
+    AccountService.getAccountId = originalGetAccountId
+
+    eq(#inserted, 0)
+    eq(#notifications, 0)
+    eq(#kicks, 0)
+    eq(#bans, 0)
+end)
+
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
     if ok then passed = passed + 1 else failures[#failures + 1] = {name = t.name, err = err} end

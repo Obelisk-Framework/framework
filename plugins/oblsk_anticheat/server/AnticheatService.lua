@@ -35,7 +35,19 @@ CreateThread(function()
         for _, playerIdStr in ipairs(GetPlayers()) do
             local playerId = tonumber(playerIdStr)
             local player = PlayerService.get(playerId)
-            if player then
+            local isSpawned = player and SpawnManagerService.getStage(player) == 'spawned'
+            if player and not isSpawned then
+                -- Player is still in the join -> character-select flow (or
+                -- otherwise not fully spawned yet): ped is 0, so
+                -- GetEntityCoords/GetEntityHealth would read (0,0,0)/0 and
+                -- falsely register as a teleport/heal the instant they
+                -- actually spawn. Skip entirely, and drop any stale sample
+                -- so the first poll after they become 'spawned' is recorded
+                -- as a fresh baseline rather than compared against it.
+                lastPosition[playerId] = nil
+                lastHealth[playerId] = nil
+            end
+            if player and isSpawned then
                 local ped = GetPlayerPed(playerId)
                 local coords = GetEntityCoords(ped)
                 local now = GetGameTimer() / 1000 -- monotonic wall-clock seconds; os.clock() is CPU time and wrong here

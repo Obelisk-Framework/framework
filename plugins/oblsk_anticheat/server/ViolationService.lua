@@ -56,6 +56,10 @@ function ViolationService.record(player, category, detail, severity)
     -- the escalation count) and a recycled source id can otherwise inherit
     -- a different player's violation history within the window.
     local accountId = AccountService.getAccountId(source)
+    if not accountId then
+        print('[ViolationService] dropped violation for source ' .. tostring(source) .. ': no accountId (not authenticated yet)')
+        return
+    end
 
     insertViolation(accountId, category, detail, severity)
     notifyOnlineAdmins('Anticheat', category .. ': ' .. detail .. ' (player ' .. tostring(source) .. ')')
