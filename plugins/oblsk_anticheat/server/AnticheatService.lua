@@ -15,12 +15,12 @@ local MAX_SPEED_ON_FOOT = 8.0   -- game units/sec, sprinting
 local MAX_SPEED_VEHICLE = 90.0  -- game units/sec, generous upper bound across vehicle classes
 
 local function maxSpeedForState(player)
-    -- Wiring detail: read the player's current vehicle state (however
-    -- PedService/VehicleService already exposes it) to pick between
-    -- MAX_SPEED_ON_FOOT and MAX_SPEED_VEHICLE. Verify against
-    -- PedService's actual API on a live server before shipping — this
-    -- function is the one piece of this task worth hand-testing first.
-    return player:isInVehicle() and MAX_SPEED_VEHICLE or MAX_SPEED_ON_FOOT
+    -- `Player` has no isInVehicle() method (core/server/Services/PlayerService.lua
+    -- exposes getSource/getIdentifier/getName/notify/emit only) — use the bare
+    -- FiveM native directly instead of inventing a new Player method, keeping
+    -- this task's blast radius limited to AnticheatService.lua.
+    local ped = GetPlayerPed(player:getSource())
+    return IsPedInAnyVehicle(ped, false) and MAX_SPEED_VEHICLE or MAX_SPEED_ON_FOOT
 end
 
 Obelisk.onStateBag('pos', 'player:', function(bagName, key, value, bagId, replicated)
