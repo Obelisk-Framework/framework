@@ -71,8 +71,14 @@ test('firing the current name advances to the next one-time name and removes the
     end)
 
     local name0 = EventNaming.deriveName('player-1-secret', 'garage:server:open', 'client_to_server', 0)
-    -- Simulate the client triggering the current one-time name.
-    registered[name0](1, 'payload-1')
+    -- Simulate the client triggering the current one-time name. Real
+    -- FXServer exposes the triggering client's source as the implicit
+    -- global `source`, NOT as a leading function argument — set it the
+    -- same way the real runtime would before the handler fires, exactly
+    -- like Obelisk.onClient's existing handler already relies on.
+    _G.source = 1
+    registered[name0]('payload-1')
+    _G.source = nil
 
     eq(#received, 1)
     eq(received[1], 'payload-1')

@@ -60,9 +60,11 @@ function SecureEventService._armNext(playerId, logicalEvent, callback)
     local handlerRef
     -- Each one-time name is registered for exactly one (playerId,
     -- logicalEvent) pair, so the sender's identity is already known from
-    -- the closure — no need to trust a client-supplied source. `src` here
-    -- is the FiveM-native source of whoever actually fired the event.
-    handlerRef = AddEventHandler(name, function(src, ...)
+    -- the closure — no need to trust a client-supplied source, and no need
+    -- to read the FXServer-native global `source` either. `...` here is
+    -- purely the payload the client sent, matching Obelisk.onClient's
+    -- calling convention (TriggerServerEvent never prepends source).
+    handlerRef = AddEventHandler(name, function(...)
         session.counters[key] = counter + 1
         -- Re-arm the next name before invoking the callback: if the
         -- callback yields or triggers further events, the next expected
