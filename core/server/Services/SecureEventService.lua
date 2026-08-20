@@ -58,12 +58,13 @@ function SecureEventService._armNext(playerId, logicalEvent, callback)
 
     RegisterNetEvent(name)
     local handlerRef
-    -- Each one-time name is registered for exactly one (playerId,
-    -- logicalEvent) pair, so the sender's identity is already known from
-    -- the closure — no need to trust a client-supplied source, and no need
-    -- to read the FXServer-native global `source` either. `...` here is
-    -- purely the payload the client sent, matching Obelisk.onClient's
-    -- calling convention (TriggerServerEvent never prepends source).
+    -- Net events are registered by NAME only — FXServer will invoke this
+    -- handler for whichever client actually triggers `name`, not
+    -- necessarily the `playerId` this name was armed for. Always resolve
+    -- the player from the FXServer-native global `source` (matching
+    -- Obelisk.onClient's convention exactly), never from the closure —
+    -- otherwise a client who learns/guesses another player's one-time name
+    -- would have their payload misattributed to the intended player.
     handlerRef = AddEventHandler(name, function(...)
         session.counters[key] = counter + 1
         -- Re-arm the next name before invoking the callback: if the
@@ -71,9 +72,9 @@ function SecureEventService._armNext(playerId, logicalEvent, callback)
         -- name must already be live.
         SecureEventService._armNext(playerId, logicalEvent, callback)
 
-        local player = PlayerService.get(playerId)
+        local player = PlayerService.get(source)
         if not player then
-            print('[SecureEventService] dropped ' .. logicalEvent .. ': no Player for source ' .. tostring(playerId))
+            print('[SecureEventService] dropped ' .. logicalEvent .. ': no Player for source ' .. tostring(source))
             return
         end
         callback(player, ...)
