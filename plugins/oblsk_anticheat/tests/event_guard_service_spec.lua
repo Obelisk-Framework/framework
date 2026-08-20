@@ -59,6 +59,21 @@ test('validate rate-limits: allows up to the configured burst, rejects beyond it
     truthy(reason:find('rate') ~= nil, 'expected a rate-limit reason, got: ' .. tostring(reason))
 end)
 
+test('validate accepts a table arg for type=table', function()
+    EventGuardService._rateState = {}
+    local schema = {{type = 'table'}}
+    local ok, reason = EventGuardService.validate(1, 'anticheat:server:reportWeapons', schema, {{1, 2, 3}})
+    truthy(ok, reason)
+end)
+
+test('validate rejects a non-table arg for type=table', function()
+    EventGuardService._rateState = {}
+    local schema = {{type = 'table'}}
+    local ok, reason = EventGuardService.validate(1, 'anticheat:server:reportWeapons', schema, {'not-a-table'})
+    eq(ok, false)
+    truthy(reason ~= nil)
+end)
+
 test('validate rate-limit window resets on the next second', function()
     EventGuardService._rateState = {}
     Config.Anticheat.eventRateLimitPerSecond = 1

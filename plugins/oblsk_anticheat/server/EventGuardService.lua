@@ -63,4 +63,17 @@ function EventGuardService.validate(playerId, eventName, schema, args, nowSecond
     return checkRateLimit(playerId, eventName, nowSeconds or os.time())
 end
 
+--- Clears all rate-limit state for a player (e.g. on disconnect), so a
+--- recycled source id assigned to a different player later doesn't inherit
+--- this player's rate-limit counters.
+--- @param playerId number
+function EventGuardService.clearPlayer(playerId)
+    local prefix = tostring(playerId) .. ':'
+    for key in pairs(EventGuardService._rateState) do
+        if key:sub(1, #prefix) == prefix then
+            EventGuardService._rateState[key] = nil
+        end
+    end
+end
+
 return EventGuardService
