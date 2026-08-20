@@ -7,6 +7,11 @@ print([[
   ╚═══════════════════════════════════════╝
 ]])
 
+RegisterNetEvent('obelisk:secureHandshake')
+AddEventHandler('obelisk:secureHandshake', function(sessionSecret)
+    SecureEventService.startSession(sessionSecret)
+end)
+
 -- Initialize NUI
 Citizen.CreateThread(function()
     Wait(1000)

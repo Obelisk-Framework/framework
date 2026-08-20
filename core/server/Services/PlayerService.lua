@@ -59,10 +59,18 @@ Obelisk.on('playerJoining', function()
     local source = source
     PlayerService.registry[source] = Player.new(source)
     SpawnManagerService.markConnecting(PlayerService.registry[source])
+    local secretBytes = {}
+    for i = 1, 32 do
+        secretBytes[i] = string.char(math.random(0, 255))
+    end
+    local sessionSecret = table.concat(secretBytes)
+    SecureEventService.startSession(source, sessionSecret)
+    TriggerClientEvent('obelisk:secureHandshake', source, sessionSecret)
     print('[PlayerService] Player ' .. source .. ' joined')
 end)
 
 Obelisk.on('playerDropped', function()
+    SecureEventService.endSession(source)
     print('[PlayerService] Player ' .. source .. ' left')
     PlayerService.registry[source] = nil
 end)
