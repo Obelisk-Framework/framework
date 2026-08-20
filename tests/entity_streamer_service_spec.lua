@@ -6,6 +6,9 @@ local ROOT = scriptDir .. '..'
 
 dofile(scriptDir .. 'support/fivem_stubs.lua')
 local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_builder.lua')
+dofile(ROOT .. '/core/server/ORM/Dialects/Init.lua')
+dofile(ROOT .. '/core/server/ORM/Dialects/MySQL.lua')
+dofile(ROOT .. '/core/server/ORM/Dialects/Postgres.lua')
 
 -- EntityStreamerService.lua registers net event handlers via Obelisk.onServer
 -- and broadcasts via Obelisk.emitClient at module load time (and from
@@ -19,6 +22,7 @@ local emitClientCalls = {}
 _G.Obelisk = _G.Obelisk or {
     on = function(eventName, callback) AddEventHandler(eventName, callback) end,
     onClient = function() end,
+    onStateBag = function(keyName, bagFilter, callback) end,
     emitClient = function(eventName, target, data)
         table.insert(emitClientCalls, { eventName = eventName, target = target, data = data })
     end,
@@ -61,6 +65,7 @@ end
 
 local function freshService(tables)
     _G.QueryBuilder = makeFakeQueryBuilderModule(tables or {})
+    dofile(ROOT .. '/core/server/ORM/Database.lua')
     dofile(ROOT .. '/core/server/ORM/BaseModel.lua')
     dofile(ROOT .. '/core/server/Models/Entity.lua')
     return dofile(ROOT .. '/core/server/Services/EntityStreamerService.lua')
