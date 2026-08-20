@@ -22,8 +22,18 @@ _G.AccountService = {
     ban = function(target, reason, by, expiresAt) bans[#bans + 1] = {accountId = target.accountId, reason = reason} end,
     getAccountId = function(source) return 1000 + source end,
 }
-_G.GetPlayers = function() return {} end
+-- Player 2 is the one online admin for every test; player 1 (the
+-- violating player in every test below) is never an admin.
+_G.GetPlayers = function() return {'1', '2'} end
 _G.DropPlayer = function() end
+_G.IsPlayerAceAllowed = function(source, ace) return ace == 'admin' and source == 2 end
+_G.PlayerService = {
+    get = function(source)
+        local p = {source = source}
+        function p:getSource() return self.source end
+        return p
+    end,
+}
 
 Database.executeQuery = function(query, params)
     if query:find('INSERT INTO', 1, true) then

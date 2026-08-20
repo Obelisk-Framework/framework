@@ -22,6 +22,20 @@ local function insertViolation(playerId, category, detail, severity)
     )
 end
 
+--- Notifies every currently-connected admin (ACE 'admin' allowed), not the
+--- violating player — the escalation spec is "log + notify online admins".
+local function notifyOnlineAdmins(title, description)
+    for _, playerIdStr in ipairs(GetPlayers()) do
+        local playerId = tonumber(playerIdStr)
+        if IsPlayerAceAllowed(playerId, 'admin') then
+            local admin = PlayerService.get(playerId)
+            if admin then
+                NotificationService.error(admin, title, description)
+            end
+        end
+    end
+end
+
 local function dropAllSessionsFor(accountId, reason)
     for _, playerIdStr in ipairs(GetPlayers()) do
         local playerId = tonumber(playerIdStr)
@@ -39,7 +53,7 @@ function ViolationService.record(player, category, detail, severity)
     local source = player:getSource()
 
     insertViolation(source, category, detail, severity)
-    NotificationService.error(player, 'Anticheat', category .. ': ' .. detail)
+    notifyOnlineAdmins('Anticheat', category .. ': ' .. detail .. ' (player ' .. tostring(source) .. ')')
 
     local accountId = AccountService.getAccountId(source)
     local recentCount = recentViolationCount(source)
