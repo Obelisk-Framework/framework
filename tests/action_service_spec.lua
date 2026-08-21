@@ -10,6 +10,8 @@ dofile(ROOT .. '/core/server/ORM/Dialects/MySQL.lua')
 dofile(ROOT .. '/core/server/ORM/Dialects/Postgres.lua')
 dofile(ROOT .. '/core/server/ORM/Database.lua')
 dofile(ROOT .. '/core/server/ORM/QueryBuilder.lua')
+dofile(ROOT .. '/core/server/ORM/BaseModel.lua')
+dofile(ROOT .. '/core/server/Models/Action.lua')
 
 -- ActionService.lua registers a net event handler via Obelisk.onClient at
 -- module load time. These tests only exercise register/getDbId/resolveDbId
