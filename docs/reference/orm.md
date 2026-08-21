@@ -128,6 +128,15 @@ Adds an `AND column IS NULL` condition.
 **`:whereNotNull(column)`**
 Adds an `AND column IS NOT NULL` condition.
 
+**`:whereExists(subquery)`**
+Adds an `AND EXISTS (...)` condition around another `QueryBuilder`. Calls `subquery:toSql()` immediately, embeds its SQL as one clause, and appends its params into this query's param list at that position (so param order stays left-to-right correct). What `whereHas` wraps its correlated subquery in.
+
+**`:whereHas(relationName, callback)`**
+Model-aware only (`self.model` must be set — this is the model's own relation registry it consults). Resolves `relationName` via `self.model:relation(relationName)`, builds a `QueryBuilder` over the related (or, for `belongsToMany`, pivot-joined) table already correlated back to `self.model`'s table (e.g. `related.foreignKey = outer.localKey` for `hasOne`/`hasMany`), optionally lets `callback(subquery)` add further conditions on it, then wraps it with `:whereExists(...)`. Supports `hasOne`, `hasMany`, `belongsTo`, `belongsToMany`, `morphOne`, `morphMany`. Throws for `morphTo` (no single related table to correlate against) or any relation type it doesn't recognize.
+
+**`:whereRelation(relationName, column, operator, value)`**
+Sugar for `whereHas(relationName, function(q) q:where(column, operator, value) end)`.
+
 ### Joins, ordering, grouping
 
 **`:join(tableName, first, operator, second, joinType)`**
@@ -415,7 +424,7 @@ Constructor. Returns an instance with the given `attributes` (defaults to `{}`),
 **`:newQuery()`**
 Sync. Returns a `QueryBuilder.new(self.table, self.primaryKey)`, the query object every other model method builds on.
 
-**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**, **`:get()`**, **`:firstOr(callback)`**
+**`:select(...)`**, **`:selectRaw(...)`**, **`:where(...)`**, **`:orWhere(...)`**, **`:whereIn(...)`**, **`:whereNull(...)`**, **`:whereNotNull(...)`**, **`:whereHas(...)`**, **`:whereRelation(...)`**, **`:orderBy(...)`**, **`:limit(...)`**, **`:offset(...)`**, **`:join(...)`**, **`:leftJoin(...)`**, **`:groupBy(...)`**, **`:get()`**, **`:firstOr(callback)`**
 Proxies onto the same-named `QueryBuilder` method: each opens a fresh `newQuery()` (which attaches `.model`) and forwards straight to it, letting you skip the explicit `newQuery()` call, e.g. `Inventory:where('owner', id):get()`. Same parameters and return value as documented under [QueryBuilder](#querybuilder) above — for the chainable starters that's a `QueryBuilder` (so the rest of the chain and its terminal `get`/`getAsync`/`first`/etc. behave identically); for the `get` proxy specifically, because `.model` is attached, the result is JSON-cast-decoded model instances, not raw rows. `firstOr`'s `callback` is a fallback-value function (Laravel convention), not an async completion handler — there is no `firstOrAsync`.
 
 **`:find(id)`** / **`:findAsync(id, callback)`**
@@ -431,7 +440,10 @@ Sync / async. Same lookup as `firstOrNew`. Found → returns/callbacks it as-is 
 Sync / async. Same lookup. Found → applies every key in `values` via `:set()`, then `:save()`s/`:saveAsync()`s it, returns/callbacks the updated instance. Not found → same create-with-merge as `firstOrCreate`.
 
 **`:get()`** / **`:getAsync(callback)`**
-Sync / async. Returns every row in the table as an array of model instances. (This replaces the old `all()`/`allSync()` methods.)
+Sync / async. The `QueryBuilder`-proxied terminal call — with no preceding filters, equivalent to `all()`/`allAsync()` below.
+
+**`:all()`** / **`:allAsync(callback)`**
+Sync / async. `self:newQuery():get()` / `self:newQuery():getAsync(callback)` — fetches every row in the table as an array of model instances, unconditioned. Identical query to a bare `get()`/`getAsync()`; exists as the explicit-intent spelling for "fetch everything" call sites.
 
 **`:newFromQuery(attributes)`**
 Sync. Returns a model instance built from a raw result row, marked `exists = true` with `original` set to a copy of `attributes`. Used internally by `find`/`get`/relationship loaders; rarely called directly.

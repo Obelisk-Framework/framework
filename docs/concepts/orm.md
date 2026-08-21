@@ -70,8 +70,10 @@ local item = Inventory:find(id)                    -- sync
 Inventory:findAsync(id, function(item) ... end)   -- async
 
 -- Get all rows
-local items = Inventory:get()                      -- sync (replaces old all()/allSync())
-Inventory:getAsync(function(items) ... end)       -- async
+local items = Inventory:all()                       -- sync, unconditioned
+Inventory:allAsync(function(items) ... end)        -- async
+-- get()/getAsync() are the terminal call on a built query (Inventory:where(...):get()),
+-- and also work bare/unconditioned -- all()/allAsync() just say "fetch everything" at a glance.
 
 -- Create + save
 local item = Inventory.new({ owner = charId, container = 'player', slot = 0, item = 'water', count = 1 })
@@ -147,6 +149,28 @@ Inventory:with('owner'):with('owner.faction'):get()
 
 For `belongsToMany` relations specifically, a related row shared by more than one owner (e.g. the same faction on two characters) is interned to a single shared model instance rather than one distinct instance per pivot row, so a nested path through it populates correctly for every owner that references it.
 
+#### Filtering by relation existence with `whereHas()`/`whereRelation()`
+
+`whereHas(relationName, [callback])` filters the base query to rows that have at least one matching related row, via a correlated `EXISTS(...)` subquery -- it works for `hasOne`, `hasMany`, `belongsTo`, `belongsToMany`, and `morphOne`/`morphMany` relations (not `morphTo`, which has no single related table to correlate against). The optional `callback` receives a `QueryBuilder` scoped to the related (or, for `belongsToMany`, pivot-joined) table so you can filter further:
+
+```lua
+-- Characters that have at least one order
+Character:whereHas('orders'):get()
+
+-- Characters that have at least one paid order
+Character:whereHas('orders', function(q)
+    q:where('status', 'paid')
+end):get()
+```
+
+`whereRelation(relationName, column, [operator], value)` is sugar for the common single-condition case above:
+
+```lua
+Character:whereRelation('orders', 'status', 'paid'):get()
+```
+
+Both proxy off the model the same way `where`/`orderBy`/etc. do, so they chain with the rest of the query builder API.
+
 ## Query Builder
 
 `QueryBuilder` is the fluent API underneath every model query. You can also use it directly via `QueryBuilder.new(tableName)`:
@@ -163,7 +187,7 @@ local recent = QueryBuilder.new('inventories')
 Available methods include:
 
 - **Selecting**: `select(columns)`, `selectRaw(expression)` (for aggregates like `COUNT(*)`; internal-only, never pass caller input here).
-- **Filtering**: `where(column, [operator], value)`, `orWhere(...)`, `whereIn(column, values)`, `whereNull(column)`, `whereNotNull(column)`.
+- **Filtering**: `where(column, [operator], value)`, `orWhere(...)`, `whereIn(column, values)`, `whereNull(column)`, `whereNotNull(column)`, `whereExists(subquery)`, `whereHas(relationName, [callback])`, `whereRelation(relationName, column, [operator], value)` (model-aware; see [Filtering by relation existence](#filtering-by-relation-existence-with-wherehas-whererelation) above).
 - **Ordering/paging**: `orderBy(column, direction)`, `limit(n)`, `offset(n)`.
 - **Joins**: `join(tableName, first, operator, second, [joinType])`, `leftJoin(tableName, first, operator, second)`.
 - **Grouping**: `groupBy(columns)`.
@@ -171,7 +195,7 @@ Available methods include:
 
 Every identifier (table/column name, operator, join type, sort direction) is validated against an allowlist before being interpolated into SQL, and every value is passed as a `?` parameter — this is what keeps `where`/`join`/`orderBy` safe from injection even though they build SQL by string concatenation internally.
 
-A model class proxies the same starter methods (`select`, `selectRaw`, `where`, `orWhere`, `whereIn`, `whereNull`, `whereNotNull`, `orderBy`, `limit`, `offset`, `join`, `leftJoin`, `groupBy`), so you can skip the explicit `newQuery()` call and start a query straight off the model:
+A model class proxies the same starter methods (`select`, `selectRaw`, `where`, `orWhere`, `whereIn`, `whereNull`, `whereNotNull`, `whereHas`, `whereRelation`, `orderBy`, `limit`, `offset`, `join`, `leftJoin`, `groupBy`), so you can skip the explicit `newQuery()` call and start a query straight off the model:
 
 ```lua
 Inventory:where('container', 'stash'):orderBy('created_at', 'DESC'):limit(10):get()

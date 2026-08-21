@@ -190,6 +190,104 @@ function QueryBuilder:whereNotNull(column)
     return self
 end
 
+--- Add a WHERE EXISTS clause around a correlated subquery (e.g. one built by
+--- whereHas()). The subquery's own SQL and params are embedded as one clause,
+--- so its params land in this query's param list at the right position.
+--- @param subquery QueryBuilder Must already carry its own correlation condition.
+--- @return QueryBuilder
+function QueryBuilder:whereExists(subquery)
+    local sql, params = subquery:toSql()
+    table.insert(self.whereConditions, {
+        type = 'exists',
+        sql = sql,
+        subParams = params,
+        boolean = 'AND'
+    })
+    return self
+end
+
+--- One entry per relation type: build(outerModel, relation) returns a
+--- QueryBuilder over the related (or pivot) table, already correlated back
+--- to `outerModel`'s table via a WHERE clause -- the base that whereHas()
+--- wraps in EXISTS(...) and hands to the caller's callback for extra
+--- filtering. morphTo has no fixed related table (it varies per row) so it
+--- has no entry here.
+local WHERE_HAS_BUILDERS = {
+    hasOne = function(outerModel, relation)
+        local related = relation.relatedModel
+        return related:newQuery():selectRaw('1'):whereRaw(
+            QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.foreignKey) .. ' = ' ..
+            QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. relation.localKey)
+        )
+    end,
+    belongsTo = function(outerModel, relation)
+        local related = relation.relatedModel
+        return related:newQuery():selectRaw('1'):whereRaw(
+            QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerKey) .. ' = ' ..
+            QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. relation.foreignKey)
+        )
+    end,
+    belongsToMany = function(outerModel, relation)
+        local related = relation.relatedModel
+        return QueryBuilder.new(relation.pivotTable):selectRaw('1')
+            :join(related.table, related.table .. '.' .. related.primaryKey, '=',
+                  relation.pivotTable .. '.' .. relation.relatedPivotKey)
+            :whereRaw(
+                QueryBuilder.quoteIdentifier(relation.pivotTable .. '.' .. relation.foreignPivotKey) .. ' = ' ..
+                QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. outerModel.primaryKey)
+            )
+    end,
+    morphOne = function(outerModel, relation)
+        local related = relation.relatedModel
+        return related:newQuery():selectRaw('1')
+            :whereRaw(
+                QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerTypeKey) ..
+                " = '" .. relation.ownerTypeValue:gsub("'", "''") .. "'"
+            )
+            :whereRaw(
+                QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerIdKey) .. ' = ' ..
+                QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. relation.localKey)
+            )
+    end,
+}
+WHERE_HAS_BUILDERS.hasMany = WHERE_HAS_BUILDERS.hasOne
+WHERE_HAS_BUILDERS.morphMany = WHERE_HAS_BUILDERS.morphOne
+
+--- Filter rows by the existence of a related row, e.g.
+--- `Character:whereHas('vehicles', function(q) q:where('impounded', false) end):get()`.
+--- Builds a correlated `EXISTS(...)` subquery from the named relation
+--- (declared via `hasOne`/`hasMany`/`belongsTo`/`belongsToMany`/`morphOne`/
+--- `morphMany`) and, if given, lets `callback` add further conditions on the
+--- related table before it's wrapped in EXISTS.
+--- @param relationName string
+--- @param callback function|nil Receives the related-table QueryBuilder
+--- @return QueryBuilder
+function QueryBuilder:whereHas(relationName, callback)
+    assert(self.model, "whereHas() requires a query opened off a model, e.g. Model:whereHas(...)")
+    local relation = self.model:relation(relationName)
+    local build = WHERE_HAS_BUILDERS[relation.type]
+    assert(build, ("whereHas: relation type %q not supported (morphTo has no fixed related table)"):format(relation.type))
+
+    local subquery = build(self.model, relation)
+    if callback then
+        callback(subquery)
+    end
+    return self:whereExists(subquery)
+end
+
+--- Sugar for the common `whereHas(name, function(q) q:where(...) end)` case:
+--- filter by both a relation's existence and a condition on its own column.
+--- @param relationName string
+--- @param column string
+--- @param operator string|any If only 3 args, this is the value
+--- @param value any
+--- @return QueryBuilder
+function QueryBuilder:whereRelation(relationName, column, operator, value)
+    return self:whereHas(relationName, function(q)
+        q:where(column, operator, value)
+    end)
+end
+
 --- Add ORDER BY clause
 --- @param column string
 --- @param direction string 'ASC' or 'DESC'
@@ -298,6 +396,11 @@ function QueryBuilder:buildWhereClause()
             clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NOT NULL'
         elseif condition.type == 'raw' then
             clause = clause .. condition.sql
+        elseif condition.type == 'exists' then
+            clause = clause .. 'EXISTS (' .. condition.sql .. ')'
+            for _, subParam in ipairs(condition.subParams) do
+                table.insert(self.params, subParam)
+            end
         end
         
         table.insert(clauses, clause)

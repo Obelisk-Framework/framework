@@ -185,13 +185,15 @@ end
 
 --- Proxy the chainable QueryBuilder starter methods (and the `get` terminal)
 --- onto the model itself, so `Inventory:where('owner', id):get()` works
---- without an explicit `Inventory:newQuery():where(...)` call, and so does an
---- unfiltered `Inventory:get()` (the direct replacement for the old
---- `all()`/`allSync()` — bare `get()` is sync, and there's a `getAsync()` variant).
---- Each just opens a new query and forwards to the same-named QueryBuilder method.
+--- without an explicit `Inventory:newQuery():where(...)` call -- `all()`/
+--- `allAsync()` above cover the unconditioned "fetch everything" case; a bare
+--- `Inventory:get()` is equivalent but reads as the tail of a query built by
+--- proxied `where`/`whereHas`/etc. Each proxy just opens a new query and
+--- forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
-    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get', 'firstOr'
+    'whereHas', 'whereRelation', 'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy',
+    'get', 'firstOr'
 }
 
 for _, methodName in ipairs(QUERY_PROXY_METHODS) do
@@ -209,6 +211,21 @@ end
 --- @return QueryBuilder
 function BaseModel:with(path)
     return self:newQuery():with(path)
+end
+
+--- Fetch every row, unconditioned -- the explicit-intent counterpart to a
+--- bare `Model:get()` (identical query, `Model:newQuery():get()`), for call
+--- sites that want to read "fetch everything" rather than "get() the query
+--- built above" at a glance.
+--- @return table
+function BaseModel:all()
+    return self:newQuery():get()
+end
+
+--- Fetch every row (async).
+--- @param callback function
+function BaseModel:allAsync(callback)
+    self:newQuery():getAsync(callback)
 end
 
 --- Find synchronously

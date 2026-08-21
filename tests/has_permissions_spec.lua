@@ -16,6 +16,7 @@ dofile(ROOT .. '/core/server/ORM/Database.lua')
 dofile(ROOT .. '/core/server/ORM/QueryBuilder.lua')
 dofile(ROOT .. '/core/server/ORM/Schema.lua')
 dofile(ROOT .. '/core/server/ORM/BaseModel.lua')
+dofile(ROOT .. '/core/server/Models/Permission.lua')
 dofile(ROOT .. '/core/server/Services/PermissionService.lua')
 dofile(ROOT .. '/core/server/Traits/HasPermissions.lua')
 

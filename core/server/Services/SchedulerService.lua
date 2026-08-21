@@ -11,32 +11,36 @@ SchedulerService = {}
 --- @return number id
 function SchedulerService.create(actionId, scheduleType, config)
     config = config or {}
-    return QueryBuilder.new('scheduled_jobs'):insert({
+    local job = ScheduledJob:create({
         action_id = actionId,
         schedule_type = scheduleType,
         interval_seconds = config.intervalSeconds,
         cron_expression = config.cronExpression,
         enabled = 1,
-        created_at = Database.now(),
-        updated_at = Database.now(),
     })
+    return job.id
 end
 
 --- @param id number
 --- @param attrs table fields to update (action_id, schedule_type, interval_seconds, cron_expression, enabled)
 function SchedulerService.update(id, attrs)
-    attrs.updated_at = Database.now()
-    QueryBuilder.new('scheduled_jobs'):where('id', id):update(attrs)
+    local job = ScheduledJob:find(id)
+    if not job then return end
+    for key, value in pairs(attrs) do
+        job:set(key, value)
+    end
+    job:save()
 end
 
 --- @param id number
 function SchedulerService.delete(id)
-    QueryBuilder.new('scheduled_jobs'):where('id', id):delete()
+    local job = ScheduledJob:find(id)
+    if job then job:delete() end
 end
 
 --- @return table[]
 function SchedulerService.list()
-    return QueryBuilder.new('scheduled_jobs'):get()
+    return ScheduledJob:all()
 end
 
 --- @param row table scheduled_jobs row
@@ -65,16 +69,14 @@ end
 
 --- @param now number unix epoch seconds
 function SchedulerService.tick(now)
-    local rows = QueryBuilder.new('scheduled_jobs'):where('enabled', 1):get()
+    local rows = ScheduledJob:where('enabled', 1):get()
     for _, row in ipairs(rows) do
         local ok, err = pcall(function()
             if SchedulerService.isDue(row, now) then
                 local ran = ActionService.execute(nil, row.action_id, {})
                 if ran then
-                    QueryBuilder.new('scheduled_jobs'):where('id', row.id):update({
-                        last_run_at = now,
-                        updated_at = Database.now(),
-                    })
+                    row:set('last_run_at', now)
+                    row:save()
                 end
             end
         end)

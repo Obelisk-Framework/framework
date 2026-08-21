@@ -10,6 +10,8 @@ dofile(ROOT .. '/core/server/ORM/Dialects/MySQL.lua')
 dofile(ROOT .. '/core/server/ORM/Dialects/Postgres.lua')
 dofile(ROOT .. '/core/server/ORM/Database.lua')
 dofile(ROOT .. '/core/server/ORM/QueryBuilder.lua')
+dofile(ROOT .. '/core/server/ORM/BaseModel.lua')
+dofile(ROOT .. '/core/server/Models/ScheduledJob.lua')
 dofile(ROOT .. '/core/server/Services/SchedulerService.lua')
 
 local makeFakeQueryBuilderModule = dofile(scriptDir .. 'support/fake_query_builder.lua')
