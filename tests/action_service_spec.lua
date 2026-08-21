@@ -69,7 +69,7 @@ local function withFakeActionsTable(fn)
     Database.executeQuery = function(query, params)
         if query:find('SELECT', 1, true) and query:find('FROM `actions`', 1, true) then
             for _, row in ipairs(rows) do
-                if row.action_id == params[1] then
+                if row.name == params[1] then
                     return {row}
                 end
             end
@@ -111,7 +111,7 @@ test('register: a brand-new actionId inserts exactly one row', function()
         ActionService.register('test:foo', function() end, {label = 'Foo'})
         local state = get()
         eq(#state.rows, 1)
-        eq(state.rows[1].action_id, 'test:foo')
+        eq(state.rows[1].name, 'test:foo')
     end)
 end)
 
