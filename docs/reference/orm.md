@@ -432,6 +432,27 @@ Async / sync. Inserts if `self.exists` is `false`, updates by primary key otherw
 **`:delete(callback)`** / **`:deleteSync()`**
 Async / sync. Deletes the row by primary key and sets `self.exists = false`. Returns/callbacks `false` immediately, without touching the database, if the instance doesn't already exist.
 
+### Lifecycle hooks
+
+**`Model.hooks:afterSave(fn)`** / **`Model.hooks:afterDelete(fn)`**
+Registers a callback on `Model` (a class returned by `extend`), fired after every completed save/delete on an instance of that class. Registration surface mirrors `Model.relations:name()` (see [Relationships](#relationships)) — a colon-call synthesizes the registration rather than requiring a fixed set of named functions, and hooks registered on one model never fire for another, including other subclasses of the same parent.
+
+`fn(instance, ctx)` receives the instance and a context table:
+- `afterSave`: `ctx.action` is `'insert'` or `'update'`; `ctx.before` is a copy of `instance.original` taken before the write (`nil` on insert); `ctx.after` is a copy of `instance.attributes` taken after the write.
+- `afterDelete`: `ctx.before` is a copy of `instance.attributes` taken immediately before the row was deleted.
+
+For the async `:save(callback)`/`:delete(callback)` forms, hooks fire from inside the query's completion callback — i.e. on a later tick, after the call that triggered the write has already returned. For `:saveSync()`/`:deleteSync()`, hooks fire synchronously before the method returns. This matters for anything that captures request-scoped state (like an admin/player source) around the write: that state must still be valid when the hook actually runs, which async callbacks don't guarantee.
+
+A hook that throws is caught and logged (`print`), never propagated — a broken hook can't fail the write it's observing.
+
+```lua
+BankAccount.hooks:afterSave(function(instance, ctx)
+    if ctx.action == 'update' and ctx.before.balance ~= ctx.after.balance then
+        print(('account %s balance %s -> %s'):format(instance.id, ctx.before.balance, ctx.after.balance))
+    end
+end)
+```
+
 ### Attributes
 
 **`:get(key)`**
