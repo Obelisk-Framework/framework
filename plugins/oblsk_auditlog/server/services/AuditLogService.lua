@@ -10,9 +10,22 @@ AuditLogService = {}
 --- previous value around their own scope, so this is reentrant.
 AuditLogService.currentActor = nil
 
+--- Resolve which fields to audit for a watched model. `watch.fields == '*'`
+--- means "every fillable field EXCEPT ones the model itself marks `hidden`"
+--- -- e.g. BankCard has `pin_hash` in both `fillable` and `hidden`, and
+--- auditing it verbatim would write the hashed PIN in plaintext into
+--- audit_logs.old_value/new_value, defeating the model's own hidden
+--- protection. An operator who explicitly lists a hidden field by name
+--- (i.e. does not use '*') is making a deliberate choice and is honored.
 local function fieldsFor(modelName, watch, model)
     if watch.fields == '*' then
-        return model.fillable
+        local hidden = {}
+        for _, f in ipairs(model.hidden or {}) do hidden[f] = true end
+        local fields = {}
+        for _, f in ipairs(model.fillable) do
+            if not hidden[f] then table.insert(fields, f) end
+        end
+        return fields
     end
     return watch.fields
 end
@@ -100,6 +113,19 @@ end
 --- Run `fn()` with audit rows written during it attributed to
 --- `actor_type='player', actor_id=source`. Restores the previous actor
 --- (nil, or an outer withActor's source) once fn() returns or errors.
+---
+--- LIMITATION: this only reliably attributes the actor for SYNCHRONOUS
+--- writes -- i.e. `saveSync()`/`deleteSync()`, whose afterSave/afterDelete
+--- hooks run inline before `fn()` returns. `save()`/`delete()` are ASYNC by
+--- default on this branch: they dispatch their hook from inside a
+--- later-tick DB callback. If `fn()` calls the async variant, the hook
+--- fires AFTER `withActor` has already restored the previous actor, so the
+--- write silently attributes to actor_type='system' instead of `source`
+--- -- and under concurrent player actions it could even pick up whichever
+--- player's withActor scope happens to be open when the callback resumes.
+--- Until a future fix threads the actor through the async callback
+--- explicitly, callers that need correct attribution MUST use
+--- saveSync()/deleteSync() inside withActor.
 --- @param source number player source
 --- @param fn function
 function AuditLogService.withActor(source, fn)

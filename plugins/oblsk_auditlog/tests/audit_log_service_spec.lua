@@ -96,6 +96,39 @@ test("fields = '*' audits every fillable field", function()
     end)
 end)
 
+test("fields = '*' excludes fields the model marks hidden", function()
+    withFakeDb(function(tables)
+        Widget = freshWidget()
+        Widget.hidden = { 'secret' }
+        AuditLogConfig = { Watch = { Widget = { fields = '*' } } }
+        AuditLogService.init()
+
+        Widget.new({ name = 'a', count = 1, secret = 'x' }):save()
+
+        local rows = tables['audit_logs'] or {}
+        eq(#rows, 2, 'hidden field secret should be excluded from wildcard auditing')
+        for _, r in ipairs(rows) do
+            if r.field == 'secret' then error('hidden field "secret" was audited under fields = \'*\'') end
+        end
+    end)
+end)
+
+test("explicitly-listed fields still include hidden fields (operator opt-in, not '*')", function()
+    withFakeDb(function(tables)
+        Widget = freshWidget()
+        Widget.hidden = { 'secret' }
+        AuditLogConfig = { Watch = { Widget = { fields = { 'secret' } } } }
+        AuditLogService.init()
+
+        Widget.new({ name = 'a', count = 1, secret = 'x' }):save()
+
+        local rows = tables['audit_logs'] or {}
+        eq(#rows, 1)
+        eq(rows[1].field, 'secret')
+        eq(rows[1].new_value, 'x')
+    end)
+end)
+
 test('delete writes one row per configured field with new_value = nil', function()
     withFakeDb(function(tables)
         Widget = freshWidget()

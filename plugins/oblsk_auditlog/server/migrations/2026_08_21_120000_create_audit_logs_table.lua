@@ -11,6 +11,13 @@ return {
             table:text('old_value'):nullable()
             table:text('new_value'):nullable()
             table:timestamp('created_at')
+
+            -- adminHandlers.lua filters/sorts on these columns against an
+            -- unbounded, retention-policy-free table -- index them so
+            -- those queries stay fast as the table grows.
+            table:index({'table_name'})
+            table:index({'created_at'})
+            table:index({'actor_type', 'actor_id'})
         end)
 
         print('[Migration] Created audit_logs table')
