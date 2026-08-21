@@ -134,6 +134,58 @@ test('a hook that errors does not stop the save or propagate', function()
     end)
 end)
 
+test('afterSave fires on saveSync insert with action=insert, before=nil, after=attrs', function()
+    withFakeDb(function()
+        local Widget = freshModel()
+        local seen
+        Widget.hooks:afterSave(function(instance, ctx) seen = ctx end)
+
+        local w = Widget.new({ name = 'a', count = 1 })
+        w:saveSync()
+
+        truthy(seen, 'hook did not fire')
+        eq(seen.action, 'insert')
+        eq(seen.before, nil)
+        eq(seen.after.name, 'a')
+        eq(seen.after.count, 1)
+    end)
+end)
+
+test('afterSave fires on saveSync update with before = pre-write attrs, after = post-write attrs', function()
+    withFakeDb(function()
+        local Widget = freshModel()
+        local w = Widget.new({ name = 'a', count = 1 })
+        w:saveSync()
+
+        local seen
+        Widget.hooks:afterSave(function(instance, ctx) seen = ctx end)
+
+        w:set('count', 2)
+        w:saveSync()
+
+        truthy(seen, 'hook did not fire')
+        eq(seen.action, 'update')
+        eq(seen.before.count, 1)
+        eq(seen.after.count, 2)
+    end)
+end)
+
+test('afterDelete fires with deleteSync with before = attrs at time of delete', function()
+    withFakeDb(function()
+        local Widget = freshModel()
+        local w = Widget.new({ name = 'a', count = 1 })
+        w:saveSync()
+
+        local seen
+        Widget.hooks:afterDelete(function(instance, ctx) seen = ctx end)
+        w:deleteSync()
+
+        truthy(seen, 'hook did not fire')
+        eq(seen.before.name, 'a')
+        eq(seen.before.count, 1)
+    end)
+end)
+
 -- runner
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
