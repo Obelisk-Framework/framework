@@ -99,16 +99,17 @@ function FakeQueryBuilder:getSync()
     return results
 end
 
-function FakeQueryBuilder:insert(data)
+function FakeQueryBuilder:insert(data, callback)
     self.nextIds[self.tableName] = (self.nextIds[self.tableName] or 0) + 1
     local id = self.nextIds[self.tableName]
     local row = { id = id }
     for k, v in pairs(data) do row[k] = v end
     table.insert(self.rows, row)
+    if callback then callback(id) end
     return id
 end
 
-function FakeQueryBuilder:update(data)
+function FakeQueryBuilder:update(data, callback)
     local affected = 0
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
@@ -118,10 +119,11 @@ function FakeQueryBuilder:update(data)
             affected = affected + 1
         end
     end
+    if callback then callback(affected) end
     return affected
 end
 
-function FakeQueryBuilder:delete()
+function FakeQueryBuilder:delete(callback)
     local kept, removed = {}, 0
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
@@ -136,6 +138,7 @@ function FakeQueryBuilder:delete()
     for _, row in ipairs(kept) do
         table.insert(self.rows, row)
     end
+    if callback then callback(removed) end
     return removed
 end
 
