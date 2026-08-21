@@ -35,7 +35,7 @@ function ActionService.flushPendingRegistrations()
         local entry = ActionService.registry[actionId]
         if entry and not entry.dbId then
             local options = entry.options
-            local existing = Action:where('action_id', actionId):first()
+            local existing = Action:where('name', actionId):first()
             local dbId
             if existing then
                 existing:set('label', options.label)
@@ -45,7 +45,7 @@ function ActionService.flushPendingRegistrations()
                 dbId = existing.id
             else
                 local action = Action:create({
-                    action_id = actionId,
+                    name = actionId,
                     label = options.label,
                     description = options.description,
                     options = options,

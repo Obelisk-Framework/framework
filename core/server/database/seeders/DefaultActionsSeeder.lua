@@ -7,7 +7,7 @@ return {
 
         local actions = {
             {
-                action_id = 'use_interaction',
+                name = 'use_interaction',
                 label = 'Use Interaction',
                 description = 'Triggers the closest interaction point',
                 options = json.encode({}),
@@ -16,7 +16,7 @@ return {
         }
 
         for _, action in ipairs(actions) do
-            Action:firstOrCreate({action_id = action.action_id}, action)
+            Action:firstOrCreate({name = action.name}, action)
         end
 
         print('[Seeder] Seeded ' .. #actions .. ' default action(s) (idempotent)')

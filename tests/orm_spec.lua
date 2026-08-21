@@ -1077,7 +1077,7 @@ test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that 
     ScheduledJob.primaryKey = 'id'
     ScheduledJob.timestamps = false
 
-    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'action_id') end
+    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'name') end
 
     local original = Database.query
     Database.query = function(sql, params)
@@ -1085,7 +1085,7 @@ test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that 
             return {{ id = 1, action_id = 'give_item' }}
         elseif sql:find('FROM `actions`') then
             eqList(params, {'give_item'}, 'belongsTo: queried by ownerKey value, not the jobs.id row id')
-            return {{ id = 99, action_id = 'give_item', label = 'Give Item' }}
+            return {{ id = 99, name = 'give_item', label = 'Give Item' }}
         end
         return {}
     end
