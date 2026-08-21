@@ -11,4 +11,10 @@ ScheduledJob.fillable = {
     'enabled', 'last_run_at',
 }
 
+--- ownerKey is action_id (Action's business key), not Action's primaryKey
+--- ('id') -- see the comment above on why action_id isn't a numeric FK.
+function ScheduledJob.relations:action()
+    return self:belongsTo(Action, 'action_id', 'action_id')
+end
+
 return ScheduledJob

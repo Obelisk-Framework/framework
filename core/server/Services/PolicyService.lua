@@ -1,15 +1,11 @@
 --- PolicyService - Composable authorization middleware
---- Policies are functions that validate if a player can perform an action.
---- A policy's identity (id, validator, options) lives only in
---- PolicyService.registry -- there is no `policies` table -- so its
---- attachments to a resource are pivot rows (ActionPolicy/InteractionPolicy)
---- rather than a belongsToMany, which would need a persisted model on both
---- sides.
+--- Policies are functions that validate if a player can perform an action
+--- Uses database tables for policy attachments: action_policy, interaction_policy
 PolicyService = {}
 PolicyService.registry = {}
 
---- Resource types with a backing pivot model. The resource type selects
---- which model/id-column pair to use, so it must never be
+--- Resource types with a backing "<type>_policy" pivot model. The resource
+--- type selects which model/column pair to query, so it must never be
 --- caller-controlled beyond this allowlist.
 local RESOURCE_MODELS = {
     action = { model = ActionPolicy, idColumn = 'action_id' },
@@ -19,7 +15,7 @@ local RESOURCE_MODELS = {
 --- Resolve the pivot model and id column for a resource type, rejecting
 --- anything outside the allowlist.
 --- @param resourceType string
---- @return table Model
+--- @return table model
 --- @return string idColumn
 local function resolveResourceModel(resourceType)
     local entry = RESOURCE_MODELS[resourceType]
@@ -58,23 +54,24 @@ function PolicyService.attach(resourceType, resourceId, policyId, config)
         return false
     end
     
-    local Model, idColumn = resolveResourceModel(resourceType)
+    local model, idColumn = resolveResourceModel(resourceType)
 
-    local existing = Model:where(idColumn, resourceId):where('policy_id', policyId):first()
+    -- Check if already attached
+    local existing = model:where(idColumn, resourceId):where('policy_id', policyId):first()
 
     if existing then
         existing:set('data', config or {})
         existing:save()
         print('[PolicyService] Updated policy ' .. policyId .. ' for ' .. resourceType .. '#' .. tostring(resourceId))
     else
-        Model:create({
+        model:create({
             [idColumn] = resourceId,
             policy_id = policyId,
             data = config or {},
         })
         print('[PolicyService] Attached policy ' .. policyId .. ' to ' .. resourceType .. '#' .. tostring(resourceId))
     end
-
+    
     return true
 end
 
@@ -83,14 +80,15 @@ end
 --- @param resourceId any Resource identifier
 --- @param policyId string Optional, detaches all if nil
 function PolicyService.detach(resourceType, resourceId, policyId)
-    local Model, idColumn = resolveResourceModel(resourceType)
-    local query = Model:where(idColumn, resourceId)
+    local model, idColumn = resolveResourceModel(resourceType)
 
     if policyId then
-        query:where('policy_id', policyId):delete()
+        -- Remove specific policy
+        model:where(idColumn, resourceId):where('policy_id', policyId):delete()
         print('[PolicyService] Detached policy ' .. policyId .. ' from ' .. resourceType .. '#' .. tostring(resourceId))
     else
-        query:delete()
+        -- Remove all policies
+        model:where(idColumn, resourceId):delete()
         print('[PolicyService] Detached all policies from ' .. resourceType .. '#' .. tostring(resourceId))
     end
 end
@@ -100,14 +98,15 @@ end
 --- @param resourceId any Resource identifier
 --- @return table Array of {policyId, config}
 function PolicyService.getPolicies(resourceType, resourceId)
-    local Model, idColumn = resolveResourceModel(resourceType)
-    local rows = Model:where(idColumn, resourceId):get()
+    local model, idColumn = resolveResourceModel(resourceType)
+
+    local rows = model:where(idColumn, resourceId):get()
 
     local policies = {}
     for _, row in ipairs(rows) do
         table.insert(policies, {
             policyId = row.policy_id,
-            config = row.data or {},
+            config = row.data or {}
         })
     end
 

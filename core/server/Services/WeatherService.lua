@@ -87,7 +87,7 @@ end
 function WeatherService.getForecast()
     return WeatherForecast
         :orderBy('window_start', 'asc')
-        :getSync()
+        :get()
 end
 
 --- @param now number unix epoch
@@ -96,7 +96,7 @@ function WeatherService.getCurrentWindow(now)
     return WeatherForecast
         :where('window_start', '<=', now)
         :where('window_end', '>', now)
-        :firstSync()
+        :first()
 end
 
 --- Called on server boot. Clears stale forecast and regenerates if needed.
@@ -104,7 +104,7 @@ end
 function WeatherService.boot(now)
     local latest = WeatherForecast
         :orderBy('window_end', 'desc')
-        :firstSync()
+        :first()
     if not latest or latest.window_end < now + 86400 then
         WeatherForecast:newQuery():delete()
         WeatherService.generateForecast(now)
@@ -137,7 +137,7 @@ function WeatherService.tick(now)
     -- extend forecast if lookahead drops below 1 day
     local farthest = WeatherForecast
         :orderBy('window_end', 'desc')
-        :firstSync()
+        :first()
     if farthest and farthest.window_end < now + 86400 then
         WeatherService.generateForecast(farthest.window_end, farthest.weather_type)
     end

@@ -5,25 +5,25 @@ InteractionService.nearbyInteractions = {}
 InteractionService.closestInteraction = nil
 
 --- Sync all interactions from server
-Obelisk.onClient('core:server:interaction-syncAll', function(interactions)
+Obelisk.onServer('core:server:interaction-syncAll', function(interactions)
     InteractionService.interactions = interactions
     print('[InteractionService] Synced ' .. table.count(interactions) .. ' interactions')
 end)
 
 --- Add a new interaction
-Obelisk.onClient('core:server:interaction-add', function(interaction)
+Obelisk.onServer('core:server:interaction-add', function(interaction)
     InteractionService.interactions[interaction.id] = interaction
     print('[InteractionService] Added interaction #' .. interaction.id)
 end)
 
 --- Remove an interaction
-Obelisk.onClient('core:server:interaction-remove', function(interactionId)
+Obelisk.onServer('core:server:interaction-remove', function(interactionId)
     InteractionService.interactions[interactionId] = nil
     print('[InteractionService] Removed interaction #' .. interactionId)
 end)
 
 --- Update an interaction
-Obelisk.onClient('core:server:interaction-update', function(interaction)
+Obelisk.onServer('core:server:interaction-update', function(interaction)
     InteractionService.interactions[interaction.id] = interaction
 end)
 

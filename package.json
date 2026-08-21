@@ -7,7 +7,7 @@
     "obelisk": "./cli/index.js"
   },
   "scripts": {
-    "test": "lua5.4 tests/orm_spec.lua && lua5.4 tests/obelisk_spec.lua && lua5.4 tests/action_service_spec.lua && lua5.4 tests/policy_service_spec.lua && lua5.4 tests/interaction_service_spec.lua && lua5.4 tests/interaction_type_service_spec.lua && lua5.4 tests/migration_audit_spec.lua && lua5.4 tests/entity_streamer_service_spec.lua && lua5.4 tests/sha256_spec.lua && lua5.4 tests/settings_spec.lua && lua5.4 tests/sigv4_spec.lua && lua5.4 tests/storage_local_spec.lua && lua5.4 tests/storage_s3_spec.lua && lua5.4 tests/storage_service_spec.lua && lua5.4 tests/storage_upload_handler_spec.lua && cd web && npm test && cd ..",
+    "test": "lua5.4 tests/orm_spec.lua && lua5.4 tests/obelisk_spec.lua && lua5.4 tests/action_service_spec.lua && lua5.4 tests/policy_service_spec.lua && lua5.4 tests/interaction_service_spec.lua && lua5.4 tests/interaction_type_service_spec.lua && lua5.4 tests/migration_audit_spec.lua && lua5.4 tests/entity_streamer_service_spec.lua && lua5.4 tests/sha256_spec.lua && lua5.4 tests/settings_spec.lua && lua5.4 tests/sigv4_spec.lua && lua5.4 tests/storage_local_spec.lua && lua5.4 tests/storage_s3_spec.lua && lua5.4 tests/storage_service_spec.lua && lua5.4 tests/storage_upload_handler_spec.lua && bash scripts/test-plugins.sh && cd web && npm test && cd ..",
     "cli": "node cli/index.js",
     "make:module": "node cli/index.js make:module",
     "make:plugin": "node cli/index.js make:plugin",

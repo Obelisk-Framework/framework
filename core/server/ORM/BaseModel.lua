@@ -192,8 +192,8 @@ end
 --- forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
-    'whereHas', 'whereRelation', 'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy',
-    'get', 'firstOr'
+    'whereHas', 'orWhereHas', 'has', 'whereRelation', 'orderBy', 'limit', 'offset',
+    'join', 'leftJoin', 'groupBy', 'get', 'firstOr'
 }
 
 for _, methodName in ipairs(QUERY_PROXY_METHODS) do
@@ -448,6 +448,16 @@ function BaseModel:saveAsync(callback)
             if callback then callback(self) end
         end)
     end
+end
+
+--- Update specific attributes and persist the instance
+--- @param attributes table
+--- @return BaseModel self
+function BaseModel:update(attributes)
+    for k, v in pairs(attributes) do
+        self.attributes[k] = v
+    end
+    return self:save()
 end
 
 --- Delete synchronously

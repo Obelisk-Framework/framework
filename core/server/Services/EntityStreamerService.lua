@@ -778,6 +778,23 @@ end
 
 Obelisk.on('playerDropped', EntityStreamerService.handlePlayerDropped)
 
+--- Reverse-map: bag name (e.g. "entity:1234") → entityId. Built from
+--- client-set streamerId state bags so we can clear networkedOwners when
+--- an entity is destroyed without relying on playerDropped alone.
+local networkedBagEntities = {}
+
+Obelisk.onStateBag('streamerId', 'entity:', function(bagName, _, value)
+    if value then
+        networkedBagEntities[bagName] = value
+    else
+        local entityId = networkedBagEntities[bagName]
+        if entityId then
+            EntityStreamerService.networkedOwners[entityId] = nil
+            networkedBagEntities[bagName] = nil
+        end
+    end
+end)
+
 --- Net events
 Obelisk.onClient('core:client:streamer-updatePosition', function(player, x, y, heading)
     local currentChunk = EntityStreamerService.getChunkKey(x, y)

@@ -194,14 +194,15 @@ end
 --- whereHas()). The subquery's own SQL and params are embedded as one clause,
 --- so its params land in this query's param list at the right position.
 --- @param subquery QueryBuilder Must already carry its own correlation condition.
+--- @param boolean string|nil 'AND' (default) or 'OR', joining this clause to whatever precedes it.
 --- @return QueryBuilder
-function QueryBuilder:whereExists(subquery)
+function QueryBuilder:whereExists(subquery, boolean)
     local sql, params = subquery:toSql()
     table.insert(self.whereConditions, {
         type = 'exists',
         sql = sql,
         subParams = params,
-        boolean = 'AND'
+        boolean = boolean or 'AND'
     })
     return self
 end
@@ -286,6 +287,32 @@ function QueryBuilder:whereRelation(relationName, column, operator, value)
     return self:whereHas(relationName, function(q)
         q:where(column, operator, value)
     end)
+end
+
+--- OR-joined variant of whereHas -- same correlated EXISTS subquery, but
+--- combined with whatever precedes it via OR instead of AND.
+--- @param relationName string
+--- @param callback function|nil
+--- @return QueryBuilder
+function QueryBuilder:orWhereHas(relationName, callback)
+    assert(self.model, "orWhereHas() requires a query opened off a model, e.g. Model:orWhereHas(...)")
+    local relation = self.model:relation(relationName)
+    local build = WHERE_HAS_BUILDERS[relation.type]
+    assert(build, ("orWhereHas: relation type %q not supported (morphTo has no fixed related table)"):format(relation.type))
+
+    local subquery = build(self.model, relation)
+    if callback then
+        callback(subquery)
+    end
+    return self:whereExists(subquery, 'OR')
+end
+
+--- Sugar for whereHas(relationName) with no extra filtering -- "has at least
+--- one related row", mirroring Eloquent's bare `has('relation')`.
+--- @param relationName string
+--- @return QueryBuilder
+function QueryBuilder:has(relationName)
+    return self:whereHas(relationName)
 end
 
 --- Add ORDER BY clause

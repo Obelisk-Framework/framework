@@ -11,6 +11,7 @@ function Blueprint.new(tableName)
     self.columns = {}
     self.indexes = {}
     self.foreignKeys = {}
+    self.dropForeignIds = {}
     return self
 end
 
@@ -42,6 +43,12 @@ end
 --- Add a text column
 function Blueprint:text(name)
     table.insert(self.columns, { name = name, kind = 'text', opts = {}, nullable = false })
+    return self
+end
+
+--- Add a mediumBlob column
+function Blueprint:mediumBlob(name)
+    table.insert(self.columns, { name = name, kind = 'mediumBlob', opts = {}, nullable = false })
     return self
 end
 
@@ -368,6 +375,19 @@ function Blueprint:onUpdate(action)
     return self
 end
 
+function Blueprint:cascadeOnDelete() return self:onDelete('CASCADE') end
+function Blueprint:nullOnDelete()    return self:onDelete('SET NULL') end
+function Blueprint:restrictOnDelete() return self:onDelete('RESTRICT') end
+function Blueprint:cascadeOnUpdate() return self:onUpdate('CASCADE') end
+function Blueprint:nullOnUpdate()    return self:onUpdate('SET NULL') end
+function Blueprint:restrictOnUpdate() return self:onUpdate('RESTRICT') end
+
+--- Queue a drop of the unique index, foreign key constraint, and column for a foreignId column.
+function Blueprint:dropForeignId(name)
+    table.insert(self.dropForeignIds, name)
+    return self
+end
+
 --- Build the CREATE TABLE statement(s). Returns a list because Postgres
 --- can't express non-unique indexes inline (see Dialects/Postgres.lua) — the
 --- first element is always the CREATE TABLE itself; any further elements are
@@ -479,6 +499,10 @@ function Schema.table(tableName, callback)
     blueprint.isAltering = true
     callback(blueprint)
 
+    for _, col in ipairs(blueprint.dropForeignIds) do
+        Schema.dropForeignId(tableName, col)
+    end
+
     local statements = {}
 
     for _, col in ipairs(blueprint.columns) do
@@ -539,6 +563,29 @@ function Schema.dropColumn(tableName, columnName)
     local q = Database.dialect.quoteIdentifier
     local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP COLUMN ' .. q(columnName)
     return Database.query(sql, {})
+end
+
+--- Drop a foreign key constraint (name derived by convention: table_column_foreign)
+function Schema.dropForeign(tableName, columnName)
+    local q = Database.dialect.quoteIdentifier
+    local constraintName = tableName .. '_' .. columnName .. '_foreign'
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP FOREIGN KEY ' .. q(constraintName)
+    return Database.query(sql, {})
+end
+
+--- Drop a unique index (name derived by convention: table_column_unique)
+function Schema.dropUnique(tableName, columnName)
+    local q = Database.dialect.quoteIdentifier
+    local indexName = tableName .. '_' .. columnName .. '_unique'
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP INDEX ' .. q(indexName)
+    return Database.query(sql, {})
+end
+
+--- Drop foreign key constraint, unique index, and column for a foreignId column
+function Schema.dropForeignId(tableName, columnName)
+    Schema.dropUnique(tableName, columnName)
+    Schema.dropForeign(tableName, columnName)
+    Schema.dropColumn(tableName, columnName)
 end
 
 --- Rename a column

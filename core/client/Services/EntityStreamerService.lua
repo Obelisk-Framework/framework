@@ -39,7 +39,15 @@ function EntityStreamerService.spawnEntity(entityId, entityType, entityData)
             handle = handle,
             data = entityData
         }
-        
+
+        -- Networked entities: publish entityId into the entity's state bag so
+        -- the server can detect deletion and auto-release ownership without
+        -- relying solely on the playerDropped path (which misses cases where
+        -- the entity outlives the owning player, e.g. vehicle handoffs).
+        if entityData.networked then
+            Entity(handle).state:set('streamerId', entityId, true)
+        end
+
         print('[EntityStreamerService] Spawned ' .. entityType .. ' #' .. entityId)
     end
 end
@@ -268,11 +276,11 @@ Citizen.CreateThread(function()
 end)
 
 --- Net event handlers
-Obelisk.onClient('core:server:streamer-entityAdd', function(data)
+Obelisk.onServer('core:server:streamer-entityAdd', function(data)
     EntityStreamerService.spawnEntity(data.entityId, data.entityType, data.data)
 end)
 
-Obelisk.onClient('core:server:streamer-entityRemove', function(data)
+Obelisk.onServer('core:server:streamer-entityRemove', function(data)
     EntityStreamerService.despawnEntity(data.entityId)
 end)
 
@@ -283,7 +291,7 @@ end)
 --- waiting on RequestModel's up-to-5-second stream-in.
 EntityStreamerService.precachedModels = {} -- {modelHash: true}, avoids redundant RequestModel calls
 
-Obelisk.onClient('core:server:streamer-precache', function(data)
+Obelisk.onServer('core:server:streamer-precache', function(data)
     for _, entity in ipairs(data.entities or {}) do
         local entityData = entity.data
         if entityData and entityData.model then

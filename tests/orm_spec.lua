@@ -1068,6 +1068,36 @@ test('BaseModel load: hasMany does not double-wrap related model instances', fun
         'related instance attributes should contain only real db columns')
 end)
 
+test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that column, not id', function()
+    local Action = BaseModel:extend('actions')
+    Action.primaryKey = 'id'
+    Action.timestamps = false
+
+    local ScheduledJob = BaseModel:extend('scheduled_jobs')
+    ScheduledJob.primaryKey = 'id'
+    ScheduledJob.timestamps = false
+
+    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'action_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `scheduled_jobs`') then
+            return {{ id = 1, action_id = 'give_item' }}
+        elseif sql:find('FROM `actions`') then
+            eqList(params, {'give_item'}, 'belongsTo: queried by ownerKey value, not the jobs.id row id')
+            return {{ id = 99, action_id = 'give_item', label = 'Give Item' }}
+        end
+        return {}
+    end
+
+    local job = ScheduledJob:find(1)
+    local action = job:load('action')
+    Database.query = original
+
+    truthy(action, 'belongsTo: related row found via ownerKey match')
+    eq(action.label, 'Give Item', 'belongsTo: correct row returned despite id (99) != foreignValue (give_item)')
+end)
+
 test('BaseModel hasMany/hasOne: foreignKey defaults to singularize(self.table) .. "_id"', function()
     local Character = BaseModel:extend('characters')
     local ShellOwner = BaseModel:extend('shell_owners')
@@ -2480,6 +2510,15 @@ end)
 --------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
+
+test('Blueprint:mediumBlob emits MEDIUMBLOB', function()
+    local bp2 = Schema.Blueprint.new('blobs')
+    bp2:id()
+    bp2:mediumBlob('data')
+    local sql = bp2:toSql()
+    assert(sql[1]:find('`data` MEDIUMBLOB NOT NULL'), 'mediumBlob should emit MEDIUMBLOB')
+end)
+
 print('Running ORM unit tests\n')
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)
