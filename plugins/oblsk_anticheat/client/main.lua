@@ -1,26 +1,10 @@
 -- plugins/oblsk_anticheat/client/main.lua
---- Reports raw telemetry to the server for AnticheatService to judge.
---- This file makes no decisions — every verdict happens server-side, per
---- the spec's "server is the sole source of truth" constraint.
-local lastHealth = nil
-
-CreateThread(function()
-    while true do
-        Wait(2000)
-        local ped = PlayerPedId()
-        local currentHealth = GetEntityHealth(ped)
-
-        if lastHealth ~= nil and currentHealth ~= lastHealth then
-            Obelisk.emitServerSecure('anticheat:server:reportHealth', currentHealth, nil, false)
-        end
-        lastHealth = currentHealth
-
-        local weaponHashes = {}
-        -- Wiring detail: FiveM has no single native that lists every
-        -- weapon a ped owns; confirm the correct enumeration approach
-        -- (e.g. iterating a known weapon hash list with HasPedGotWeapon,
-        -- or GetSelectedPedWeapon for just the active one) against the
-        -- game build this server targets before finalizing this loop.
-        Obelisk.emitServerSecure('anticheat:server:reportWeapons', weaponHashes)
-    end
-end)
+--- Movement and health telemetry are now read server-side (AnticheatService
+--- polls GetEntityCoords/GetEntityHealth directly, gated on
+--- SpawnManagerService's spawn stage) rather than trusted from the client —
+--- see docs/superpowers/specs/2026-08-20-anticheat-design.md ("server is
+--- the sole source of truth"). Weapon-spawn detection is not wired up yet
+--- (no weapon-hash-per-item model exists in this framework — see
+--- AnticheatService.lua's comment above where that handler used to be).
+--- This file is intentionally empty of any emitServerSecure calls until
+--- there's a real client-only signal worth reporting.

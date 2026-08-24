@@ -86,26 +86,21 @@ CreateThread(function()
     end
 end)
 
-Obelisk.onClientSecure('anticheat:server:reportWeapons', function(player, clientReportedWeaponHashes)
-    local ok, reason = EventGuardService.validate(player:getSource(), 'anticheat:server:reportWeapons',
-        {{type = 'table'}}, {clientReportedWeaponHashes})
-    if not ok then
-        ViolationService.record(player, 'event', reason, 'soft')
-        return
-    end
-
-    -- Wiring detail: fetch this character's actually-granted weapon
-    -- hashes from InventoryService (filter buildCharacterSync's items to
-    -- the weapon category and map to hashes) — confirm the exact field
-    -- names against InventoryService.buildCharacterSync on a live server
-    -- before wiring this call in.
-    local serverGrantedWeaponHashes = InventoryService.getGrantedWeaponHashes(player)
-
-    local violation = SpawnDetector.check(clientReportedWeaponHashes, serverGrantedWeaponHashes)
-    if violation then
-        ViolationService.record(player, violation.category, violation.detail, violation.severity)
-    end
-end)
+-- Ghost-weapon detection (SpawnDetector) is intentionally NOT wired up yet:
+-- it depends on InventoryService.getGrantedWeaponHashes(player), which
+-- would need a weapon-hash-per-item concept that does not exist anywhere
+-- in this framework today (base_items rows have no category/weaponHash
+-- field, and no weapon-tracking module/plugin exists). Registering this
+-- handler against a nonexistent function would throw at runtime, and
+-- guessing a fallback (e.g. "server never grants any weapon") would
+-- false-flag every legitimate weapon carry as a violation — the same
+-- class of harm as the movement/health false positives already found and
+-- fixed in this plugin. Leaving it unregistered is safe: the client's
+-- corresponding emitServerSecure('anticheat:server:reportWeapons', ...)
+-- call becomes a harmless no-op (no server-side name gets armed for it).
+-- Wire this back up once the framework has a real weapon-item model to
+-- query, per docs/superpowers/specs/2026-08-20-anticheat-design.md
+-- ("Weapon/item spawning").
 
 Obelisk.on('playerDropped', function()
     local source = source
