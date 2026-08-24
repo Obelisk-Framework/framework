@@ -89,6 +89,20 @@ item:deleteSync()
 
 `save`/`saveSync` decide insert vs. update from `instance.exists`: a freshly-`new`'d instance inserts (and then has its primary key set from the insert id), while an instance loaded via `find`/`all`/`create` updates in place.
 
+### Lifecycle hooks
+
+`Model.hooks:afterSave(fn)` and `Model.hooks:afterDelete(fn)` register a callback that fires after a write completes, mirroring how `Model.relations:name()` registers a relationship — a colon-call, not a fixed API surface. Hooks are per-model: registering on `BankAccount` never fires for `BankCard`.
+
+```lua
+BankAccount.hooks:afterSave(function(instance, ctx)
+    -- ctx.action: 'insert' | 'update'
+    -- ctx.before: attributes before the write (nil on insert)
+    -- ctx.after:  attributes after the write
+end)
+```
+
+For the async `save`/`delete`, the hook fires from inside the query's completion callback — on a later tick, not synchronously with the call that triggered the write. Use `saveSync`/`deleteSync` if the hook needs to observe state (like a request-scoped actor) that won't still be valid by the time an async callback resumes. See [ORM API Reference](/reference/orm#lifecycle-hooks) for the full contract, including error handling.
+
 ### Relationships
 
 `BaseModel` implements four relationship helpers — `hasOne`, `hasMany`, `belongsTo`, and `belongsToMany` — each returning a relationship descriptor consumed by `load`/`loadSync`:
