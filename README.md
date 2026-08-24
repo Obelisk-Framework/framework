@@ -5,7 +5,7 @@
 
 A developer-first FiveM framework, built for the developer writing the plugin, not just the server owner running it. A dual-dialect Lua ORM, a module and plugin system, a Vue 3 NUI, and one CLI that scaffolds all of it to the same conventions core itself follows.
 
-**[Read the docs →](https://obelisk-framework.github.io/core/)**
+**[Read the docs →](https://obelisk-framework.github.io/fraamework/)**
 
 ## Features
 
