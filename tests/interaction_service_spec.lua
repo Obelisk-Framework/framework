@@ -1,5 +1,5 @@
 --- Unit tests for InteractionService's DB-id tracking additions:
---- registerFromDb / unregisterByDbId / updateByDbId / setEnabledByDbId, plus
+--- registerFromDb / unregisterById / updateByDbId / setEnabledByDbId, plus
 --- unregister()'s byDbId bookkeeping cleanup.
 --- Run from the repository root:  lua5.4 tests/interaction_service_spec.lua
 
@@ -55,20 +55,20 @@ test('registerFromDb: one dbId can back multiple live registrations (oblsk_shop 
     end)
 end)
 
-test('unregisterByDbId: removes all live registrations tied to dbId', function()
+test('unregisterById: removes all live registrations tied to dbId', function()
     withFreshState(function()
         local liveId1 = InteractionService.registerFromDb(7, { x = 1, y = 1, z = 1 })
         local liveId2 = InteractionService.registerFromDb(7, { x = 1, y = 1, z = 1 })
-        InteractionService.unregisterByDbId(7)
+        InteractionService.unregisterById(7)
         eq(InteractionService.registry[liveId1], nil)
         eq(InteractionService.registry[liveId2], nil)
         eq(InteractionService.byDbId[7], nil)
     end)
 end)
 
-test('unregisterByDbId: no-op for an unknown dbId (no crash)', function()
+test('unregisterById: no-op for an unknown dbId (no crash)', function()
     withFreshState(function()
-        InteractionService.unregisterByDbId(999)
+        InteractionService.unregisterById(999)
         eq(true, true)
     end)
 end)
@@ -95,20 +95,20 @@ test('setEnabledByDbId: fans out enabled/disabled to every tied live registratio
     end)
 end)
 
-test('unregistering one of several live ids individually does not break a later unregisterByDbId call', function()
+test('unregistering one of several live ids individually does not break a later unregisterById call', function()
     withFreshState(function()
         local liveId1 = InteractionService.registerFromDb(7, { x = 1, y = 1, z = 1 })
         local liveId2 = InteractionService.registerFromDb(7, { x = 1, y = 1, z = 1 })
 
-        -- Direct unregister() on just one of the two, bypassing unregisterByDbId.
+        -- Direct unregister() on just one of the two, bypassing unregisterById.
         InteractionService.unregister(liveId1)
         eq(InteractionService.registry[liveId1], nil)
         eq(#InteractionService.byDbId[7], 1)
         eq(InteractionService.byDbId[7][1], liveId2)
 
-        -- A later unregisterByDbId call must not double-free or crash on the
+        -- A later unregisterById call must not double-free or crash on the
         -- already-removed liveId1, and must still clean up liveId2.
-        local ok = pcall(InteractionService.unregisterByDbId, 7)
+        local ok = pcall(InteractionService.unregisterById, 7)
         eq(ok, true)
         eq(InteractionService.registry[liveId2], nil)
         eq(InteractionService.byDbId[7], nil)

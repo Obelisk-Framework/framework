@@ -18,20 +18,19 @@ local bucketMembers = {}
 --- @param key string
 --- @return number bucketId
 function InstanceService.getOrCreateBucket(key)
-    local existing = QueryBuilder.new('instance_buckets'):where('key', key):firstSync()
+    local existing = InstanceBucket:where('key', key):first()
     if existing then
         return existing.bucket_id
     end
 
-    local id = QueryBuilder.new('instance_buckets'):insert({
+    local bucket = InstanceBucket:create({
         key = key,
         bucket_id = 0, -- placeholder, corrected below once we know our own row id
-        created_at = Database.now(),
-        updated_at = Database.now(),
     })
 
-    local bucketId = id + OFFSET
-    QueryBuilder.new('instance_buckets'):where('id', id):update({ bucket_id = bucketId })
+    local bucketId = bucket.id + OFFSET
+    bucket:set('bucket_id', bucketId)
+    bucket:save()
 
     return bucketId
 end

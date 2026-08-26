@@ -40,7 +40,7 @@ end
 
 --- Like register(), but also records which persisted `interactions` row this
 --- live registration came from, so it can later be found and mutated/removed
---- by that DB id via updateByDbId/setEnabledByDbId/unregisterByDbId. One DB
+--- by that DB id via updateByDbId/setEnabledByDbId/unregisterById. One DB
 --- row can back more than one live registration (see oblsk_shop's
 --- registerAllShops) -- this appends to byDbId[dbId], it doesn't overwrite.
 --- @param dbId number the `interactions` table row id this registration came from
@@ -60,7 +60,7 @@ function InteractionService.unregister(interactionId)
     local interaction = InteractionService.registry[interactionId]
     if interaction then
         -- Clean up byDbId bookkeeping if this entry came from registerFromDb,
-        -- so a direct unregister() (bypassing unregisterByDbId) doesn't leave
+        -- so a direct unregister() (bypassing unregisterById) doesn't leave
         -- a stale array entry pointing at a now-dead registry id.
         local dbId = interaction.dbInteractionId
         if dbId and InteractionService.byDbId[dbId] then
@@ -86,7 +86,7 @@ end
 --- Safe to call even if some/all of those live ids were already individually
 --- unregistered (e.g. via unregister()) -- no double-free, no crash.
 --- @param dbId number
-function InteractionService.unregisterByDbId(dbId)
+function InteractionService.unregisterById(dbId)
     local liveIds = InteractionService.byDbId[dbId]
     if not liveIds then return end
     -- Copy first: unregister() mutates InteractionService.byDbId[dbId] (the

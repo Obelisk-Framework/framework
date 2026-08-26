@@ -4,24 +4,25 @@
 PolicyService = {}
 PolicyService.registry = {}
 
---- Resource types with a backing "<type>_policy" pivot table. The resource
---- type is concatenated into table/column names, so it must never be
+--- Resource types with a backing "<type>_policy" pivot model. The resource
+--- type selects which model/column pair to query, so it must never be
 --- caller-controlled beyond this allowlist.
-local ALLOWED_RESOURCE_TYPES = {
-    action = true,
-    interaction = true,
+local RESOURCE_MODELS = {
+    action = { model = ActionPolicy, idColumn = 'action_id' },
+    interaction = { model = InteractionPolicy, idColumn = 'interaction_id' },
 }
 
---- Resolve the pivot table and id column for a resource type, rejecting
+--- Resolve the pivot model and id column for a resource type, rejecting
 --- anything outside the allowlist.
 --- @param resourceType string
---- @return string tableName
+--- @return table model
 --- @return string idColumn
-local function resolveResourceTable(resourceType)
-    if not ALLOWED_RESOURCE_TYPES[resourceType] then
+local function resolveResourceModel(resourceType)
+    local entry = RESOURCE_MODELS[resourceType]
+    if not entry then
         error('PolicyService: invalid resource type "' .. tostring(resourceType) .. '"', 2)
     end
-    return resourceType .. '_policy', resourceType .. '_id'
+    return entry.model, entry.idColumn
 end
 
 --- Register a policy validator
@@ -53,27 +54,21 @@ function PolicyService.attach(resourceType, resourceId, policyId, config)
         return false
     end
     
-    local table_name, id_column = resolveResourceTable(resourceType)
-    
+    local model, idColumn = resolveResourceModel(resourceType)
+
     -- Check if already attached
-    local existing = Database.querySync(
-        'SELECT * FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ? AND policy_id = ?',
-        {resourceId, policyId}
-    )
-    
-    if existing and #existing > 0 then
-        -- Update existing
-        Database.updateSync(
-            'UPDATE ' .. table_name .. ' SET data = ?, updated_at = ? WHERE ' .. id_column .. ' = ? AND policy_id = ?',
-            {json.encode(config or {}), Database.now(), resourceId, policyId}
-        )
+    local existing = model:where(idColumn, resourceId):where('policy_id', policyId):first()
+
+    if existing then
+        existing:set('data', config or {})
+        existing:save()
         print('[PolicyService] Updated policy ' .. policyId .. ' for ' .. resourceType .. '#' .. tostring(resourceId))
     else
-        -- Insert new
-        Database.insertSync(
-            'INSERT INTO ' .. table_name .. ' (' .. id_column .. ', policy_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-            {resourceId, policyId, json.encode(config or {}), Database.now(), Database.now()}
-        )
+        model:create({
+            [idColumn] = resourceId,
+            policy_id = policyId,
+            data = config or {},
+        })
         print('[PolicyService] Attached policy ' .. policyId .. ' to ' .. resourceType .. '#' .. tostring(resourceId))
     end
     
@@ -85,21 +80,15 @@ end
 --- @param resourceId any Resource identifier
 --- @param policyId string Optional, detaches all if nil
 function PolicyService.detach(resourceType, resourceId, policyId)
-    local table_name, id_column = resolveResourceTable(resourceType)
-    
+    local model, idColumn = resolveResourceModel(resourceType)
+
     if policyId then
         -- Remove specific policy
-        Database.deleteSync(
-            'DELETE FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ? AND policy_id = ?',
-            {resourceId, policyId}
-        )
+        model:where(idColumn, resourceId):where('policy_id', policyId):delete()
         print('[PolicyService] Detached policy ' .. policyId .. ' from ' .. resourceType .. '#' .. tostring(resourceId))
     else
         -- Remove all policies
-        Database.deleteSync(
-            'DELETE FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
-            {resourceId}
-        )
+        model:where(idColumn, resourceId):delete()
         print('[PolicyService] Detached all policies from ' .. resourceType .. '#' .. tostring(resourceId))
     end
 end
@@ -109,31 +98,18 @@ end
 --- @param resourceId any Resource identifier
 --- @return table Array of {policyId, config}
 function PolicyService.getPolicies(resourceType, resourceId)
-    local table_name, id_column = resolveResourceTable(resourceType)
-    
-    local results = Database.querySync(
-        'SELECT policy_id, data FROM ' .. table_name .. ' WHERE ' .. id_column .. ' = ?',
-        {resourceId}
-    )
-    
-    if not results then return {} end
-    
+    local model, idColumn = resolveResourceModel(resourceType)
+
+    local rows = model:where(idColumn, resourceId):get()
+
     local policies = {}
-    for _, row in ipairs(results) do
-        local config = {}
-        if row.data and row.data ~= '' then
-            local success, decoded = pcall(json.decode, row.data)
-            if success then
-                config = decoded
-            end
-        end
-        
+    for _, row in ipairs(rows) do
         table.insert(policies, {
             policyId = row.policy_id,
-            config = config
+            config = row.data or {}
         })
     end
-    
+
     return policies
 end
 

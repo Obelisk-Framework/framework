@@ -12,19 +12,19 @@ function HasPermissions.apply(Model, typeName)
     PermissionService.registerType(typeName, Model)
 
     function Model:can(key)
-        return PermissionService.can(self.permissionType, self:get(self.primaryKey), key)
+        return PermissionService.can(self.permissionType, self[self.primaryKey], key)
     end
 
     function Model:grant(key)
-        return PermissionService.grant(self.permissionType, self:get(self.primaryKey), key)
+        return PermissionService.grant(self.permissionType, self[self.primaryKey], key)
     end
 
     function Model:revoke(key)
-        return PermissionService.revoke(self.permissionType, self:get(self.primaryKey), key)
+        return PermissionService.revoke(self.permissionType, self[self.primaryKey], key)
     end
 
     function Model:permissionList()
-        return PermissionService.list(self.permissionType, self:get(self.primaryKey))
+        return PermissionService.list(self.permissionType, self[self.primaryKey])
     end
 end
 

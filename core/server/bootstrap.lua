@@ -46,7 +46,7 @@ Citizen.CreateThread(function()
         local migrations = migrationsData.migrations or {}
 
         for _, migration in ipairs(migrations) do
-            local result = Database.querySync('SELECT * FROM migrations WHERE migration = ?', {migration})
+            local result = Database.query('SELECT * FROM migrations WHERE migration = ?', {migration})
             if not result or #result == 0 then
                 print('[Obelisk] Running migration (' .. label .. '): ' .. migration)
                 local migrationModule = LoadResourceFile(GetCurrentResourceName(), basePath .. 'migrations/' .. migration .. '.lua')
@@ -57,7 +57,7 @@ Citizen.CreateThread(function()
                         if migrationTable and migrationTable.up then
                             local success, err = pcall(migrationTable.up)
                             if success then
-                                local res = Database.insertSync('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
+                                local res = Database.insert('INSERT INTO migrations (migration, batch, created_at) VALUES (?, ?, ?)',
                                                   {migration, 1, Database.now()})
                                 print("Result: " .. tostring(res))
                                 print('[Obelisk] Migration completed (' .. label .. '): ' .. migration)
@@ -198,6 +198,11 @@ Obelisk.on('playerConnecting', function(name, setKickReason, deferrals)
 
     Wait(100)
     deferrals.done()
+end)
+
+-- Player disconnection handler - cleanup injury state
+Obelisk.on('playerDropped', function()
+    InjuryService.cancelBleedTimer(source)
 end)
 
 -- Resource stop handler

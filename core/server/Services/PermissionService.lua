@@ -34,18 +34,10 @@ end
 function PermissionService.grant(ownerType, ownerId, key)
     assertRegistered(ownerType)
 
-    local existing = QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):firstSync()
-    if existing then
-        return
-    end
-
-    QueryBuilder.new('permissions'):insert({
+    Permission:firstOrCreate({
         owner_type = ownerType,
         owner_id = ownerId,
         permission_key = key,
-        created_at = Database.now(),
-        updated_at = Database.now(),
     })
 end
 
@@ -55,8 +47,7 @@ end
 function PermissionService.revoke(ownerType, ownerId, key)
     assertRegistered(ownerType)
 
-    QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):delete()
+    Permission:where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):delete()
 end
 
 --- Deletes every grant for this owner, regardless of key. Intended for
@@ -68,8 +59,7 @@ end
 --- @param ownerType string
 --- @param ownerId number
 function PermissionService.revokeAll(ownerType, ownerId)
-    QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):delete()
+    Permission:where('owner_type', ownerType):where('owner_id', ownerId):delete()
 end
 
 --- Direct grant lookup only. No unregistered-type check: a lookup for an
@@ -80,8 +70,7 @@ end
 --- @param key string
 --- @return boolean
 function PermissionService.has(ownerType, ownerId, key)
-    local row = QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):firstSync()
+    local row = Permission:where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):first()
     return row ~= nil
 end
 
@@ -89,8 +78,7 @@ end
 --- @param ownerId number
 --- @return string[] every granted permission_key for this owner
 function PermissionService.list(ownerType, ownerId)
-    local rows = QueryBuilder.new('permissions')
-        :where('owner_type', ownerType):where('owner_id', ownerId):getSync()
+    local rows = Permission:where('owner_type', ownerType):where('owner_id', ownerId):get()
 
     local keys = {}
     for _, row in ipairs(rows) do

@@ -215,6 +215,66 @@ test('delete: builds DELETE with where params', function()
 end)
 
 --------------------------------------------------------------------------------
+-- QueryBuilder insert / update / delete sync + ...Async split
+--------------------------------------------------------------------------------
+test('QueryBuilder.insert: sync form returns insertId with no callback', function()
+    local original = Database.insert
+    Database.insert = function(sql, values) return 42 end
+    local id = QueryBuilder.new('widgets'):insert({name = 'a'})
+    Database.insert = original
+    eq(id, 42, 'insert: sync insertId')
+end)
+
+test('QueryBuilder.insertAsync: calls back with insertId', function()
+    local original = Database.insertAsync
+    local capturedCallback
+    Database.insertAsync = function(sql, values, callback) capturedCallback = callback end
+    local received
+    QueryBuilder.new('widgets'):insertAsync({name = 'a'}, function(id) received = id end)
+    capturedCallback(7)
+    Database.insertAsync = original
+    eq(received, 7, 'insertAsync: callback receives insertId')
+end)
+
+test('QueryBuilder.update: sync form returns affectedRows with no callback', function()
+    local original = Database.update
+    Database.update = function(sql, values) return 3 end
+    local affected = QueryBuilder.new('widgets'):where('id', 1):update({name = 'b'})
+    Database.update = original
+    eq(affected, 3, 'update: sync affectedRows')
+end)
+
+test('QueryBuilder.updateAsync: calls back with affectedRows', function()
+    local original = Database.updateAsync
+    local capturedCallback
+    Database.updateAsync = function(sql, values, callback) capturedCallback = callback end
+    local received
+    QueryBuilder.new('widgets'):where('id', 1):updateAsync({name = 'b'}, function(affected) received = affected end)
+    capturedCallback(1)
+    Database.updateAsync = original
+    eq(received, 1, 'updateAsync: callback receives affectedRows')
+end)
+
+test('QueryBuilder.delete: sync form returns affectedRows with no callback', function()
+    local original = Database.update
+    Database.update = function(sql, values) return 1 end
+    local affected = QueryBuilder.new('widgets'):where('id', 1):delete()
+    Database.update = original
+    eq(affected, 1, 'delete: sync affectedRows')
+end)
+
+test('QueryBuilder.deleteAsync: calls back with affectedRows', function()
+    local original = Database.updateAsync
+    local capturedCallback
+    Database.updateAsync = function(sql, values, callback) capturedCallback = callback end
+    local received
+    QueryBuilder.new('widgets'):where('id', 1):deleteAsync(function(affected) received = affected end)
+    capturedCallback(2)
+    Database.updateAsync = original
+    eq(received, 2, 'deleteAsync: callback receives affectedRows')
+end)
+
+--------------------------------------------------------------------------------
 -- Identifier hardening (SQL-injection defence)
 --------------------------------------------------------------------------------
 test('quoteIdentifier: bare, qualified and star', function()
@@ -275,8 +335,8 @@ end)
 --------------------------------------------------------------------------------
 test('Schema.create: generates a CREATE TABLE statement', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('users', function(t)
         t:id()
@@ -285,7 +345,7 @@ test('Schema.create: generates a CREATE TABLE statement', function()
         t:timestamps()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('CREATE TABLE IF NOT EXISTS `users`', 1, true), 'has CREATE TABLE header')
     truthy(captured:find('`id` INT NOT NULL AUTO_INCREMENT', 1, true), 'has auto-increment id')
@@ -296,15 +356,15 @@ end)
 
 test('Schema.create: updated_at has no ON UPDATE clause (app layer owns it)', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('players', function(t)
         t:id()
         t:timestamps()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('`updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP', 1, true),
         'updated_at defaults to CURRENT_TIMESTAMP')
@@ -313,30 +373,30 @@ end)
 
 test('Blueprint: string() defaults to NOT NULL', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:string('name', 50)
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('`name` VARCHAR(50) NOT NULL', 1, true), 'string() is NOT NULL by default')
 end)
 
 test('Blueprint: nullable() with no args makes the last column optional', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:string('nickname', 50):nullable()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(not captured:find('`nickname` VARCHAR(50) NOT NULL', 1, true), 'nullable() removes NOT NULL')
     truthy(captured:find('`nickname` VARCHAR(50)', 1, true), 'column still present')
@@ -344,30 +404,30 @@ end)
 
 test('Blueprint: nullable(false) makes the last column required, same as the new default', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:integer('count'):nullable(false)
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('`count` INT NOT NULL', 1, true), 'nullable(false) is NOT NULL')
 end)
 
 test('Blueprint: index() with no args uses the last-defined column', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('widgets', function(t)
         t:id()
         t:string('name', 50):index()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('KEY `widgets_name_index` (`name`)', 1, true),
         'index() with no args builds a non-unique index on the last column')
@@ -384,8 +444,8 @@ end)
 
 test('Blueprint: every column builder except id() defaults to NOT NULL', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('kitchen_sink', function(t)
         t:id()
@@ -404,7 +464,7 @@ test('Blueprint: every column builder except id() defaults to NOT NULL', functio
         t:enum('m', {'x', 'y'})
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     for _, col in ipairs({'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'}) do
         truthy(captured:find('`' .. col .. '`.-NOT NULL', 1, false) ~= nil or captured:find('`' .. col .. '` .- NOT NULL'),
@@ -442,14 +502,14 @@ test('Schema.table: a :change()-marked column calls the dialect introspect+alter
     Database.dialect = fakeDialect
 
     local executed = {}
-    local originalQuery = Database.querySync
-    Database.querySync = function(query) table.insert(executed, query) return {} end
+    local originalQuery = Database.query
+    Database.query = function(query) table.insert(executed, query) return {} end
 
     Schema.table('widgets', function(t)
         t:string('name', 50):nullable(false):change()
     end)
 
-    Database.querySync = originalQuery
+    Database.query = originalQuery
     Database.dialect = original
 
     truthy(introspectCalledWith ~= nil, 'introspectColumn was called')
@@ -462,29 +522,29 @@ end)
 
 test('Schema.table: an unmarked column still uses ADD COLUMN (existing behavior)', function()
     local captured = {}
-    local original = Database.querySync
-    Database.querySync = function(query) table.insert(captured, query) return {} end
+    local original = Database.query
+    Database.query = function(query) table.insert(captured, query) return {} end
 
     Schema.table('widgets', function(t)
         t:string('bio', 255)
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured[1]:find('ADD COLUMN', 1, true), 'unmarked column still adds')
 end)
 
 test('Blueprint:foreignId/:constrained: guesses the referenced table and defaults to RESTRICT', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('vehicles', function(t)
         t:id()
         t:foreignId('garage_id'):constrained()
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('FOREIGN KEY (`garage_id`) REFERENCES `garages`(`id`)', 1, true),
         'guesses garages from garage_id')
@@ -493,8 +553,8 @@ end)
 
 test('Blueprint:foreign: the :references():on():onDelete() chain resolves real names', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('items', function(t)
         t:id()
@@ -502,7 +562,7 @@ test('Blueprint:foreign: the :references():on():onDelete() chain resolves real n
         t:foreign('base_item_id'):references('id'):on('base_items'):onDelete('RESTRICT')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     -- Every call site in the codebase chains this with `:`, which passes the
     -- chain table as the first argument - the links must be real methods or
@@ -514,8 +574,8 @@ end)
 
 test('Blueprint:foreign: chaining onDelete then onUpdate registers exactly one key', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('items', function(t)
         t:id()
@@ -523,7 +583,7 @@ test('Blueprint:foreign: chaining onDelete then onUpdate registers exactly one k
         t:foreign('base_item_id'):references('id'):on('base_items'):onDelete('CASCADE'):onUpdate('CASCADE')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     local _, count = captured:gsub('FOREIGN KEY', '')
     eq(count, 1, 'the key is emitted once, not once per terminal call')
@@ -532,15 +592,15 @@ end)
 
 test('Blueprint:foreignId: emits exactly the same column type as :id() (InnoDB FK requirement)', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('vehicles', function(t)
         t:id()
         t:foreignId('garage_id'):constrained('garages')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     -- InnoDB requires the FK column and the referenced column to have an
     -- identical type AND signedness. `id()` emits plain `INT`, so `foreignId`
@@ -556,29 +616,29 @@ end)
 
 test('Blueprint:constrained/:onDelete: overrides the ON DELETE action', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {} end
 
     Schema.create('vehicles', function(t)
         t:id()
         t:foreignId('garage_id'):constrained():onDelete('CASCADE')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(captured:find('ON DELETE CASCADE ON UPDATE RESTRICT', 1, true), 'CASCADE applied, UPDATE still RESTRICT')
 end)
 
 test('Schema.table: ALTER TABLE emits the foreign key constraint too', function()
     local captured = {}
-    local original = Database.querySync
-    Database.querySync = function(query) table.insert(captured, query) return {} end
+    local original = Database.query
+    Database.query = function(query) table.insert(captured, query) return {} end
 
     Schema.table('vehicles', function(t)
         t:foreignId('garage_id'):constrained():onDelete('SET NULL')
     end)
 
-    Database.querySync = original
+    Database.query = original
 
     local addColumn, addConstraint
     for _, sql in ipairs(captured) do
@@ -628,8 +688,8 @@ end)
 test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {} end
 
         Schema.create('users', function(t)
             t:id()
@@ -637,7 +697,7 @@ test('postgres: Schema.create produces SERIAL PRIMARY KEY, no ENGINE clause', fu
             t:boolean('active')
         end)
 
-        Database.querySync = original
+        Database.query = original
 
         truthy(captured:find('CREATE TABLE IF NOT EXISTS "users"', 1, true), 'has CREATE TABLE header')
         truthy(captured:find('"id" SERIAL NOT NULL', 1, true), 'has SERIAL id')
@@ -651,8 +711,8 @@ end)
 test('postgres: plain index becomes a standalone CREATE INDEX, unique stays inline', function()
     withDialect('postgres', function()
         local captured = {}
-        local original = Database.querySync
-        Database.querySync = function(query) table.insert(captured, query) return {} end
+        local original = Database.query
+        Database.query = function(query) table.insert(captured, query) return {} end
 
         Schema.create('players', function(t)
             t:id()
@@ -661,7 +721,7 @@ test('postgres: plain index becomes a standalone CREATE INDEX, unique stays inli
             t:unique('name', 'players_name_unique')
         end)
 
-        Database.querySync = original
+        Database.query = original
 
         eq(#captured, 2, 'one CREATE TABLE + one standalone CREATE INDEX')
         truthy(captured[1]:find('CONSTRAINT "players_name_unique" UNIQUE ("name")', 1, true),
@@ -686,12 +746,12 @@ end)
 --------------------------------------------------------------------------------
 test('mysql: hasTable queries TABLE_SCHEMA = DATABASE()', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {{count = 1}} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {{count = 1}} end
 
     local exists = Schema.hasTable('users')
 
-    Database.querySync = original
+    Database.query = original
     truthy(captured:find('TABLE_SCHEMA = DATABASE()', 1, true), 'uses DATABASE() to scope TABLE_SCHEMA')
     eq(exists, true)
 end)
@@ -699,12 +759,12 @@ end)
 test('postgres: hasTable queries table_catalog/table_schema, not TABLE_SCHEMA = current_database()', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {{count = 1}} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {{count = 1}} end
 
         local exists = Schema.hasTable('users')
 
-        Database.querySync = original
+        Database.query = original
         truthy(captured:find('table_catalog = current_database() AND table_schema = current_schema()', 1, true),
             'scopes by table_catalog + table_schema, not the MySQL-only TABLE_SCHEMA = current_database()')
         truthy(not captured:find('TABLE_SCHEMA = current_database()', 1, true),
@@ -715,22 +775,22 @@ end)
 
 test('postgres: hasTable copes with a string-typed COUNT(*) result (pg returns bigint as string)', function()
     withDialect('postgres', function()
-        local original = Database.querySync
-        Database.querySync = function() return {{count = '0'}} end
+        local original = Database.query
+        Database.query = function() return {{count = '0'}} end
         local exists = Schema.hasTable('users')
-        Database.querySync = original
+        Database.query = original
         eq(exists, false)
     end)
 end)
 
 test('mysql: hasColumn queries TABLE_SCHEMA = DATABASE()', function()
     local captured
-    local original = Database.querySync
-    Database.querySync = function(query) captured = query return {{count = 1}} end
+    local original = Database.query
+    Database.query = function(query) captured = query return {{count = 1}} end
 
     local exists = Schema.hasColumn('users', 'name')
 
-    Database.querySync = original
+    Database.query = original
     truthy(captured:find('TABLE_SCHEMA = DATABASE()', 1, true), 'uses DATABASE() to scope TABLE_SCHEMA')
     eq(exists, true)
 end)
@@ -738,12 +798,12 @@ end)
 test('postgres: hasColumn queries table_catalog/table_schema', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {{count = '1'}} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {{count = '1'}} end
 
         local exists = Schema.hasColumn('users', 'name')
 
-        Database.querySync = original
+        Database.query = original
         truthy(captured:find('table_catalog = current_database() AND table_schema = current_schema()', 1, true),
             'scopes by table_catalog + table_schema')
         eq(exists, true, 'a string "1" count (as pg returns) must still compare as existing')
@@ -751,32 +811,32 @@ test('postgres: hasColumn queries table_catalog/table_schema', function()
 end)
 
 --------------------------------------------------------------------------------
--- QueryBuilder:count / countSync coping with string-typed pg results
+-- QueryBuilder:count / countAsync coping with string-typed pg results
 --------------------------------------------------------------------------------
-test('countSync: coerces a string count (pg bigint) to a number', function()
+test('count (sync): coerces a string count (pg bigint) to a number', function()
     local qb = QueryBuilder.new('users')
-    qb.firstSync = function() return {count = '3'} end
-    local result = qb:countSync()
+    qb.first = function() return {count = '3'} end
+    local result = qb:count()
     eq(result, 3)
 end)
 
 test('count (async): coerces a string count (pg bigint) to a number', function()
     local qb = QueryBuilder.new('users')
-    qb.first = function(_, callback) callback({count = '7'}) end
+    qb.firstAsync = function(_, callback) callback({count = '7'}) end
     local received
-    qb:count(function(n) received = n end)
+    qb:countAsync(function(n) received = n end)
     eq(received, 7)
 end)
 
 test('postgres: renameColumn uses RENAME COLUMN, not CHANGE', function()
     withDialect('postgres', function()
         local captured
-        local original = Database.querySync
-        Database.querySync = function(query) captured = query return {} end
+        local original = Database.query
+        Database.query = function(query) captured = query return {} end
 
         Schema.renameColumn('users', 'old_name', 'new_name')
 
-        Database.querySync = original
+        Database.query = original
         eq(captured, 'ALTER TABLE "users" RENAME COLUMN "old_name" TO "new_name"')
     end)
 end)
@@ -800,7 +860,7 @@ test('BaseModel.createSync: writes DATETIME-formatted timestamps', function()
         Player.primaryKey = 'id'
         Player.timestamps = true
 
-        local player = Player:createSync({name = 'bob'})
+        local player = Player:create({name = 'bob'})
 
         eq(player.attributes.id, 1)
         truthy(player.attributes.created_at:match('^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d$'),
@@ -816,7 +876,7 @@ test('BaseModel query proxy: Model:where(...) starts a query directly', function
         Player.table = 'players'
         Player.primaryKey = 'id'
 
-        Player:where('level', '>=', 10):orderBy('name'):limit(5):getSync()
+        Player:where('level', '>=', 10):orderBy('name'):limit(5):get()
 
         eq(get().query, 'SELECT * FROM `players` WHERE `level` >= ? ORDER BY `name` ASC LIMIT 5')
         eqList(get().params, {10})
@@ -828,7 +888,7 @@ test('BaseModel query proxy: works on an extend()-based subclass too', function(
         local Item = BaseModel:extend('items')
         Item.primaryKey = 'id'
 
-        Item:whereIn('kind', {'weapon', 'armor'}):getSync()
+        Item:whereIn('kind', {'weapon', 'armor'}):get()
 
         eq(get().query, 'SELECT * FROM `items` WHERE `kind` IN (?, ?)')
         eqList(get().params, {'weapon', 'armor'})
@@ -850,7 +910,7 @@ test('BaseModel casts: json cast field decodes from a JSON string on find', func
     Widget.timestamps = false
     Widget.casts = { meta = 'json' }
 
-    local widget = Widget:findSync(1)
+    local widget = Widget:find(1)
     Database.executeQuery = original
 
     truthy(type(widget.attributes.meta) == 'table', 'meta decoded into a table')
@@ -872,7 +932,7 @@ test('BaseModel casts: json cast field is JSON-encoded for the write, stays a ta
         widget.primaryKey = Widget.primaryKey
         widget.timestamps = Widget.timestamps
         widget.casts = Widget.casts
-        widget:saveSync()
+        widget:save()
 
         truthy(type(widget.attributes.meta) == 'table', 'in-memory meta stays a table after save')
 
@@ -896,10 +956,674 @@ test('BaseModel casts: malformed json cast field decodes to an empty table, no e
     Widget.timestamps = false
     Widget.casts = { meta = 'json' }
 
-    local widget = Widget:findSync(1)
+    local widget = Widget:find(1)
     Database.executeQuery = original
 
     eqList(widget.attributes.meta, {})
+end)
+
+--------------------------------------------------------------------------------
+-- BaseModel find()/load() must not double-wrap model instances
+--
+-- newQuery() attaches `.model`, so first()/get() (and their Async variants)
+-- are already model-aware since Task 6: they decode JSON casts and wrap rows
+-- via newFromQuery() themselves. find()/load() used to call newFromQuery()
+-- again on that already-wrapped instance, treating the whole instance object
+-- (its `table`/`hidden`/`casts`/`exists`/`relations`/etc. keys) as if it were
+-- a raw DB row. These tests assert on the STRUCTURE of `.attributes` and on
+-- the actual SQL save() emits -- checks the existing `.field`-access tests
+-- don't cover, since `.field` resolves through the metatable and doesn't
+-- reveal what's actually sitting inside `.attributes`.
+--------------------------------------------------------------------------------
+test('BaseModel find: does not double-wrap - attributes contains only real db columns', function()
+    local original = Database.executeQuery
+    Database.executeQuery = function(query, params)
+        return {{ id = 1, name = 'gizmo' }}
+    end
+
+    local Widget = setmetatable({}, {__index = BaseModel})
+    Widget.table = 'widgets'
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+
+    local widget = Widget:find(1)
+    Database.executeQuery = original
+
+    local keys = {}
+    for k in pairs(widget.attributes) do keys[#keys + 1] = k end
+    table.sort(keys)
+    eqList(keys, {'id', 'name'},
+        'attributes should contain only real db columns, not instance internals like table/hidden/casts/exists')
+end)
+
+test('BaseModel find: save() after find() emits UPDATE with real column names, not instance internals', function()
+    local original = Database.executeQuery
+    local updateQuery, updateParams
+    Database.executeQuery = function(query, params)
+        if query:find('^SELECT') then
+            return {{ id = 1, name = 'gizmo' }}
+        end
+        updateQuery = query
+        updateParams = params
+        return {affectedRows = 1}
+    end
+
+    local Widget = setmetatable({}, {__index = BaseModel})
+    Widget.table = 'widgets'
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+
+    local widget = Widget:find(1)
+    widget:set('name', 'sprocket')
+    widget:save()
+    Database.executeQuery = original
+
+    truthy(updateQuery ~= nil, 'save() issued an UPDATE')
+    truthy(updateQuery:find('UPDATE `widgets` SET', 1, true), 'update statement targets the widgets table')
+    truthy(updateQuery:find('`name` = ?', 1, true), 'update sets the real `name` column')
+    truthy(updateQuery:find('`id` = ?', 1, true), 'update sets the real `id` column')
+    falsy(updateQuery:find('`table`', 1, true), 'does not attempt to write the internal `table` field')
+    falsy(updateQuery:find('`attributes`', 1, true), 'does not attempt to write the internal `attributes` field')
+    falsy(updateQuery:find('`exists`', 1, true), 'does not attempt to write the internal `exists` field')
+    falsy(updateQuery:find('`hidden`', 1, true), 'does not attempt to write the internal `hidden` field')
+    falsy(updateQuery:find('`casts`', 1, true), 'does not attempt to write the internal `casts` field')
+    falsy(updateQuery:find('`relations`', 1, true), 'does not attempt to write the internal `relations` field')
+    eq(#updateParams, 3, 'SET id, SET name, WHERE id -- only real columns, none of the ~9 instance internals')
+end)
+
+test('BaseModel load: hasMany does not double-wrap related model instances', function()
+    -- extend() (not the raw setmetatable({}, {__index = BaseModel}) pattern
+    -- used elsewhere in this file) is required here because it makes
+    -- instances resolve custom methods like `orders()` via the child's own
+    -- __index, which `self[relationName](self)` inside load() depends on.
+    local Customer = BaseModel:extend('customers')
+    Customer.primaryKey = 'id'
+    Customer.timestamps = false
+
+    local Order = BaseModel:extend('orders')
+    Order.primaryKey = 'id'
+    Order.timestamps = false
+
+    function Customer:orders() return self:hasMany(Order, 'customer_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `customers`') then
+            return {{ id = 1, name = 'Ada' }}
+        elseif sql:find('FROM `orders`') then
+            return {{ id = 10, customer_id = 1, total = 5 }}
+        end
+        return {}
+    end
+
+    local customer = Customer:find(1)
+    local orders = customer:load('orders')
+    Database.query = original
+
+    eq(#orders, 1)
+    local keys = {}
+    for k in pairs(orders[1].attributes) do keys[#keys + 1] = k end
+    table.sort(keys)
+    eqList(keys, {'customer_id', 'id', 'total'},
+        'related instance attributes should contain only real db columns')
+end)
+
+test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that column, not id', function()
+    local Action = BaseModel:extend('actions')
+    Action.primaryKey = 'id'
+    Action.timestamps = false
+
+    local ScheduledJob = BaseModel:extend('scheduled_jobs')
+    ScheduledJob.primaryKey = 'id'
+    ScheduledJob.timestamps = false
+
+    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'name') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `scheduled_jobs`') then
+            return {{ id = 1, action_id = 'give_item' }}
+        elseif sql:find('FROM `actions`') then
+            eqList(params, {'give_item'}, 'belongsTo: queried by ownerKey value, not the jobs.id row id')
+            return {{ id = 99, name = 'give_item', label = 'Give Item' }}
+        end
+        return {}
+    end
+
+    local job = ScheduledJob:find(1)
+    local action = job:load('action')
+    Database.query = original
+
+    truthy(action, 'belongsTo: related row found via ownerKey match')
+    eq(action.label, 'Give Item', 'belongsTo: correct row returned despite id (99) != foreignValue (give_item)')
+end)
+
+test('BaseModel hasMany/hasOne: foreignKey defaults to singularize(self.table) .. "_id"', function()
+    local Character = BaseModel:extend('characters')
+    local ShellOwner = BaseModel:extend('shell_owners')
+    function Character.relations:shellOwners() return self:hasMany(ShellOwner) end
+
+    local capturedParams
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `characters`') then return {{ id = 1 }} end
+        if sql:find('FROM `shell_owners`') then
+            capturedParams = params
+            return {{ id = 10, character_id = 1, shell_id = 5 }}
+        end
+        return {}
+    end
+
+    local character = Character:find(1)
+    local owners = character.shellOwners
+    Database.query = original
+
+    eq(#owners, 1)
+    eqList(capturedParams, {1}, 'hasMany with no explicit foreignKey should filter by character_id')
+end)
+
+test('BaseModel.relations: bare property access lazily resolves and caches', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+
+    function Customer.relations:orders()
+        return self:hasMany(Order, 'customer_id')
+    end
+
+    local queryCount = 0
+    Database.query = function(sql)
+        queryCount = queryCount + 1
+        if sql:find('FROM `customers`') then return {{ id = 1, name = 'Ada' }} end
+        if sql:find('FROM `orders`') then return {{ id = 10, customer_id = 1, total = 5 }} end
+        return {}
+    end
+
+    local customer = Customer:find(1)
+    local orders = customer.orders
+    eq(#orders, 1, 'bare .orders should lazily resolve via Model.relations')
+    eq(orders[1].total, 5)
+
+    local queryCountAfterFirst = queryCount
+    local ordersAgain = customer.orders
+    eq(ordersAgain, orders, 'second access should return the cached table')
+    eq(queryCount, queryCountAfterFirst, 'second access should not requery')
+end)
+
+test('BaseModel.relations: does not collide with regular methods', function()
+    local Widget = BaseModel:extend('widgets')
+    function Widget:describe() return 'a widget' end
+
+    local widget = Widget.new({id = 1})
+    eq(widget:describe(), 'a widget', 'a plain method (not registered via .relations) is untouched')
+end)
+
+test('BaseModel:relation() returns the descriptor, both from a class and an instance', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local fromClass = Customer:relation('orders')
+    eq(fromClass.type, 'hasMany')
+    eq(fromClass.relatedModel, Order)
+
+    local customer = Customer.new({id = 1})
+    local fromInstance = customer:relation('orders')
+    eq(fromInstance.type, 'hasMany')
+    eq(fromInstance.relatedModel, Order)
+end)
+
+test('BaseModel.relations: old-style (function directly on the model) relations still work via :with()', function()
+    -- Backward compatibility: `function Model:xRelation() return
+    -- self:hasOne(...) end` (not registered via `Model.relations`) must
+    -- keep working for :with()/eagerLoad -- it just doesn't get the new
+    -- bare-property lazy-load behavior.
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer:ordersRelation() return self:hasMany(Order, 'customer_id') end
+
+    Database.query = function(sql)
+        if sql:find('FROM `customers`') then return {{ id = 1, name = 'Ada' }} end
+        if sql:find('FROM `orders`') then return {{ id = 10, customer_id = 1, total = 5 }} end
+        return {}
+    end
+
+    local customers = Customer:with('ordersRelation'):get()
+    eq(#customers[1].ordersRelation, 1, 'old-style definer still eager-loads via :with()')
+end)
+
+test('BaseModel instance: .field reads attributes directly', function()
+    local Widget = BaseModel:extend('widgets')
+    local widget = Widget.new({id = 1, name = 'gizmo'})
+    eq(widget.name, 'gizmo', '.field should read attributes.field')
+    eq(widget.attributes.name, 'gizmo', '.attributes.field should still work')
+end)
+
+test('BaseModel instance: .field falls through to relations then methods', function()
+    local Widget = BaseModel:extend('widgets')
+    function Widget:describe() return 'a widget' end
+    local widget = Widget.new({id = 1})
+    widget.relations.owner = {id = 9}
+    eq(widget.owner.id, 9, '.field should fall through to relations')
+    eq(widget:describe(), 'a widget', 'method calls should still resolve')
+end)
+
+test('BaseModel: get(key) attribute getter is removed', function()
+    local Widget = BaseModel:extend('widgets')
+    local widget = Widget.new({id = 1})
+    -- get() is now the query-fetch method (class-level); calling it as an
+    -- instance attribute getter with a key arg is no longer supported.
+    truthy(widget.get == nil or type(widget.get) == 'function', 'get should not be an attribute getter')
+end)
+
+test('BaseModel: get() (no filter) decodes JSON casts and returns model instances', function()
+    local Category = BaseModel:extend('categories')
+    Category.casts = {fields = 'json'}
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        return {{id = 1, fields = '{"color":"red"}'}}
+    end
+
+    local results = Category:get()
+    Database.query = original
+
+    eq(#results, 1, 'get(): one row')
+    truthy(type(results[1].fields) == 'table', 'get(): json cast decoded')
+    eq(results[1].fields.color, 'red', 'get(): decoded value correct')
+    eq(results[1].id, 1, 'get(): .field access on wrapped instance')
+end)
+
+test('BaseModel: where(...):get() (filtered) also decodes and wraps', function()
+    local Category = BaseModel:extend('categories')
+    Category.casts = {fields = 'json'}
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        return {{id = 2, fields = '{"color":"blue"}'}}
+    end
+
+    local results = Category:where('id', 2):get()
+    Database.query = original
+
+    eq(results[1].fields.color, 'blue', 'where():get(): decoded value correct')
+end)
+
+test('QueryBuilder.get(): bare QueryBuilder (no model) returns raw rows', function()
+    local original = Database.query
+    Database.query = function(sql, params) return {{id = 1, fields = '{"a":1}'}} end
+    local results = QueryBuilder.new('categories'):get()
+    Database.query = original
+
+    eq(type(results[1].fields), 'string', 'bare QueryBuilder: no decoding, still a string')
+end)
+
+test('BaseModel.with: single-level eager load batches into one query per relation', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Order:customer() return self:belongsTo(Customer, 'customer_id') end
+
+    local queries = {}
+    local original = Database.query
+    Database.query = function(sql, params)
+        table.insert(queries, sql)
+        if sql:find('FROM `orders`') then
+            return {{id = 1, customer_id = 10}, {id = 2, customer_id = 11}}
+        elseif sql:find('FROM `customers`') then
+            eqList(params, {10, 11}, 'with: customer_id IN batch')
+            return {{id = 10, name = 'Alice'}, {id = 11, name = 'Bob'}}
+        end
+        return {}
+    end
+
+    local orders = Order:with('customer'):get()
+    Database.query = original
+
+    eq(#orders, 2, 'with: base rows returned')
+    eq(orders[1].customer.name, 'Alice', 'with: relation attached and .field-readable')
+    eq(orders[2].customer.name, 'Bob', 'with: relation attached and .field-readable')
+end)
+
+test('BaseModel.with: nested dot-path batches one query per segment', function()
+    local Address = BaseModel:extend('addresses')
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Order:customer() return self:belongsTo(Customer, 'customer_id') end
+    function Customer:address() return self:hasOne(Address, 'customer_id') end
+
+    local queryCount = 0
+    local original = Database.query
+    Database.query = function(sql, params)
+        queryCount = queryCount + 1
+        if sql:find('FROM `orders`') then
+            return {{id = 1, customer_id = 10}}
+        elseif sql:find('FROM `customers`') then
+            return {{id = 10, name = 'Alice'}}
+        elseif sql:find('FROM `addresses`') then
+            return {{id = 100, customer_id = 10, city = 'Metropolis'}}
+        end
+        return {}
+    end
+
+    local orders = Order:with('customer.address'):get()
+    Database.query = original
+
+    eq(queryCount, 3, 'with nested: exactly 3 queries (base + 2 segments)')
+    eq(orders[1].customer.address.city, 'Metropolis', 'with nested: deep .field access resolves')
+end)
+
+test('BaseModel.with: hasMany batches into an array per instance via .field access', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer:orders() return self:hasMany(Order, 'customer_id') end
+
+    local queryCount = 0
+    local original = Database.query
+    Database.query = function(sql, params)
+        queryCount = queryCount + 1
+        if sql:find('FROM `customers`') then
+            return {{id = 10, name = 'Alice'}, {id = 11, name = 'Bob'}}
+        elseif sql:find('FROM `orders`') then
+            eqList(params, {10, 11}, 'with hasMany: customer_id IN batch')
+            return {
+                {id = 1, customer_id = 10, total = 5},
+                {id = 2, customer_id = 10, total = 7},
+                {id = 3, customer_id = 11, total = 9},
+            }
+        end
+        return {}
+    end
+
+    local customers = Customer:with('orders'):get()
+    Database.query = original
+
+    eq(queryCount, 2, 'with hasMany: exactly 2 queries (base + relation)')
+    eq(#customers[1].orders, 2, 'with hasMany: first customer gets both matching orders')
+    eq(#customers[2].orders, 1, 'with hasMany: second customer gets only its own order')
+    eq(customers[1].orders[1].total, 5, 'with hasMany: .field access on nested order')
+    eq(customers[1].orders[2].total, 7, 'with hasMany: .field access on nested order')
+    eq(customers[2].orders[1].total, 9, 'with hasMany: .field access on nested order')
+end)
+
+test('BaseModel.with: belongsToMany assigns each instance only its own related rows', function()
+    local Tag = BaseModel:extend('tags')
+    local Post = BaseModel:extend('posts')
+    function Post:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then
+            return {{id = 1, title = 'First'}, {id = 2, title = 'Second'}, {id = 3, title = 'Third'}}
+        elseif sql:find('FROM `tags`') then
+            -- Post 1 -> tag A only, Post 2 -> tag B only, Post 3 -> no tags.
+            return {
+                {id = 100, name = 'A', post_id = 1},
+                {id = 200, name = 'B', post_id = 2},
+            }
+        end
+        return {}
+    end
+
+    local posts = Post:with('tags'):get()
+    Database.query = original
+
+    eq(#posts, 3, 'belongsToMany: base rows returned')
+    eq(#posts[1].tags, 1, 'belongsToMany: post 1 gets only its own tag')
+    eq(posts[1].tags[1].name, 'A', 'belongsToMany: post 1 tag is A')
+    eq(#posts[2].tags, 1, 'belongsToMany: post 2 gets only its own tag')
+    eq(posts[2].tags[1].name, 'B', 'belongsToMany: post 2 tag is B')
+    eq(#posts[3].tags, 0, 'belongsToMany: post 3 has no tags')
+end)
+
+test('BaseModel.with: belongsToMany interns one shared instance per related row so nested paths populate for every owner', function()
+    local Creator = BaseModel:extend('creators')
+    local Tag = BaseModel:extend('tags')
+    local Post = BaseModel:extend('posts')
+    function Post:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+    function Tag:creator() return self:hasOne(Creator, 'tag_id') end
+
+    local creatorQueryCount = 0
+    local creatorWhereInParams = nil
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then
+            return {{id = 1, title = 'First'}, {id = 2, title = 'Second'}}
+        elseif sql:find('FROM `tags`') then
+            -- Both posts share the SAME tag (id = 100) via two distinct
+            -- pivot rows.
+            return {
+                {id = 100, name = 'A', post_id = 1},
+                {id = 100, name = 'A', post_id = 2},
+            }
+        elseif sql:find('FROM `creators`') then
+            creatorQueryCount = creatorQueryCount + 1
+            creatorWhereInParams = params
+            return {{id = 1000, tag_id = 100, name = 'Ada'}}
+        end
+        return {}
+    end
+
+    local posts = Post:with('tags.creator'):get()
+    Database.query = original
+
+    eq(#posts, 2, 'shared tag: both base posts returned')
+    eq(creatorQueryCount, 1, 'shared tag: creator segment batched into exactly one query')
+    eqList(creatorWhereInParams, {100}, 'shared tag: dedup collapses both pivot rows to the one shared tag id')
+    eq(posts[1].tags[1].creator.name, 'Ada', 'shared tag: post 1 tag creator populated')
+    eq(posts[2].tags[1].creator.name, 'Ada', 'shared tag: post 2 tag creator populated')
+    eq(posts[1].tags[1], posts[2].tags[1], 'shared tag: both posts reference the SAME interned tag instance')
+end)
+
+test('BaseModel.with: nested dot-path dedups shared related instances before the next batch', function()
+    local Customer = BaseModel:extend('customers')
+    local Address = BaseModel:extend('addresses')
+    local Order = BaseModel:extend('orders')
+    function Order:customer() return self:belongsTo(Customer, 'customer_id') end
+    function Customer:address() return self:hasOne(Address, 'customer_id') end
+
+    local addressWhereInParams = nil
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `orders`') then
+            -- 3 orders all sharing the same customer_id = 10.
+            return {
+                {id = 1, customer_id = 10},
+                {id = 2, customer_id = 10},
+                {id = 3, customer_id = 10},
+            }
+        elseif sql:find('FROM `customers`') then
+            return {{id = 10, name = 'Alice'}}
+        elseif sql:find('FROM `addresses`') then
+            addressWhereInParams = params
+            return {{id = 100, customer_id = 10, city = 'Metropolis'}}
+        end
+        return {}
+    end
+
+    local orders = Order:with('customer.address'):get()
+    Database.query = original
+
+    eq(#orders, 3, 'dedup: all 3 base orders returned')
+    eqList(addressWhereInParams, {10}, 'dedup: address query received the shared customer id only once')
+    eq(orders[1].customer.address.city, 'Metropolis', 'dedup: deep .field access still resolves')
+    eq(orders[3].customer.address.city, 'Metropolis', 'dedup: deep .field access still resolves for all orders')
+end)
+
+--------------------------------------------------------------------------------
+-- BaseModel firstOrNew / firstOrCreate / updateOrCreate / firstOr
+--------------------------------------------------------------------------------
+test('BaseModel.firstOrNew: found match returns it, issues no write query', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local wroteAnything = false
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function(sql, params)
+        eq(sql, 'SELECT * FROM `widgets` WHERE `sku` = ? LIMIT 1')
+        eqList(params, {'abc'})
+        return {{id = 1, sku = 'abc', name = 'gizmo'}}
+    end
+    Database.insert = function() wroteAnything = true return 99 end
+
+    local widget = Widget:firstOrNew({sku = 'abc'}, {name = 'ignored'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    falsy(wroteAnything, 'firstOrNew: found match must not write')
+    eq(widget.sku, 'abc')
+    eq(widget.name, 'gizmo', 'firstOrNew: found match keeps its own values, ignores `values` param')
+    truthy(widget.exists, 'firstOrNew: found match is already persisted')
+end)
+
+test('BaseModel.firstOrNew: no match returns an unsaved instance with merged attributes', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local wroteAnything = false
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function() wroteAnything = true return 99 end
+
+    local widget = Widget:firstOrNew({sku = 'abc'}, {name = 'new gizmo'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    falsy(wroteAnything, 'firstOrNew: no match must not save -- caller calls save() themselves')
+    falsy(widget.exists, 'firstOrNew: no match returns an unsaved instance')
+    eq(widget.sku, 'abc', 'firstOrNew: no match carries the lookup attributes')
+    eq(widget.name, 'new gizmo', 'firstOrNew: no match carries the values attributes')
+end)
+
+test('BaseModel.firstOrCreate: found match returns it, issues no write query', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local wroteAnything = false
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {{id = 1, sku = 'abc', name = 'gizmo'}} end
+    Database.insert = function() wroteAnything = true return 99 end
+
+    local widget = Widget:firstOrCreate({sku = 'abc'}, {name = 'ignored'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    falsy(wroteAnything, 'firstOrCreate: found match must not write')
+    eq(widget.name, 'gizmo')
+end)
+
+test('BaseModel.firstOrCreate: no match creates and saves the merged attributes', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local insertedSql, insertedValues
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function(sql, values) insertedSql, insertedValues = sql, values return 42 end
+
+    local widget = Widget:firstOrCreate({sku = 'abc'}, {name = 'new gizmo'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    truthy(insertedSql ~= nil, 'firstOrCreate: no match issues an INSERT')
+    truthy(insertedSql:find('INSERT INTO `widgets`', 1, true))
+    truthy(widget.exists, 'firstOrCreate: no match returns a saved instance')
+    eq(widget.id, 42)
+    eq(widget.sku, 'abc')
+    eq(widget.name, 'new gizmo')
+end)
+
+test('BaseModel.firstOrCreateAsync: no match creates via the async path', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local originalQueryAsync, originalInsertAsync = Database.queryAsync, Database.insertAsync
+    Database.queryAsync = function(sql, params, callback) callback({}) end
+    Database.insertAsync = function(sql, values, callback) callback(7) end
+
+    local received
+    Widget:firstOrCreateAsync({sku = 'abc'}, {name = 'async gizmo'}, function(widget) received = widget end)
+    Database.queryAsync, Database.insertAsync = originalQueryAsync, originalInsertAsync
+
+    truthy(received ~= nil, 'firstOrCreateAsync: callback received an instance')
+    eq(received.id, 7)
+    eq(received.name, 'async gizmo')
+    truthy(received.exists, 'firstOrCreateAsync: callback instance is saved')
+end)
+
+test('BaseModel.updateOrCreate: found match applies values and saves an UPDATE', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local updatedSql, updatedValues
+    local originalQuery, originalUpdate = Database.query, Database.update
+    Database.query = function() return {{id = 1, sku = 'abc', name = 'old name'}} end
+    Database.update = function(sql, values) updatedSql, updatedValues = sql, values return 1 end
+
+    local widget = Widget:updateOrCreate({sku = 'abc'}, {name = 'new name'})
+    Database.query, Database.update = originalQuery, originalUpdate
+
+    truthy(updatedSql ~= nil, 'updateOrCreate: found match issues an UPDATE')
+    truthy(updatedSql:find('UPDATE `widgets`', 1, true))
+    eq(widget.name, 'new name', 'updateOrCreate: found match applies the values param')
+end)
+
+test('BaseModel.updateOrCreate: no match creates the merged attributes', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local insertedValues
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function(sql, values) insertedValues = values return 42 end
+
+    local widget = Widget:updateOrCreate({sku = 'abc'}, {name = 'new gizmo'})
+    Database.query, Database.insert = originalQuery, originalInsert
+
+    truthy(insertedValues ~= nil, 'updateOrCreate: no match issues an INSERT')
+    eq(widget.sku, 'abc')
+    eq(widget.name, 'new gizmo')
+end)
+
+test('BaseModel.updateOrCreateAsync: found match applies values via the async path', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local originalQueryAsync, originalUpdateAsync = Database.queryAsync, Database.updateAsync
+    Database.queryAsync = function(sql, params, callback) callback({{id = 1, sku = 'abc', name = 'old name'}}) end
+    Database.updateAsync = function(sql, values, callback) callback(1) end
+
+    local received
+    Widget:updateOrCreateAsync({sku = 'abc'}, {name = 'async new name'}, function(widget) received = widget end)
+    Database.queryAsync, Database.updateAsync = originalQueryAsync, originalUpdateAsync
+
+    truthy(received ~= nil, 'updateOrCreateAsync: callback received an instance')
+    eq(received.name, 'async new name')
+end)
+
+test('QueryBuilder.firstOr: returns the found row without calling the fallback', function()
+    local original = Database.query
+    Database.query = function() return {{id = 1, sku = 'abc'}} end
+
+    local fallbackCalled = false
+    local result = QueryBuilder.new('widgets'):where('sku', 'abc'):firstOr(function()
+        fallbackCalled = true
+        return 'fallback value'
+    end)
+    Database.query = original
+
+    falsy(fallbackCalled, 'firstOr: fallback must not run when a row is found')
+    truthy(result ~= nil and result ~= 'fallback value', 'firstOr: returns the found row')
+end)
+
+test('QueryBuilder.firstOr: calls and returns the fallback when nothing is found', function()
+    local original = Database.query
+    Database.query = function() return {} end
+
+    local result = QueryBuilder.new('widgets'):where('sku', 'missing'):firstOr(function()
+        return 'fallback value'
+    end)
+    Database.query = original
+
+    eq(result, 'fallback value', 'firstOr: returns the fallback callback\'s return value')
+end)
+
+test('BaseModel.firstOr: proxied onto the model like get/first', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local original = Database.query
+    Database.query = function() return {} end
+
+    local result = Widget:where('sku', 'missing'):firstOr(function() return 'default widget' end)
+    Database.query = original
+
+    eq(result, 'default widget', 'BaseModel.firstOr: proxies through to QueryBuilder.firstOr')
 end)
 
 --------------------------------------------------------------------------------
@@ -1167,15 +1891,15 @@ end)
 test('MySQLDialect.introspectColumn: queries information_schema and parses the row', function()
     local MySQLDialect = Dialects.resolve('mysql')
     local capturedSql, capturedParams
-    local original = Database.querySync
-    Database.querySync = function(sql, params)
+    local original = Database.query
+    Database.query = function(sql, params)
         capturedSql, capturedParams = sql, params
         return {{DATA_TYPE = 'varchar', CHARACTER_MAXIMUM_LENGTH = 100, COLUMN_TYPE = 'varchar(100)', IS_NULLABLE = 'YES', COLUMN_DEFAULT = nil}}
     end
 
     local info = MySQLDialect.introspectColumn('widgets', 'name')
 
-    Database.querySync = original
+    Database.query = original
 
     truthy(capturedSql:find('information_schema.COLUMNS', 1, true), 'queries information_schema.COLUMNS')
     truthy(capturedSql:find('COLUMN_TYPE', 1, true), 'selects COLUMN_TYPE')
@@ -1189,12 +1913,12 @@ end)
 
 test('MySQLDialect.introspectColumn: returns nil when the column does not exist', function()
     local MySQLDialect = Dialects.resolve('mysql')
-    local original = Database.querySync
-    Database.querySync = function() return {} end
+    local original = Database.query
+    Database.query = function() return {} end
 
     local info = MySQLDialect.introspectColumn('widgets', 'ghost')
 
-    Database.querySync = original
+    Database.query = original
 
     eq(info, nil)
 end)
@@ -1285,15 +2009,15 @@ test('PostgresDialect.introspectColumn: queries information_schema.columns and p
     withDialect('postgres', function()
         local PostgresDialect = Dialects.resolve('postgres')
         local capturedSql, capturedParams
-        local original = Database.querySync
-        Database.querySync = function(sql, params)
+        local original = Database.query
+        Database.query = function(sql, params)
             capturedSql, capturedParams = sql, params
             return {{data_type = 'character varying', character_maximum_length = 100, is_nullable = 'YES', column_default = nil}}
         end
 
         local info = PostgresDialect.introspectColumn('widgets', 'name')
 
-        Database.querySync = original
+        Database.query = original
 
         truthy(capturedSql:find('information_schema.columns', 1, true), 'queries information_schema.columns')
         eqList(capturedParams, {'widgets', 'name'})
@@ -1306,12 +2030,12 @@ end)
 test('PostgresDialect.introspectColumn: returns nil when the column does not exist', function()
     withDialect('postgres', function()
         local PostgresDialect = Dialects.resolve('postgres')
-        local original = Database.querySync
-        Database.querySync = function() return {} end
+        local original = Database.query
+        Database.query = function() return {} end
 
         local info = PostgresDialect.introspectColumn('widgets', 'ghost')
 
-        Database.querySync = original
+        Database.query = original
 
         eq(info, nil)
     end)
@@ -1346,8 +2070,455 @@ test('PostgresDialect.alterModifyColumnStatements: reverting to nullable emits D
 end)
 
 --------------------------------------------------------------------------------
+-- morphOne / morphMany / morphTo
+--------------------------------------------------------------------------------
+test('BaseModel load: morphOne returns the single related row for this owner', function()
+    local ATMMachine = BaseModel:extend('atm_machines')
+    ATMMachine.primaryKey = 'id'
+    ATMMachine.timestamps = false
+
+    local Interaction = BaseModel:extend('interactions')
+    Interaction.primaryKey = 'id'
+    Interaction.timestamps = false
+
+    function ATMMachine.relations:interaction()
+        return self:morphOne(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
+    end
+
+    local queriedSql, queriedParams
+    local original = Database.query
+    Database.query = function(sql, params)
+        queriedSql = sql
+        queriedParams = params
+        if sql:find('FROM `atm_machines`') then
+            return {{ id = 5, name = 'Test ATM' }}
+        elseif sql:find('FROM `interactions`') then
+            return {{ id = 99, owner_type = 'ATMMachine', owner_id = 5, x = 1.0, label = 'Use ATM' }}
+        end
+        return {}
+    end
+
+    local atm = ATMMachine:find(5)
+    local interaction = atm:load('interaction')
+    Database.query = original
+
+    truthy(interaction, 'morphOne: related row found')
+    eq(interaction.id, 99, 'morphOne: correct row returned')
+    eq(interaction.label, 'Use ATM', 'morphOne: correct field value')
+    truthy(queriedSql:find('owner_type'), 'morphOne: query filters by owner_type')
+    truthy(queriedSql:find('owner_id'), 'morphOne: query filters by owner_id')
+end)
+
+test('BaseModel load: morphOne returns nil when no matching row exists', function()
+    local Widget = BaseModel:extend('widgets')
+    Widget.primaryKey = 'id'
+    Widget.timestamps = false
+
+    local Tag = BaseModel:extend('tags')
+    Tag.primaryKey = 'id'
+    Tag.timestamps = false
+
+    function Widget.relations:tag() return self:morphOne(Tag, 'owner_id', 'owner_type', 'Widget') end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `widgets`') then return {{ id = 1 }} end
+        return {}
+    end
+
+    local widget = Widget:find(1)
+    local tag = widget:load('tag')
+    Database.query = original
+
+    falsy(tag, 'morphOne: nil returned when no related row exists')
+end)
+
+test('BaseModel load: morphMany returns all related rows for this owner', function()
+    local Post = BaseModel:extend('posts')
+    Post.primaryKey = 'id'
+    Post.timestamps = false
+
+    local Comment = BaseModel:extend('comments')
+    Comment.primaryKey = 'id'
+    Comment.timestamps = false
+
+    function Post.relations:comments()
+        return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
+    end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then return {{ id = 10 }} end
+        if sql:find('FROM `comments`') then
+            return {
+                { id = 1, owner_type = 'Post', owner_id = 10, body = 'First' },
+                { id = 2, owner_type = 'Post', owner_id = 10, body = 'Second' },
+            }
+        end
+        return {}
+    end
+
+    local post = Post:find(10)
+    local comments = post:load('comments')
+    Database.query = original
+
+    eq(#comments, 2, 'morphMany: both related rows returned')
+    eq(comments[1].body, 'First', 'morphMany: first row body correct')
+    eq(comments[2].body, 'Second', 'morphMany: second row body correct')
+end)
+
+test('BaseModel load: morphMany returns empty table when no related rows exist', function()
+    local Post = BaseModel:extend('posts')
+    Post.primaryKey = 'id'
+    Post.timestamps = false
+
+    local Comment = BaseModel:extend('comments')
+    Comment.primaryKey = 'id'
+    Comment.timestamps = false
+
+    function Post.relations:comments()
+        return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
+    end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then return {{ id = 10 }} end
+        return {}
+    end
+
+    local post = Post:find(10)
+    local comments = post:load('comments')
+    Database.query = original
+
+    truthy(comments, 'morphMany: non-nil result even when empty')
+    eq(#comments, 0, 'morphMany: empty table returned when no related rows')
+end)
+
+test('BaseModel load: morphTo resolves owner via _G[owner_type]:find(owner_id)', function()
+    local ATMMachine = BaseModel:extend('atm_machines')
+    ATMMachine.primaryKey = 'id'
+    ATMMachine.timestamps = false
+
+    local Interaction = BaseModel:extend('interactions')
+    Interaction.primaryKey = 'id'
+    Interaction.timestamps = false
+
+    function Interaction.relations:owner()
+        return self:morphTo('owner_type', 'owner_id')
+    end
+
+    _G['ATMMachine'] = ATMMachine
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `interactions`') then
+            return {{ id = 99, owner_type = 'ATMMachine', owner_id = 5, label = 'Use ATM' }}
+        elseif sql:find('FROM `atm_machines`') then
+            return {{ id = 5, name = 'Main ATM' }}
+        end
+        return {}
+    end
+
+    local interaction = Interaction:find(99)
+    local owner = interaction:load('owner')
+    Database.query = original
+    _G['ATMMachine'] = nil
+
+    truthy(owner, 'morphTo: owner resolved')
+    eq(owner.id, 5, 'morphTo: correct owner id')
+    eq(owner.name, 'Main ATM', 'morphTo: correct owner field')
+end)
+
+test('BaseModel load: morphTo returns nil when owner_type resolves to nil global', function()
+    local Interaction = BaseModel:extend('interactions')
+    Interaction.primaryKey = 'id'
+    Interaction.timestamps = false
+
+    function Interaction.relations:owner()
+        return self:morphTo('owner_type', 'owner_id')
+    end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `interactions`') then
+            return {{ id = 1, owner_type = 'NonExistentModel', owner_id = 42 }}
+        end
+        return {}
+    end
+
+    local interaction = Interaction:find(1)
+    local owner = interaction:load('owner')
+    Database.query = original
+
+    falsy(owner, 'morphTo: nil returned when global model not found')
+end)
+
+test('BaseModel.with: morphOne batches one query for all instances with WHERE IN owner_id', function()
+    local ATMMachine = BaseModel:extend('atm_machines')
+    ATMMachine.primaryKey = 'id'
+    ATMMachine.timestamps = false
+
+    local Interaction = BaseModel:extend('interactions')
+    Interaction.primaryKey = 'id'
+    Interaction.timestamps = false
+
+    function ATMMachine.relations:interaction()
+        return self:morphOne(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
+    end
+
+    local interactionParams, interactionSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `atm_machines`') then
+            return {{ id = 1, name = 'ATM A' }, { id = 2, name = 'ATM B' }}
+        elseif sql:find('FROM `interactions`') then
+            interactionSql = sql
+            interactionParams = params
+            return {
+                { id = 10, owner_type = 'ATMMachine', owner_id = 1, label = 'ATM A' },
+                { id = 11, owner_type = 'ATMMachine', owner_id = 2, label = 'ATM B' },
+            }
+        end
+        return {}
+    end
+
+    local atms = ATMMachine:with('interaction'):get()
+    Database.query = original
+
+    eq(#atms, 2, 'morphOne eagerLoad: both base rows returned')
+    truthy(atms[1].interaction, 'morphOne eagerLoad: first instance has interaction')
+    truthy(atms[2].interaction, 'morphOne eagerLoad: second instance has interaction')
+    eq(atms[1].interaction.label, 'ATM A', 'morphOne eagerLoad: correct interaction for first')
+    eq(atms[2].interaction.label, 'ATM B', 'morphOne eagerLoad: correct interaction for second')
+    eqList(interactionParams, {1, 2}, 'morphOne eagerLoad: batched owner_id IN query')
+    truthy(interactionSql:find('ATMMachine', 1, true), 'owner_type filter present in SQL')
+end)
+
+test('BaseModel.with: morphMany distributes all related rows per instance', function()
+    local Post = BaseModel:extend('posts')
+    Post.primaryKey = 'id'
+    Post.timestamps = false
+
+    local Comment = BaseModel:extend('comments')
+    Comment.primaryKey = 'id'
+    Comment.timestamps = false
+
+    function Post.relations:comments()
+        return self:morphMany(Comment, 'owner_id', 'owner_type', 'Post')
+    end
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `posts`') then
+            return {{ id = 1 }, { id = 2 }}
+        elseif sql:find('FROM `comments`') then
+            return {
+                { id = 10, owner_type = 'Post', owner_id = 1, body = 'A' },
+                { id = 11, owner_type = 'Post', owner_id = 1, body = 'B' },
+                { id = 12, owner_type = 'Post', owner_id = 2, body = 'C' },
+            }
+        end
+        return {}
+    end
+
+    local posts = Post:with('comments'):get()
+    Database.query = original
+
+    eq(#posts[1].comments, 2, 'morphMany eagerLoad: post 1 gets 2 comments')
+    eq(#posts[2].comments, 1, 'morphMany eagerLoad: post 2 gets 1 comment')
+    eq(posts[1].comments[1].body, 'A', 'morphMany eagerLoad: first comment body')
+    eq(posts[2].comments[1].body, 'C', 'morphMany eagerLoad: only post2 comment')
+end)
+
+test('BaseModel.with: morphTo eagerLoad batches by owner_type and groups correctly', function()
+    local Interaction = BaseModel:extend('interactions')
+    Interaction.primaryKey = 'id'
+    Interaction.timestamps = false
+
+    function Interaction.relations:owner()
+        return self:morphTo('owner_type', 'owner_id')
+    end
+
+    local int1 = Interaction.new({ owner_type = 'ATMMachine', owner_id = 10 })
+    int1.primaryKey = 'id'
+    local int2 = Interaction.new({ owner_type = 'Garage', owner_id = 20 })
+    int2.primaryKey = 'id'
+
+    local atmQueries = {}
+    local garageQueries = {}
+
+    local origAtm = rawget(_G, 'ATMMachine')
+    local origGarage = rawget(_G, 'Garage')
+
+    local AtmModel = BaseModel:extend('atm_machines')
+    AtmModel.primaryKey = 'id'
+    AtmModel.timestamps = false
+
+    local GarageModel = BaseModel:extend('garages')
+    GarageModel.primaryKey = 'id'
+    GarageModel.timestamps = false
+
+    _G['ATMMachine'] = AtmModel
+    _G['Garage'] = GarageModel
+
+    local original = Database.query
+    Database.query = function(sql, params)
+        if sql:find('FROM `atm_machines`') then
+            table.insert(atmQueries, {sql = sql, params = params})
+            return {{ id = 10, name = 'Test ATM' }}
+        elseif sql:find('FROM `garages`') then
+            table.insert(garageQueries, {sql = sql, params = params})
+            return {{ id = 20, name = 'Test Garage' }}
+        end
+        return {}
+    end
+
+    Interaction:eagerLoad({int1, int2}, 'owner')
+    Database.query = original
+
+    _G['ATMMachine'] = origAtm
+    _G['Garage'] = origGarage
+
+    eq(#atmQueries, 1, 'morphTo eagerLoad: one query for ATMMachine batch')
+    eq(#garageQueries, 1, 'morphTo eagerLoad: one query for Garage batch')
+    truthy(int1.relations['owner'], 'morphTo eagerLoad: int1 has owner loaded')
+    truthy(int2.relations['owner'], 'morphTo eagerLoad: int2 has owner loaded')
+    eq(int1.relations['owner'].name, 'Test ATM', 'morphTo eagerLoad: int1 owner is ATM')
+    eq(int2.relations['owner'].name, 'Test Garage', 'morphTo eagerLoad: int2 owner is Garage')
+end)
+
+--------------------------------------------------------------------------------
+-- BaseModel:all()/allAsync(), QueryBuilder:whereHas()/whereRelation()
+--------------------------------------------------------------------------------
+
+test('BaseModel:all() runs the same query as an unfiltered get()', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {{ id = 1 }}
+    end
+
+    local widgets = Widget:all()
+    Database.query = original
+
+    eq(#widgets, 1)
+    truthy(capturedSql:find('FROM `widgets`'), 'all() should query the model\'s table')
+    falsy(capturedSql:find('WHERE'), 'all() should carry no WHERE clause')
+end)
+
+test('BaseModel:allAsync() calls back with every row', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local original = Database.queryAsync
+    Database.queryAsync = function(sql, params, callback)
+        callback({{ id = 1 }, { id = 2 }})
+    end
+
+    local result
+    Widget:allAsync(function(widgets) result = widgets end)
+    Database.queryAsync = original
+
+    eq(#result, 2, 'allAsync should call back with all rows')
+end)
+
+test('whereHas: hasMany wraps a correlated EXISTS subquery on the related table', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local query = Customer:whereHas('orders')
+    local sql, params = query:toSql()
+
+    truthy(sql:find('EXISTS %(SELECT 1 FROM `orders`'), 'whereHas should EXISTS-wrap the related table')
+    truthy(sql:find('`orders`%.`customer_id` = `customers`%.`id`'), 'whereHas should correlate on the hasMany foreign key')
+    eqList(params, {}, 'a bare whereHas with no callback filter adds no bound params')
+end)
+
+test('whereHas: callback adds extra filtering on the related table, params land after the correlation', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local query = Customer:whereHas('orders', function(q) q:where('status', 'paid') end)
+    local sql, params = query:toSql()
+
+    truthy(sql:find('`status` = %?'), 'callback filter should appear inside the EXISTS subquery')
+    eqList(params, {'paid'}, 'the callback\'s where value should be the only bound param')
+end)
+
+test('whereRelation: sugar for whereHas + a single where on the related column', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local sql, params = Customer:whereRelation('orders', 'total', '>', 100):toSql()
+
+    truthy(sql:find('EXISTS'), 'whereRelation should still EXISTS-wrap')
+    truthy(sql:find('`total` > %?'), 'whereRelation should apply the given operator/column')
+    eqList(params, {100})
+end)
+
+test('whereHas: belongsTo correlates on the owning row\'s foreign key', function()
+    local Order = BaseModel:extend('orders')
+    local Customer = BaseModel:extend('customers')
+    function Order.relations:customer() return self:belongsTo(Customer, 'customer_id') end
+
+    local sql = Order:whereHas('customer'):toSql()
+
+    truthy(sql:find('EXISTS %(SELECT 1 FROM `customers`'), 'belongsTo whereHas should EXISTS-wrap the owner table')
+    truthy(sql:find('`customers`%.`id` = `orders`%.`customer_id`'), 'belongsTo whereHas should correlate owner PK to the FK column')
+end)
+
+test('whereHas: belongsToMany EXISTS-wraps a pivot join correlated on the owning row\'s PK', function()
+    local Post = BaseModel:extend('posts')
+    local Tag = BaseModel:extend('tags')
+    function Post.relations:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+
+    local sql = Post:whereHas('tags', function(q) q:where('name', 'featured') end):toSql()
+
+    truthy(sql:find('EXISTS %(SELECT 1 FROM `post_tags`'), 'belongsToMany whereHas should EXISTS-wrap the pivot table')
+    truthy(sql:find('INNER JOIN `tags`'), 'belongsToMany whereHas should join the related table')
+    truthy(sql:find('`post_tags`%.`post_id` = `posts`%.`id`'), 'belongsToMany whereHas should correlate the pivot to the owning row\'s PK')
+    truthy(sql:find('`name` = %?'), 'the callback filter should apply to the joined related table')
+end)
+
+test('whereHas: morphMany filters by both owner_type literal and the correlated owner_id', function()
+    local ATMMachine = BaseModel:extend('atm_machines')
+    local Interaction = BaseModel:extend('interactions')
+    function ATMMachine.relations:interactions()
+        return self:morphMany(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
+    end
+
+    local sql = ATMMachine:whereHas('interactions'):toSql()
+
+    truthy(sql:find("`interactions`%.`owner_type` = 'ATMMachine'"), 'morphMany whereHas should filter the fixed owner_type')
+    truthy(sql:find('`interactions`%.`owner_id` = `atm_machines`%.`id`'), 'morphMany whereHas should correlate owner_id to the owning row\'s PK')
+end)
+
+test('whereHas: morphTo is not supported (no fixed related table to correlate against)', function()
+    local Interaction = BaseModel:extend('interactions')
+    function Interaction.relations:owner() return self:morphTo('owner_type', 'owner_id') end
+
+    throws(function()
+        Interaction:whereHas('owner')
+    end, 'whereHas on a morphTo relation should raise, not silently no-op')
+end)
+
+--------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
+
+test('Blueprint:mediumBlob emits MEDIUMBLOB', function()
+    local bp2 = Schema.Blueprint.new('blobs')
+    bp2:id()
+    bp2:mediumBlob('data')
+    local sql = bp2:toSql()
+    assert(sql[1]:find('`data` MEDIUMBLOB NOT NULL'), 'mediumBlob should emit MEDIUMBLOB')
+end)
+
 print('Running ORM unit tests\n')
 for _, t in ipairs(tests) do
     local ok, err = pcall(t.fn)

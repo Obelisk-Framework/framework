@@ -134,14 +134,14 @@ test('a hook that errors does not stop the save or propagate', function()
     end)
 end)
 
-test('afterSave fires on saveSync insert with action=insert, before=nil, after=attrs', function()
+test('afterSave fires on saveAsync insert with action=insert, before=nil, after=attrs', function()
     withFakeDb(function()
         local Widget = freshModel()
         local seen
         Widget.hooks:afterSave(function(instance, ctx) seen = ctx end)
 
         local w = Widget.new({ name = 'a', count = 1 })
-        w:saveSync()
+        w:saveAsync(function() end)
 
         truthy(seen, 'hook did not fire')
         eq(seen.action, 'insert')
@@ -151,17 +151,17 @@ test('afterSave fires on saveSync insert with action=insert, before=nil, after=a
     end)
 end)
 
-test('afterSave fires on saveSync update with before = pre-write attrs, after = post-write attrs', function()
+test('afterSave fires on saveAsync update with before = pre-write attrs, after = post-write attrs', function()
     withFakeDb(function()
         local Widget = freshModel()
         local w = Widget.new({ name = 'a', count = 1 })
-        w:saveSync()
+        w:save()
 
         local seen
         Widget.hooks:afterSave(function(instance, ctx) seen = ctx end)
 
         w:set('count', 2)
-        w:saveSync()
+        w:saveAsync(function() end)
 
         truthy(seen, 'hook did not fire')
         eq(seen.action, 'update')
@@ -170,15 +170,15 @@ test('afterSave fires on saveSync update with before = pre-write attrs, after = 
     end)
 end)
 
-test('afterDelete fires with deleteSync with before = attrs at time of delete', function()
+test('afterDelete fires with deleteAsync with before = attrs at time of delete', function()
     withFakeDb(function()
         local Widget = freshModel()
         local w = Widget.new({ name = 'a', count = 1 })
-        w:saveSync()
+        w:save()
 
         local seen
         Widget.hooks:afterDelete(function(instance, ctx) seen = ctx end)
-        w:deleteSync()
+        w:deleteAsync(function() end)
 
         truthy(seen, 'hook did not fire')
         eq(seen.before.name, 'a')

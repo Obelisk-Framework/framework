@@ -27,7 +27,7 @@ local function queryAuditLogs(filters, page)
     -- QueryBuilder:get() is async (callback-style); this handler needs a
     -- synchronous result to build its reply payload, so use :getSync() and
     -- hydrate the raw rows into model instances the same way
-    -- BaseModel:allSync() does, so :toTable() (hidden-field stripping) is
+    -- BaseModel:all() does, so :toTable() (hidden-field stripping) is
     -- available below.
     local rows = query
         :orderBy('created_at', 'desc')

@@ -7,7 +7,9 @@ FakeQueryBuilder.__index = FakeQueryBuilder
 local function rowMatches(row, wheres, whereNulls)
     for _, w in ipairs(wheres) do
         local val = row[w.column]
-        if w.operator == '=' or w.operator == '==' then
+        if w.operator == 'IN' then
+            if not w.set[val] then return false end
+        elseif w.operator == '=' or w.operator == '==' then
             if val ~= w.value then return false end
         elseif w.operator == '<' then
             if not (val < w.value) then return false end
@@ -28,6 +30,28 @@ local function rowMatches(row, wheres, whereNulls)
         if row[col] ~= nil then return false end
     end
     return true
+end
+
+function FakeQueryBuilder:whereIn(column, values)
+    local set = {}
+    for _, v in ipairs(values) do set[v] = true end
+    table.insert(self.wheres, { column = column, operator = 'IN', set = set })
+    return self
+end
+
+function FakeQueryBuilder:whereRaw(sql)
+    -- Parse simple backtick-quoted `column` = 'value' expressions for morphOne support.
+    -- Handles the shape eagerLoadMorphOneOrMany emits: "`owner_type` = 'ATMMachine'"
+    local col, val = sql:match('^`([^`]+)`%s*=%s*\'(.-)\'$')
+    if col and val then
+        table.insert(self.wheres, { column = col, operator = '=', value = val })
+    end
+    return self
+end
+
+function FakeQueryBuilder:with(path)
+    table.insert(self.withPaths, path)
+    return self
 end
 
 function FakeQueryBuilder:where(column, a, b)
@@ -59,16 +83,32 @@ function FakeQueryBuilder:limit(n)
     return self
 end
 
-function FakeQueryBuilder:firstSync()
+function FakeQueryBuilder:first()
+    local match
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
-            return row
+            match = row
+            break
         end
     end
-    return nil
+    if not match then
+        return nil
+    end
+
+    -- Mirror the real QueryBuilder:first() (core/server/ORM/QueryBuilder.lua),
+    -- which delegates to `get()` and is therefore just as model-aware: wrap
+    -- the raw row into a model instance via `model:newFromQuery` when a
+    -- BaseModel has attached itself via `.model`. Kept in sync with `get()`
+    -- above so `find()`/`load()` (which go through `first()`) exercise the
+    -- same wrapping behavior as production instead of silently diverging.
+    if self.model then
+        return self.model:newFromQuery(match)
+    end
+
+    return match
 end
 
-function FakeQueryBuilder:getSync()
+function FakeQueryBuilder:get()
     local results = {}
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
@@ -96,20 +136,45 @@ function FakeQueryBuilder:getSync()
         results = limited
     end
 
+    -- Mirror the real QueryBuilder:get() (core/server/ORM/QueryBuilder.lua):
+    -- when a BaseModel has attached itself via `.model` (set by
+    -- BaseModel:newQuery()), wrap each raw row into a model instance via
+    -- `model:newFromQuery`, which JSON-decodes any `casts[key] == 'json'`
+    -- columns. Without this, every spec using this fake would silently
+    -- exercise a different code path than production for model-backed
+    -- reads (raw undecoded rows), even though `.model` was set.
+    if self.model then
+        local models = {}
+        for _, row in ipairs(results) do
+            table.insert(models, self.model:newFromQuery(row))
+        end
+        if #self.withPaths > 0 then
+            for _, path in ipairs(self.withPaths) do
+                self.model:eagerLoad(models, path)
+            end
+        end
+        return models
+    end
+
     return results
 end
 
-function FakeQueryBuilder:insert(data, callback)
+function FakeQueryBuilder:insert(data)
     self.nextIds[self.tableName] = (self.nextIds[self.tableName] or 0) + 1
     local id = self.nextIds[self.tableName]
     local row = { id = id }
     for k, v in pairs(data) do row[k] = v end
     table.insert(self.rows, row)
+    return id
+end
+
+function FakeQueryBuilder:insertAsync(data, callback)
+    local id = self:insert(data)
     if callback then callback(id) end
     return id
 end
 
-function FakeQueryBuilder:update(data, callback)
+function FakeQueryBuilder:update(data)
     local affected = 0
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
@@ -119,11 +184,16 @@ function FakeQueryBuilder:update(data, callback)
             affected = affected + 1
         end
     end
+    return affected
+end
+
+function FakeQueryBuilder:updateAsync(data, callback)
+    local affected = self:update(data)
     if callback then callback(affected) end
     return affected
 end
 
-function FakeQueryBuilder:delete(callback)
+function FakeQueryBuilder:delete()
     local kept, removed = {}, 0
     for _, row in ipairs(self.rows) do
         if rowMatches(row, self.wheres, self.whereNulls) then
@@ -138,6 +208,11 @@ function FakeQueryBuilder:delete(callback)
     for _, row in ipairs(kept) do
         table.insert(self.rows, row)
     end
+    return removed
+end
+
+function FakeQueryBuilder:deleteAsync(callback)
+    local removed = self:delete()
     if callback then callback(removed) end
     return removed
 end
@@ -155,10 +230,14 @@ local function makeFakeQueryBuilderModule(tables)
             nextIds = nextIds,
             wheres = {},
             whereNulls = {},
+            withPaths = {},
         }, FakeQueryBuilder)
     end
     function Module.tables()
         return tables
+    end
+    function Module.quoteIdentifier(identifier)
+        return '`' .. identifier .. '`'
     end
     return Module
 end

@@ -16,6 +16,8 @@ function MySQLDialect.columnType(kind, opts, isAutoIncrement)
         return 'VARCHAR(' .. (opts.length or 255) .. ')'
     elseif kind == 'text' then
         return 'TEXT'
+    elseif kind == 'mediumBlob' then
+        return 'MEDIUMBLOB'
     elseif kind == 'json' then
         return 'JSON'
     elseif kind == 'float' then
@@ -139,7 +141,7 @@ function MySQLDialect.introspectColumn(tableName, columnName)
                 'FROM information_schema.COLUMNS WHERE ' ..
                 MySQLDialect.tableExistsPredicate() ..
                 ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    local rows = Database.querySync(sql, {tableName, columnName})
+    local rows = Database.query(sql, {tableName, columnName})
     if not rows or not rows[1] then return nil end
 
     local row = rows[1]

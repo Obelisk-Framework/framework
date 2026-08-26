@@ -115,17 +115,17 @@ end
 --- (nil, or an outer withActor's source) once fn() returns or errors.
 ---
 --- LIMITATION: this only reliably attributes the actor for SYNCHRONOUS
---- writes -- i.e. `saveSync()`/`deleteSync()`, whose afterSave/afterDelete
---- hooks run inline before `fn()` returns. `save()`/`delete()` are ASYNC by
---- default on this branch: they dispatch their hook from inside a
---- later-tick DB callback. If `fn()` calls the async variant, the hook
---- fires AFTER `withActor` has already restored the previous actor, so the
---- write silently attributes to actor_type='system' instead of `source`
---- -- and under concurrent player actions it could even pick up whichever
---- player's withActor scope happens to be open when the callback resumes.
---- Until a future fix threads the actor through the async callback
---- explicitly, callers that need correct attribution MUST use
---- saveSync()/deleteSync() inside withActor.
+--- writes -- i.e. bare `save()`/`delete()`, whose afterSave/afterDelete
+--- hooks run inline before `fn()` returns. `saveAsync()`/`deleteAsync()`
+--- dispatch their hook from inside a later-tick DB callback. If `fn()`
+--- calls the async variant, the hook fires AFTER `withActor` has already
+--- restored the previous actor, so the write silently attributes to
+--- actor_type='system' instead of `source` -- and under concurrent player
+--- actions it could even pick up whichever player's withActor scope
+--- happens to be open when the callback resumes. Until a future fix
+--- threads the actor through the async callback explicitly, callers that
+--- need correct attribution MUST use bare save()/delete() inside
+--- withActor.
 --- @param source number player source
 --- @param fn function
 function AuditLogService.withActor(source, fn)

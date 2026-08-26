@@ -11,6 +11,7 @@ function Blueprint.new(tableName)
     self.columns = {}
     self.indexes = {}
     self.foreignKeys = {}
+    self.dropForeignIds = {}
     return self
 end
 
@@ -42,6 +43,12 @@ end
 --- Add a text column
 function Blueprint:text(name)
     table.insert(self.columns, { name = name, kind = 'text', opts = {}, nullable = false })
+    return self
+end
+
+--- Add a mediumBlob column
+function Blueprint:mediumBlob(name)
+    table.insert(self.columns, { name = name, kind = 'mediumBlob', opts = {}, nullable = false })
     return self
 end
 
@@ -368,6 +375,19 @@ function Blueprint:onUpdate(action)
     return self
 end
 
+function Blueprint:cascadeOnDelete() return self:onDelete('CASCADE') end
+function Blueprint:nullOnDelete()    return self:onDelete('SET NULL') end
+function Blueprint:restrictOnDelete() return self:onDelete('RESTRICT') end
+function Blueprint:cascadeOnUpdate() return self:onUpdate('CASCADE') end
+function Blueprint:nullOnUpdate()    return self:onUpdate('SET NULL') end
+function Blueprint:restrictOnUpdate() return self:onUpdate('RESTRICT') end
+
+--- Queue a drop of the unique index, foreign key constraint, and column for a foreignId column.
+function Blueprint:dropForeignId(name)
+    table.insert(self.dropForeignIds, name)
+    return self
+end
+
 --- Build the CREATE TABLE statement(s). Returns a list because Postgres
 --- can't express non-unique indexes inline (see Dialects/Postgres.lua) — the
 --- first element is always the CREATE TABLE itself; any further elements are
@@ -450,7 +470,7 @@ function Schema.create(tableName, callback)
     local result
     for _, sql in ipairs(statements) do
         print('[Schema] SQL: ' .. sql)
-        result = Database.querySync(sql, {})
+        result = Database.query(sql, {})
     end
     print('[Schema] Result: ' .. json.encode(result))
     return result
@@ -460,14 +480,14 @@ end
 function Schema.drop(tableName)
     local sql = 'DROP TABLE IF EXISTS ' .. Database.dialect.quoteIdentifier(tableName)
     print('[Schema] Dropping table: ' .. tableName)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 --- Check if a table exists
 function Schema.hasTable(tableName)
     local sql = 'SELECT COUNT(*) as count FROM information_schema.TABLES WHERE ' ..
                 Database.dialect.tableExistsPredicate() .. ' AND TABLE_NAME = ?'
-    local result = Database.querySync(sql, {tableName})
+    local result = Database.query(sql, {tableName})
     return result and result[1] and (tonumber(result[1].count) or 0) > 0
 end
 
@@ -478,6 +498,10 @@ function Schema.table(tableName, callback)
     local blueprint = Blueprint.new(tableName)
     blueprint.isAltering = true
     callback(blueprint)
+
+    for _, col in ipairs(blueprint.dropForeignIds) do
+        Schema.dropForeignId(tableName, col)
+    end
 
     local statements = {}
 
@@ -522,7 +546,7 @@ function Schema.table(tableName, callback)
     end
 
     for _, sql in ipairs(statements) do
-        Database.querySync(sql, {})
+        Database.query(sql, {})
     end
 end
 
@@ -530,7 +554,7 @@ end
 function Schema.hasColumn(tableName, columnName)
     local sql = 'SELECT COUNT(*) as count FROM information_schema.COLUMNS WHERE ' ..
                 Database.dialect.tableExistsPredicate() .. ' AND TABLE_NAME = ? AND COLUMN_NAME = ?'
-    local result = Database.querySync(sql, {tableName, columnName})
+    local result = Database.query(sql, {tableName, columnName})
     return result and result[1] and (tonumber(result[1].count) or 0) > 0
 end
 
@@ -538,19 +562,42 @@ end
 function Schema.dropColumn(tableName, columnName)
     local q = Database.dialect.quoteIdentifier
     local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP COLUMN ' .. q(columnName)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
+end
+
+--- Drop a foreign key constraint (name derived by convention: table_column_foreign)
+function Schema.dropForeign(tableName, columnName)
+    local q = Database.dialect.quoteIdentifier
+    local constraintName = tableName .. '_' .. columnName .. '_foreign'
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP FOREIGN KEY ' .. q(constraintName)
+    return Database.query(sql, {})
+end
+
+--- Drop a unique index (name derived by convention: table_column_unique)
+function Schema.dropUnique(tableName, columnName)
+    local q = Database.dialect.quoteIdentifier
+    local indexName = tableName .. '_' .. columnName .. '_unique'
+    local sql = 'ALTER TABLE ' .. q(tableName) .. ' DROP INDEX ' .. q(indexName)
+    return Database.query(sql, {})
+end
+
+--- Drop foreign key constraint, unique index, and column for a foreignId column
+function Schema.dropForeignId(tableName, columnName)
+    Schema.dropUnique(tableName, columnName)
+    Schema.dropForeign(tableName, columnName)
+    Schema.dropColumn(tableName, columnName)
 end
 
 --- Rename a column
 function Schema.renameColumn(tableName, from, to)
     local sql = Database.dialect.renameColumnSQL(tableName, from, to)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 --- Rename a table
 function Schema.renameTable(from, to)
     local sql = Database.dialect.renameTableSQL(from, to)
-    return Database.querySync(sql, {})
+    return Database.query(sql, {})
 end
 
 -- Exposed for unit tests that need to construct/inspect a Blueprint directly

@@ -19,6 +19,7 @@ local emitClientCalls = {}
 _G.Obelisk = _G.Obelisk or {
     on = function(eventName, callback) AddEventHandler(eventName, callback) end,
     onClient = function() end,
+    onStateBag = function() end,
     emitClient = function(eventName, target, data)
         table.insert(emitClientCalls, { eventName = eventName, target = target, data = data })
     end,
@@ -309,6 +310,34 @@ test('register flattens ped fields (heading/scenario) onto the entity record', f
     local records = Streamer.getChunkEntityRecords(Streamer.getChunkKey(10, 10))
     eq(records[1].data.heading, 90.0)
     eq(records[1].data.scenario, 'WORLD_HUMAN_CLIPBOARD')
+end)
+
+test('init() spreads type-specific data fields (e.g. scenario) onto a non-shell entity, now that get() is model-aware', function()
+    -- Regression coverage for the model-aware Entity:get() change: before
+    -- that change, `row.data` arrived at the non-shell register() branch as
+    -- an undecoded JSON string (Entity:where(...):get() went through the
+    -- plain QueryBuilder), so buildEntityRecord's `type(entityData.data) ==
+    -- 'table'` check was always false and these fields never spread at
+    -- boot. Now that Entity:get() is model-aware (decodes `casts.data ==
+    -- 'json'` via BaseModel:newFromQuery), `row.data` arrives pre-decoded
+    -- as a table, so the check flips true. This must use the REAL
+    -- QueryBuilder's model-aware get() (via `.model` on the fake), not a
+    -- hand-decoded fixture, or it wouldn't actually exercise that path.
+    local tables = {
+        entities = {
+            { id = 9, entity_type = 'ped', model = 'a_m_y_business_01', x = 10.0, y = 20.0, z = 30.0,
+              heading = 0.0, networked = false, enabled = true,
+              data = json.encode({ scenario = 'WORLD_HUMAN_CLIPBOARD', freeze = true }) },
+        }
+    }
+    local Streamer = freshService(tables)
+
+    Streamer.init()
+
+    local entity = Streamer.entities.ped['ped_9']
+    eq(entity ~= nil, true, 'ped from row #9 registered')
+    eq(entity.scenario, 'WORLD_HUMAN_CLIPBOARD', 'scenario spread onto the record from the decoded data column')
+    eq(entity.freeze, true, 'freeze spread onto the record from the decoded data column')
 end)
 
 test('init() gives two DB rows registered in the same tick distinct entity ids', function()

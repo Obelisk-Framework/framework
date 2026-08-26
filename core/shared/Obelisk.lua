@@ -26,6 +26,16 @@ function Obelisk.on(eventName, callback)
     AddEventHandler(eventName, callback)
 end
 
+--- Register a handler for state bag key changes.
+--- bagFilter narrows to a bag-name prefix (e.g. 'entity:', 'player:') or '' for all bags.
+--- callback receives (bagName, key, value, bagId, replicated).
+--- @param keyName string
+--- @param bagFilter string
+--- @param callback function
+function Obelisk.onStateBag(keyName, bagFilter, callback)
+    AddStateBagChangeHandler(keyName, bagFilter, callback)
+end
+
 if isServer then
     --- Send an event to one client. Server only.
     --- @param eventName string

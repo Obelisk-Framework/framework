@@ -58,6 +58,7 @@ function QueryBuilder.new(tableName, primaryKey)
     self.havingConditions = {}
     self.params = {}
     self.paramIndex = 1
+    self.withPaths = {}
     return self
 end
 
@@ -81,6 +82,17 @@ end
 --- @return QueryBuilder
 function QueryBuilder:selectRaw(expression)
     self.rawSelect = expression
+    return self
+end
+
+--- Record a relation path (single-level or dot-separated) to eager-load
+--- after the terminal fetch resolves. Chainable, so multiple calls
+--- accumulate multiple independent paths (e.g.
+--- `Model:with('a'):with('b')`).
+--- @param path string
+--- @return QueryBuilder
+function QueryBuilder:with(path)
+    table.insert(self.withPaths, path)
     return self
 end
 
@@ -141,6 +153,19 @@ function QueryBuilder:whereIn(column, values)
     return self
 end
 
+--- WHERE clause with a raw SQL fragment (no params; caller is responsible for safety)
+--- @param sql string Raw SQL fragment, e.g. "`owner_type` = 'ATMMachine'"
+--- @return QueryBuilder
+--- @warning The sql fragment is embedded verbatim — never pass user-controlled data.
+function QueryBuilder:whereRaw(sql)
+    table.insert(self.whereConditions, {
+        type = 'raw',
+        sql = sql,
+        boolean = 'AND'
+    })
+    return self
+end
+
 --- WHERE NULL clause
 --- @param column string
 --- @return QueryBuilder
@@ -163,6 +188,131 @@ function QueryBuilder:whereNotNull(column)
         boolean = 'AND'
     })
     return self
+end
+
+--- Add a WHERE EXISTS clause around a correlated subquery (e.g. one built by
+--- whereHas()). The subquery's own SQL and params are embedded as one clause,
+--- so its params land in this query's param list at the right position.
+--- @param subquery QueryBuilder Must already carry its own correlation condition.
+--- @param boolean string|nil 'AND' (default) or 'OR', joining this clause to whatever precedes it.
+--- @return QueryBuilder
+function QueryBuilder:whereExists(subquery, boolean)
+    local sql, params = subquery:toSql()
+    table.insert(self.whereConditions, {
+        type = 'exists',
+        sql = sql,
+        subParams = params,
+        boolean = boolean or 'AND'
+    })
+    return self
+end
+
+--- One entry per relation type: build(outerModel, relation) returns a
+--- QueryBuilder over the related (or pivot) table, already correlated back
+--- to `outerModel`'s table via a WHERE clause -- the base that whereHas()
+--- wraps in EXISTS(...) and hands to the caller's callback for extra
+--- filtering. morphTo has no fixed related table (it varies per row) so it
+--- has no entry here.
+local WHERE_HAS_BUILDERS = {
+    hasOne = function(outerModel, relation)
+        local related = relation.relatedModel
+        return related:newQuery():selectRaw('1'):whereRaw(
+            QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.foreignKey) .. ' = ' ..
+            QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. relation.localKey)
+        )
+    end,
+    belongsTo = function(outerModel, relation)
+        local related = relation.relatedModel
+        return related:newQuery():selectRaw('1'):whereRaw(
+            QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerKey) .. ' = ' ..
+            QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. relation.foreignKey)
+        )
+    end,
+    belongsToMany = function(outerModel, relation)
+        local related = relation.relatedModel
+        return QueryBuilder.new(relation.pivotTable):selectRaw('1')
+            :join(related.table, related.table .. '.' .. related.primaryKey, '=',
+                  relation.pivotTable .. '.' .. relation.relatedPivotKey)
+            :whereRaw(
+                QueryBuilder.quoteIdentifier(relation.pivotTable .. '.' .. relation.foreignPivotKey) .. ' = ' ..
+                QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. outerModel.primaryKey)
+            )
+    end,
+    morphOne = function(outerModel, relation)
+        local related = relation.relatedModel
+        return related:newQuery():selectRaw('1')
+            :whereRaw(
+                QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerTypeKey) ..
+                " = '" .. relation.ownerTypeValue:gsub("'", "''") .. "'"
+            )
+            :whereRaw(
+                QueryBuilder.quoteIdentifier(related.table .. '.' .. relation.ownerIdKey) .. ' = ' ..
+                QueryBuilder.quoteIdentifier(outerModel.table .. '.' .. relation.localKey)
+            )
+    end,
+}
+WHERE_HAS_BUILDERS.hasMany = WHERE_HAS_BUILDERS.hasOne
+WHERE_HAS_BUILDERS.morphMany = WHERE_HAS_BUILDERS.morphOne
+
+--- Filter rows by the existence of a related row, e.g.
+--- `Character:whereHas('vehicles', function(q) q:where('impounded', false) end):get()`.
+--- Builds a correlated `EXISTS(...)` subquery from the named relation
+--- (declared via `hasOne`/`hasMany`/`belongsTo`/`belongsToMany`/`morphOne`/
+--- `morphMany`) and, if given, lets `callback` add further conditions on the
+--- related table before it's wrapped in EXISTS.
+--- @param relationName string
+--- @param callback function|nil Receives the related-table QueryBuilder
+--- @return QueryBuilder
+function QueryBuilder:whereHas(relationName, callback)
+    assert(self.model, "whereHas() requires a query opened off a model, e.g. Model:whereHas(...)")
+    local relation = self.model:relation(relationName)
+    local build = WHERE_HAS_BUILDERS[relation.type]
+    assert(build, ("whereHas: relation type %q not supported (morphTo has no fixed related table)"):format(relation.type))
+
+    local subquery = build(self.model, relation)
+    if callback then
+        callback(subquery)
+    end
+    return self:whereExists(subquery)
+end
+
+--- Sugar for the common `whereHas(name, function(q) q:where(...) end)` case:
+--- filter by both a relation's existence and a condition on its own column.
+--- @param relationName string
+--- @param column string
+--- @param operator string|any If only 3 args, this is the value
+--- @param value any
+--- @return QueryBuilder
+function QueryBuilder:whereRelation(relationName, column, operator, value)
+    return self:whereHas(relationName, function(q)
+        q:where(column, operator, value)
+    end)
+end
+
+--- OR-joined variant of whereHas -- same correlated EXISTS subquery, but
+--- combined with whatever precedes it via OR instead of AND.
+--- @param relationName string
+--- @param callback function|nil
+--- @return QueryBuilder
+function QueryBuilder:orWhereHas(relationName, callback)
+    assert(self.model, "orWhereHas() requires a query opened off a model, e.g. Model:orWhereHas(...)")
+    local relation = self.model:relation(relationName)
+    local build = WHERE_HAS_BUILDERS[relation.type]
+    assert(build, ("orWhereHas: relation type %q not supported (morphTo has no fixed related table)"):format(relation.type))
+
+    local subquery = build(self.model, relation)
+    if callback then
+        callback(subquery)
+    end
+    return self:whereExists(subquery, 'OR')
+end
+
+--- Sugar for whereHas(relationName) with no extra filtering -- "has at least
+--- one related row", mirroring Eloquent's bare `has('relation')`.
+--- @param relationName string
+--- @return QueryBuilder
+function QueryBuilder:has(relationName)
+    return self:whereHas(relationName)
 end
 
 --- Add ORDER BY clause
@@ -271,6 +421,13 @@ function QueryBuilder:buildWhereClause()
             clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NULL'
         elseif condition.type == 'notNull' then
             clause = clause .. QueryBuilder.quoteIdentifier(condition.column) .. ' IS NOT NULL'
+        elseif condition.type == 'raw' then
+            clause = clause .. condition.sql
+        elseif condition.type == 'exists' then
+            clause = clause .. 'EXISTS (' .. condition.sql .. ')'
+            for _, subParam in ipairs(condition.subParams) do
+                table.insert(self.params, subParam)
+            end
         end
         
         table.insert(clauses, clause)
@@ -395,69 +552,127 @@ function QueryBuilder:toSql()
     return sql, self.params
 end
 
+--- Execute the query synchronously
+--- @return table Results (raw rows, or model instances if opened via a BaseModel)
+function QueryBuilder:get()
+    local sql, params = self:toSql()
+    local results = Database.query(sql, params)
+    if not self.model then
+        return results
+    end
+    local models = {}
+    for _, result in ipairs(results) do
+        table.insert(models, self.model:newFromQuery(result))
+    end
+    if #self.withPaths > 0 then
+        for _, path in ipairs(self.withPaths) do
+            self.model:eagerLoad(models, path)
+        end
+    end
+    return models
+end
+
 --- Execute the query and return results (async)
 --- @param callback function
-function QueryBuilder:get(callback)
+function QueryBuilder:getAsync(callback)
     local sql, params = self:toSql()
-    Database.query(sql, params, callback)
-end
-
---- Execute the query synchronously
---- @return table Results
-function QueryBuilder:getSync()
-    local sql, params = self:toSql()
-    return Database.querySync(sql, params)
-end
-
---- Get first result (async)
---- @param callback function
-function QueryBuilder:first(callback)
-    self:limit(1)
-    self:get(function(results)
-        callback(results[1])
+    Database.queryAsync(sql, params, function(results)
+        if not self.model then
+            callback(results)
+            return
+        end
+        local models = {}
+        for _, result in ipairs(results) do
+            table.insert(models, self.model:newFromQuery(result))
+        end
+        if #self.withPaths > 0 then
+            for _, path in ipairs(self.withPaths) do
+                self.model:eagerLoad(models, path)
+            end
+        end
+        callback(models)
     end)
 end
 
 --- Get first result synchronously
 --- @return table|nil
-function QueryBuilder:firstSync()
+function QueryBuilder:first()
     self:limit(1)
-    local results = self:getSync()
+    local results = self:get()
     return results[1]
 end
 
---- Count results
+--- Get first result (async)
 --- @param callback function
-function QueryBuilder:count(callback)
-    local originalRaw = self.rawSelect
-    self:selectRaw('COUNT(*) as count')
-
-    self:first(function(result)
-        self.rawSelect = originalRaw
-        callback(tonumber(result and result.count) or 0)
+function QueryBuilder:firstAsync(callback)
+    self:limit(1)
+    self:getAsync(function(results)
+        callback(results[1])
     end)
+end
+
+--- Get first result synchronously, or invoke a fallback if none is found.
+--- NOTE: `callback` here is a fallback-value function (Laravel's `firstOr`
+--- convention), not a completion callback -- unlike every `...Async` method
+--- in this file, `firstOr` is itself synchronous. There is no `firstOrAsync`.
+--- @param callback function Called (and its return value returned) when no row matches
+--- @return any The found row, or the fallback's return value
+function QueryBuilder:firstOr(callback)
+    local result = self:first()
+    if result then
+        return result
+    end
+    return callback()
 end
 
 --- Count synchronously
 --- @return number
-function QueryBuilder:countSync()
+function QueryBuilder:count()
     local originalRaw = self.rawSelect
     self:selectRaw('COUNT(*) as count')
 
-    local result = self:firstSync()
+    local result = self:first()
     self.rawSelect = originalRaw
 
     return tonumber(result and result.count) or 0
 end
 
---- Insert data
+--- Count results (async)
+--- @param callback function
+function QueryBuilder:countAsync(callback)
+    local originalRaw = self.rawSelect
+    self:selectRaw('COUNT(*) as count')
+
+    self:firstAsync(function(result)
+        self.rawSelect = originalRaw
+        callback(tonumber(result and result.count) or 0)
+    end)
+end
+
+--- Insert data (sync)
+--- @param data table Key-value pairs
+--- @return number insertId
+function QueryBuilder:insert(data)
+    local sql, values = self:buildInsertSql(data)
+    return Database.insert(sql, values)
+end
+
+--- Insert data (async)
 --- @param data table Key-value pairs
 --- @param callback function Receives insertId
-function QueryBuilder:insert(data, callback)
+function QueryBuilder:insertAsync(data, callback)
+    local sql, values = self:buildInsertSql(data)
+    Database.insertAsync(sql, values, callback)
+end
+
+--- Build the INSERT SQL + values, shared by insert()/insertAsync()
+--- @param data table
+--- @return string sql, table values
+function QueryBuilder:buildInsertSql(data)
     local columns = {}
     local placeholders = {}
     local values = {}
-    
+
     for column, value in pairs(data) do
         table.insert(columns, QueryBuilder.quoteIdentifier(column))
         table.insert(placeholders, '?')
@@ -469,20 +684,32 @@ function QueryBuilder:insert(data, callback)
                 table.concat(placeholders, ', ') .. ')' ..
                 Database.dialect.insertReturningClause(self.primaryKey)
 
-    if callback then
-        Database.insert(sql, values, callback)
-    else
-        return Database.insertSync(sql, values)
-    end
+    return sql, values
 end
 
---- Update data
+--- Update data (sync)
+--- @param data table Key-value pairs
+--- @return number affectedRows
+function QueryBuilder:update(data)
+    local sql, values = self:buildUpdateSql(data)
+    return Database.update(sql, values)
+end
+
+--- Update data (async)
 --- @param data table Key-value pairs
 --- @param callback function Receives affectedRows
-function QueryBuilder:update(data, callback)
+function QueryBuilder:updateAsync(data, callback)
+    local sql, values = self:buildUpdateSql(data)
+    Database.updateAsync(sql, values, callback)
+end
+
+--- Build the UPDATE SQL + values, shared by update()/updateAsync()
+--- @param data table
+--- @return string sql, table values
+function QueryBuilder:buildUpdateSql(data)
     local setClauses = {}
     local values = {}
-    
+
     for column, value in pairs(data) do
         if value == Database.NULL then
             table.insert(setClauses, QueryBuilder.quoteIdentifier(column) .. ' = NULL')
@@ -493,7 +720,7 @@ function QueryBuilder:update(data, callback)
     end
 
     local sql = 'UPDATE ' .. QueryBuilder.quoteIdentifier(self.tableName) .. ' SET ' .. table.concat(setClauses, ', ')
-    
+
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
         sql = sql .. ' ' .. whereClause
@@ -501,46 +728,56 @@ function QueryBuilder:update(data, callback)
             table.insert(values, param)
         end
     end
-    
-    if callback then
-        Database.update(sql, values, callback)
-    else
-        return Database.updateSync(sql, values)
-    end
+
+    return sql, values
 end
 
---- Delete records
+--- Delete records (sync)
+--- @return number affectedRows
+function QueryBuilder:delete()
+    local sql = self:buildDeleteSql()
+    return Database.update(sql, self.params)
+end
+
+--- Delete records (async)
 --- @param callback function
-function QueryBuilder:delete(callback)
+function QueryBuilder:deleteAsync(callback)
+    local sql = self:buildDeleteSql()
+    Database.updateAsync(sql, self.params, callback)
+end
+
+--- Build the DELETE SQL, shared by delete()/deleteAsync()
+--- @return string sql
+function QueryBuilder:buildDeleteSql()
     local sql = 'DELETE FROM ' .. QueryBuilder.quoteIdentifier(self.tableName)
-    
+
     local whereClause = self:buildWhereClause()
     if whereClause ~= '' then
         sql = sql .. ' ' .. whereClause
     end
-    
-    if callback then
-        Database.update(sql, self.params, callback)
-    else
-        return Database.updateSync(sql, self.params)
-    end
+
+    return sql
 end
 
 --- Paginate results
+--- Named with the Async suffix (unlike every other bare-named QueryBuilder
+--- method) because it is callback-only internally -- it drives count()/get()
+--- via their Async forms and never returns synchronously, so a bare
+--- `paginate` name would violate the "bare = sync" convention.
 --- @param page number
 --- @param perPage number
 --- @param callback function Receives {data, total, lastPage, currentPage}
-function QueryBuilder:paginate(page, perPage, callback)
+function QueryBuilder:paginateAsync(page, perPage, callback)
     page = page or 1
     perPage = perPage or 15
     
     -- First get total count
-    self:count(function(total)
+    self:countAsync(function(total)
         local lastPage = math.ceil(total / perPage)
         local offset = (page - 1) * perPage
         
         -- Now get the actual data
-        self:limit(perPage):offset(offset):get(function(data)
+        self:limit(perPage):offset(offset):getAsync(function(data)
             callback({
                 data = data,
                 total = total,
