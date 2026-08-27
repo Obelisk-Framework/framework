@@ -34,12 +34,7 @@ end
 function PermissionService.grant(ownerType, ownerId, key)
     assertRegistered(ownerType)
 
-    local existing = Permission:where('owner_type', ownerType):where('owner_id', ownerId):where('permission_key', key):first()
-    if existing then
-        return
-    end
-
-    Permission:create({
+    Permission:firstOrCreate({
         owner_type = ownerType,
         owner_id = ownerId,
         permission_key = key,

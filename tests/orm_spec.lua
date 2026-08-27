@@ -1077,7 +1077,7 @@ test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that 
     ScheduledJob.primaryKey = 'id'
     ScheduledJob.timestamps = false
 
-    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'action_id') end
+    function ScheduledJob:action() return self:belongsTo(Action, 'action_id', 'name') end
 
     local original = Database.query
     Database.query = function(sql, params)
@@ -1085,7 +1085,7 @@ test('BaseModel load: belongsTo with a non-primary-key ownerKey matches on that 
             return {{ id = 1, action_id = 'give_item' }}
         elseif sql:find('FROM `actions`') then
             eqList(params, {'give_item'}, 'belongsTo: queried by ownerKey value, not the jobs.id row id')
-            return {{ id = 99, action_id = 'give_item', label = 'Give Item' }}
+            return {{ id = 99, name = 'give_item', label = 'Give Item' }}
         end
         return {}
     end
@@ -2385,6 +2385,126 @@ test('BaseModel.with: morphTo eagerLoad batches by owner_type and groups correct
     truthy(int2.relations['owner'], 'morphTo eagerLoad: int2 has owner loaded')
     eq(int1.relations['owner'].name, 'Test ATM', 'morphTo eagerLoad: int1 owner is ATM')
     eq(int2.relations['owner'].name, 'Test Garage', 'morphTo eagerLoad: int2 owner is Garage')
+end)
+
+--------------------------------------------------------------------------------
+-- BaseModel:all()/allAsync(), QueryBuilder:whereHas()/whereRelation()
+--------------------------------------------------------------------------------
+
+test('BaseModel:all() runs the same query as an unfiltered get()', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local capturedSql
+    local original = Database.query
+    Database.query = function(sql, params)
+        capturedSql = sql
+        return {{ id = 1 }}
+    end
+
+    local widgets = Widget:all()
+    Database.query = original
+
+    eq(#widgets, 1)
+    truthy(capturedSql:find('FROM `widgets`'), 'all() should query the model\'s table')
+    falsy(capturedSql:find('WHERE'), 'all() should carry no WHERE clause')
+end)
+
+test('BaseModel:allAsync() calls back with every row', function()
+    local Widget = BaseModel:extend('widgets')
+
+    local original = Database.queryAsync
+    Database.queryAsync = function(sql, params, callback)
+        callback({{ id = 1 }, { id = 2 }})
+    end
+
+    local result
+    Widget:allAsync(function(widgets) result = widgets end)
+    Database.queryAsync = original
+
+    eq(#result, 2, 'allAsync should call back with all rows')
+end)
+
+test('whereHas: hasMany wraps a correlated EXISTS subquery on the related table', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local query = Customer:whereHas('orders')
+    local sql, params = query:toSql()
+
+    truthy(sql:find('EXISTS %(SELECT 1 FROM `orders`'), 'whereHas should EXISTS-wrap the related table')
+    truthy(sql:find('`orders`%.`customer_id` = `customers`%.`id`'), 'whereHas should correlate on the hasMany foreign key')
+    eqList(params, {}, 'a bare whereHas with no callback filter adds no bound params')
+end)
+
+test('whereHas: callback adds extra filtering on the related table, params land after the correlation', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local query = Customer:whereHas('orders', function(q) q:where('status', 'paid') end)
+    local sql, params = query:toSql()
+
+    truthy(sql:find('`status` = %?'), 'callback filter should appear inside the EXISTS subquery')
+    eqList(params, {'paid'}, 'the callback\'s where value should be the only bound param')
+end)
+
+test('whereRelation: sugar for whereHas + a single where on the related column', function()
+    local Customer = BaseModel:extend('customers')
+    local Order = BaseModel:extend('orders')
+    function Customer.relations:orders() return self:hasMany(Order, 'customer_id') end
+
+    local sql, params = Customer:whereRelation('orders', 'total', '>', 100):toSql()
+
+    truthy(sql:find('EXISTS'), 'whereRelation should still EXISTS-wrap')
+    truthy(sql:find('`total` > %?'), 'whereRelation should apply the given operator/column')
+    eqList(params, {100})
+end)
+
+test('whereHas: belongsTo correlates on the owning row\'s foreign key', function()
+    local Order = BaseModel:extend('orders')
+    local Customer = BaseModel:extend('customers')
+    function Order.relations:customer() return self:belongsTo(Customer, 'customer_id') end
+
+    local sql = Order:whereHas('customer'):toSql()
+
+    truthy(sql:find('EXISTS %(SELECT 1 FROM `customers`'), 'belongsTo whereHas should EXISTS-wrap the owner table')
+    truthy(sql:find('`customers`%.`id` = `orders`%.`customer_id`'), 'belongsTo whereHas should correlate owner PK to the FK column')
+end)
+
+test('whereHas: belongsToMany EXISTS-wraps a pivot join correlated on the owning row\'s PK', function()
+    local Post = BaseModel:extend('posts')
+    local Tag = BaseModel:extend('tags')
+    function Post.relations:tags() return self:belongsToMany(Tag, 'post_tags', 'post_id', 'tag_id') end
+
+    local sql = Post:whereHas('tags', function(q) q:where('name', 'featured') end):toSql()
+
+    truthy(sql:find('EXISTS %(SELECT 1 FROM `post_tags`'), 'belongsToMany whereHas should EXISTS-wrap the pivot table')
+    truthy(sql:find('INNER JOIN `tags`'), 'belongsToMany whereHas should join the related table')
+    truthy(sql:find('`post_tags`%.`post_id` = `posts`%.`id`'), 'belongsToMany whereHas should correlate the pivot to the owning row\'s PK')
+    truthy(sql:find('`name` = %?'), 'the callback filter should apply to the joined related table')
+end)
+
+test('whereHas: morphMany filters by both owner_type literal and the correlated owner_id', function()
+    local ATMMachine = BaseModel:extend('atm_machines')
+    local Interaction = BaseModel:extend('interactions')
+    function ATMMachine.relations:interactions()
+        return self:morphMany(Interaction, 'owner_id', 'owner_type', 'ATMMachine')
+    end
+
+    local sql = ATMMachine:whereHas('interactions'):toSql()
+
+    truthy(sql:find("`interactions`%.`owner_type` = 'ATMMachine'"), 'morphMany whereHas should filter the fixed owner_type')
+    truthy(sql:find('`interactions`%.`owner_id` = `atm_machines`%.`id`'), 'morphMany whereHas should correlate owner_id to the owning row\'s PK')
+end)
+
+test('whereHas: morphTo is not supported (no fixed related table to correlate against)', function()
+    local Interaction = BaseModel:extend('interactions')
+    function Interaction.relations:owner() return self:morphTo('owner_type', 'owner_id') end
+
+    throws(function()
+        Interaction:whereHas('owner')
+    end, 'whereHas on a morphTo relation should raise, not silently no-op')
 end)
 
 --------------------------------------------------------------------------------

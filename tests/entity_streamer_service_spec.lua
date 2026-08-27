@@ -19,6 +19,7 @@ local emitClientCalls = {}
 _G.Obelisk = _G.Obelisk or {
     on = function(eventName, callback) AddEventHandler(eventName, callback) end,
     onClient = function() end,
+    onStateBag = function() end,
     emitClient = function(eventName, target, data)
         table.insert(emitClientCalls, { eventName = eventName, target = target, data = data })
     end,

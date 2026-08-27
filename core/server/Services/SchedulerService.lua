@@ -24,18 +24,23 @@ end
 --- @param id number
 --- @param attrs table fields to update (action_id, schedule_type, interval_seconds, cron_expression, enabled)
 function SchedulerService.update(id, attrs)
-    attrs.updated_at = Database.now()
-    ScheduledJob:where('id', id):update(attrs)
+    local job = ScheduledJob:find(id)
+    if not job then return end
+    for key, value in pairs(attrs) do
+        job:set(key, value)
+    end
+    job:save()
 end
 
 --- @param id number
 function SchedulerService.delete(id)
-    ScheduledJob:where('id', id):delete()
+    local job = ScheduledJob:find(id)
+    if job then job:delete() end
 end
 
 --- @return table[]
 function SchedulerService.list()
-    return ScheduledJob:get()
+    return ScheduledJob:all()
 end
 
 --- @param row table scheduled_jobs row
@@ -70,10 +75,8 @@ function SchedulerService.tick(now)
             if SchedulerService.isDue(row, now) then
                 local ran = ActionService.execute(nil, row.action_id, {})
                 if ran then
-                    ScheduledJob:where('id', row.id):update({
-                        last_run_at = now,
-                        updated_at = Database.now(),
-                    })
+                    row:set('last_run_at', now)
+                    row:save()
                 end
             end
         end)

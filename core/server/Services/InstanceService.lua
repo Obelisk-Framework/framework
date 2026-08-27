@@ -23,12 +23,14 @@ function InstanceService.getOrCreateBucket(key)
         return existing.bucket_id
     end
 
-    -- placeholder bucket_id, corrected below once we know our own row id
-    local created = InstanceBucket:create({ key = key, bucket_id = 0 })
+    local bucket = InstanceBucket:create({
+        key = key,
+        bucket_id = 0, -- placeholder, corrected below once we know our own row id
+    })
 
-    local bucketId = created.id + OFFSET
-    created:set('bucket_id', bucketId)
-    created:save()
+    local bucketId = bucket.id + OFFSET
+    bucket:set('bucket_id', bucketId)
+    bucket:save()
 
     return bucketId
 end

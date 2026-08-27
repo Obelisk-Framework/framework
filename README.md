@@ -5,7 +5,7 @@
 
 A developer-first FiveM framework, built for the developer writing the plugin, not just the server owner running it. A dual-dialect Lua ORM, a module and plugin system, a Vue 3 NUI, and one CLI that scaffolds all of it to the same conventions core itself follows.
 
-**[Read the docs →](https://obelisk-framework.github.io/core/)**
+**[Read the docs →](https://obelisk-framework.github.io/fraamework/)**
 
 ## Features
 
@@ -79,7 +79,6 @@ Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for how to 
 
 ## Credits
 
-- [oxmysql](https://github.com/overextended/oxmysql) by [overextended](https://github.com/overextended) — this project uses oxmysql.
 - [screencapture](https://github.com/itschip/screencapture) by [itschip](https://github.com/itschip) — an inspiration for core's storage service and screenshot/video upload flow.
 
 ## Sponsoring

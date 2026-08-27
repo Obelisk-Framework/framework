@@ -185,14 +185,15 @@ end
 
 --- Proxy the chainable QueryBuilder starter methods (and the `get` terminal)
 --- onto the model itself, so `Inventory:where('owner', id):get()` works
---- without an explicit `Inventory:newQuery():where(...)` call, and so does an
---- unfiltered `Inventory:get()` (the direct replacement for the old
---- `all()`/`allSync()` — bare `get()` is sync, and there's a `getAsync()` variant).
---- Each just opens a new query and forwards to the same-named QueryBuilder method.
+--- without an explicit `Inventory:newQuery():where(...)` call -- `all()`/
+--- `allAsync()` above cover the unconditioned "fetch everything" case; a bare
+--- `Inventory:get()` is equivalent but reads as the tail of a query built by
+--- proxied `where`/`whereHas`/etc. Each proxy just opens a new query and
+--- forwards to the same-named QueryBuilder method.
 local QUERY_PROXY_METHODS = {
     'select', 'selectRaw', 'where', 'orWhere', 'whereIn', 'whereNull', 'whereNotNull',
-    'orderBy', 'limit', 'offset', 'join', 'leftJoin', 'groupBy', 'get', 'firstOr',
-    'whereHas', 'orWhereHas', 'has', 'whereRelation'
+    'whereHas', 'orWhereHas', 'has', 'whereRelation', 'orderBy', 'limit', 'offset',
+    'join', 'leftJoin', 'groupBy', 'get', 'firstOr'
 }
 
 for _, methodName in ipairs(QUERY_PROXY_METHODS) do
@@ -202,9 +203,6 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
     end
 end
 
---- Fetch all rows (alias for :get() with no where clause)
-BaseModel.all = BaseModel.get
-
 --- Record a relation path (single-level or dot-separated) to eager-load
 --- after the terminal fetch resolves. Returns a QueryBuilder so further
 --- `:with(...)` calls chain (each accumulates its own independent path)
@@ -213,6 +211,21 @@ BaseModel.all = BaseModel.get
 --- @return QueryBuilder
 function BaseModel:with(path)
     return self:newQuery():with(path)
+end
+
+--- Fetch every row, unconditioned -- the explicit-intent counterpart to a
+--- bare `Model:get()` (identical query, `Model:newQuery():get()`), for call
+--- sites that want to read "fetch everything" rather than "get() the query
+--- built above" at a glance.
+--- @return table
+function BaseModel:all()
+    return self:newQuery():get()
+end
+
+--- Fetch every row (async).
+--- @param callback function
+function BaseModel:allAsync(callback)
+    self:newQuery():getAsync(callback)
 end
 
 --- Find synchronously
