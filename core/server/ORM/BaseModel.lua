@@ -1,5 +1,8 @@
 --- BaseModel - Active Record pattern with relationships
 --- Inspired by Laravel's Eloquent ORM
+--- Valid hook names for lifecycle callbacks
+local HOOK_NAMES = { afterSave = true, afterDelete = true }
+
 --- Per-relation lazy-load counters, for the N+1 warning in resolveRelation
 --- below. Dev-only signal, not enforcement -- reset per process, not per
 --- request, so it's a "this relation gets loaded a lot, consider :with()"
@@ -151,6 +154,17 @@ function BaseModel:extend(tableName)
         child.table = tableName
     end
 
+    child.__hookDefs = { afterSave = {}, afterDelete = {} }
+    child.hooks = setmetatable({}, {
+        __index = function(_, key)
+            assert(HOOK_NAMES[key], ("unknown hook %q"):format(key))
+            return function(_, fn)
+                assert(type(fn) == 'function', ("hook %q must be a function"):format(key))
+                table.insert(child.__hookDefs[key], fn)
+            end
+        end,
+    })
+
     --- Create a new instance of the child model
     --- @param attributes table
     --- @return table
@@ -200,6 +214,45 @@ for _, methodName in ipairs(QUERY_PROXY_METHODS) do
     BaseModel[methodName] = function(self, ...)
         local query = self:newQuery()
         return query[methodName](query, ...)
+    end
+end
+
+--- Lifecycle hook lists for THIS class only (afterSave/afterDelete),
+--- populated via `class.hooks` below. Each `extend()`'d child gets its
+--- own fresh lists (see extend()) -- hooks registered on one model never
+--- fire for another, unlike relations there's no inheritance story here.
+BaseModel.__hookDefs = { afterSave = {}, afterDelete = {} }
+
+--- `Model.hooks:afterSave(fn)` / `Model.hooks:afterDelete(fn)` register a
+--- lifecycle callback, mirroring the `Model.relations:name()` registration
+--- surface. Colon-call `hooks:afterSave(fn)` desugars to
+--- `hooks.afterSave(hooks, fn)`; since no `afterSave`/`afterDelete` key is
+--- ever set directly, `__index` synthesizes a registrar closure per key
+--- rather than declaring two near-identical named functions.
+BaseModel.hooks = setmetatable({}, {
+    __index = function(_, key)
+        assert(HOOK_NAMES[key], ("unknown hook %q"):format(key))
+        return function(_, fn)
+            assert(type(fn) == 'function', ("hook %q must be a function"):format(key))
+            table.insert(BaseModel.__hookDefs[key], fn)
+        end
+    end,
+})
+
+--- Run every hook registered for `event` on this instance's class, in
+--- registration order. Hook errors are caught and logged, never
+--- propagated -- a broken listener (e.g. a misconfigured audit rule)
+--- must not fail the write it's observing.
+--- @param event string 'afterSave'|'afterDelete'
+--- @param ctx table
+function BaseModel:dispatchHooks(event, ctx)
+    local defs = rawget(self, '__hookDefs') or getmetatable(self).__hookDefs
+    if not defs then return end
+    for _, fn in ipairs(defs[event]) do
+        local ok, err = pcall(fn, self, ctx)
+        if not ok then
+            print(('[ORM] hook %q on %s raised: %s'):format(event, tostring(self.table), tostring(err)))
+        end
     end
 end
 
@@ -399,6 +452,9 @@ end
 --- Save synchronously
 --- @return BaseModel
 function BaseModel:save()
+    local wasExisting = self.exists
+    local before = wasExisting and self:copyTable(self.original) or nil
+
     if self.timestamps then
         if not self.exists then
             self.attributes.created_at = Database.now()
@@ -419,12 +475,21 @@ function BaseModel:save()
         self.original = self:copyTable(self.attributes)
     end
 
+    self:dispatchHooks('afterSave', {
+        action = wasExisting and 'update' or 'insert',
+        before = before,
+        after = self:copyTable(self.attributes),
+    })
+
     return self
 end
 
 --- Save the model (async)
 --- @param callback function
 function BaseModel:saveAsync(callback)
+    local wasExisting = self.exists
+    local before = wasExisting and self:copyTable(self.original) or nil
+
     if self.timestamps then
         if not self.exists then
             self.attributes.created_at = Database.now()
@@ -438,6 +503,7 @@ function BaseModel:saveAsync(callback)
         local pk = self.attributes[self.primaryKey]
         self:newQuery():where(self.primaryKey, pk):updateAsync(writeAttributes, function(affected)
             self.original = self:copyTable(self.attributes)
+            self:dispatchHooks('afterSave', { action = 'update', before = before, after = self:copyTable(self.attributes) })
             if callback then callback(self) end
         end)
     else
@@ -445,6 +511,7 @@ function BaseModel:saveAsync(callback)
             self.attributes[self.primaryKey] = insertId
             self.exists = true
             self.original = self:copyTable(self.attributes)
+            self:dispatchHooks('afterSave', { action = 'insert', before = nil, after = self:copyTable(self.attributes) })
             if callback then callback(self) end
         end)
     end
@@ -468,8 +535,10 @@ function BaseModel:delete()
     end
 
     local pk = self.attributes[self.primaryKey]
+    local before = self:copyTable(self.attributes)
     self:newQuery():where(self.primaryKey, pk):delete()
     self.exists = false
+    self:dispatchHooks('afterDelete', { before = before })
     return true
 end
 
@@ -482,8 +551,10 @@ function BaseModel:deleteAsync(callback)
     end
 
     local pk = self.attributes[self.primaryKey]
+    local before = self:copyTable(self.attributes)
     self:newQuery():where(self.primaryKey, pk):deleteAsync(function(affected)
         self.exists = false
+        self:dispatchHooks('afterDelete', { before = before })
         if callback then callback(true) end
     end)
 end

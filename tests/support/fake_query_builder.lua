@@ -168,6 +168,12 @@ function FakeQueryBuilder:insert(data)
     return id
 end
 
+function FakeQueryBuilder:insertAsync(data, callback)
+    local id = self:insert(data)
+    if callback then callback(id) end
+    return id
+end
+
 function FakeQueryBuilder:update(data)
     local affected = 0
     for _, row in ipairs(self.rows) do
@@ -178,6 +184,12 @@ function FakeQueryBuilder:update(data)
             affected = affected + 1
         end
     end
+    return affected
+end
+
+function FakeQueryBuilder:updateAsync(data, callback)
+    local affected = self:update(data)
+    if callback then callback(affected) end
     return affected
 end
 
@@ -196,6 +208,12 @@ function FakeQueryBuilder:delete()
     for _, row in ipairs(kept) do
         table.insert(self.rows, row)
     end
+    return removed
+end
+
+function FakeQueryBuilder:deleteAsync(callback)
+    local removed = self:delete()
+    if callback then callback(removed) end
     return removed
 end
 
