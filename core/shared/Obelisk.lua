@@ -72,6 +72,32 @@ if isServer then
     function Obelisk.onServer()
         error('Obelisk.onServer can only be called from the client', 2)
     end
+
+    --- Secure variant of onClient: the underlying net event name is a
+    --- one-time HMAC-derived name that changes on every send (see
+    --- SecureEventService). Requires the player to have completed the
+    --- session handshake (see PlayerService's playerJoining hook); events
+    --- from players with no active session are silently dropped by
+    --- SecureEventService itself.
+    --- @param eventName string
+    --- @param callback function(player, ...)
+    function Obelisk.onClientSecure(eventName, callback)
+        SecureEventService.onClientSecure(eventName, callback)
+    end
+
+    --- @param eventName string
+    --- @param player Player
+    function Obelisk.emitClientSecure(eventName, player, ...)
+        SecureEventService.emitClientSecure(eventName, player, ...)
+    end
+
+    function Obelisk.emitServerSecure()
+        error('Obelisk.emitServerSecure can only be called from the client', 2)
+    end
+
+    function Obelisk.onServerSecure()
+        error('Obelisk.onServerSecure can only be called from the client', 2)
+    end
 else
     --- Send an event to the server. Client only.
     --- @param eventName string
@@ -94,6 +120,25 @@ else
 
     function Obelisk.onClient()
         error('Obelisk.onClient can only be called from the server', 2)
+    end
+
+    --- @param eventName string
+    --- @param callback function
+    function Obelisk.onServerSecure(eventName, callback)
+        SecureEventService.onServerSecure(eventName, callback)
+    end
+
+    --- @param eventName string
+    function Obelisk.emitServerSecure(eventName, ...)
+        SecureEventService.emitServerSecure(eventName, ...)
+    end
+
+    function Obelisk.emitClientSecure()
+        error('Obelisk.emitClientSecure can only be called from the server', 2)
+    end
+
+    function Obelisk.onClientSecure()
+        error('Obelisk.onClientSecure can only be called from the server', 2)
     end
 end
 

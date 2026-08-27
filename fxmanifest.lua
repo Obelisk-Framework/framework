@@ -73,7 +73,8 @@ client_scripts {
     'core/client/Services/NotificationService.lua',
     'core/client/Services/ProgressService.lua',
     'core/client/Services/**/*.lua',
-    
+    'core/server/Services/storage/sha256.lua',
+
     -- Client Actions
     'core/client/actions/**/*.lua',
     

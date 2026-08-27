@@ -30,6 +30,16 @@ local function freshPlayerService()
     _G.SpawnManagerService = {
         markConnecting = function(player) end,
     }
+    -- PlayerService's playerJoining/playerDropped handlers now also call
+    -- SecureEventService.startSession/endSession (handshake secret storage,
+    -- see obelisk:requestHandshake); stub it since these tests don't assert
+    -- on SecureEventService behavior. Also stub TriggerClientEvent, since
+    -- some tests below override it themselves for their own assertions.
+    _G.SecureEventService = _G.SecureEventService or {
+        startSession = function() end,
+        endSession = function() end,
+    }
+    _G.TriggerClientEvent = _G.TriggerClientEvent or function() end
     -- capture the two Obelisk.on registrations PlayerService installs
     local handlers = {}
     local realOn = Obelisk.on

@@ -7,6 +7,12 @@ PlayerService.registry = {} -- source(number) -> Player
 local Player = {}
 Player.__index = Player
 
+-- [source] = sessionSecret, generated on playerJoining but only sent once
+-- the joining client actually requests it (see obelisk:requestHandshake
+-- below) — sending it synchronously from playerJoining races the client
+-- resource starting and is very likely lost.
+local pendingHandshakeSecrets = {}
+
 local IDENTIFIER_TYPES = { 'license', 'discord', 'steam', 'fivem', 'ip' }
 
 function Player.new(source)
@@ -59,10 +65,30 @@ Obelisk.on('playerJoining', function()
     local source = source
     PlayerService.registry[source] = Player.new(source)
     SpawnManagerService.markConnecting(PlayerService.registry[source])
+    local secretBytes = {}
+    for i = 1, 32 do
+        secretBytes[i] = string.char(math.random(0, 255))
+    end
+    local sessionSecret = table.concat(secretBytes)
+    SecureEventService.startSession(source, sessionSecret)
+    pendingHandshakeSecrets[source] = sessionSecret
     print('[PlayerService] Player ' .. source .. ' joined')
 end)
 
+--- The joining client requests its handshake secret once its own resources
+--- (including the obelisk:secureHandshake receiver in core/client/bootstrap.lua)
+--- have actually started, sidestepping the playerJoining race described above.
+Obelisk.onClient('obelisk:requestHandshake', function(player)
+    local source = player:getSource()
+    local secret = pendingHandshakeSecrets[source]
+    if secret then
+        TriggerClientEvent('obelisk:secureHandshake', source, secret)
+    end
+end)
+
 Obelisk.on('playerDropped', function()
+    SecureEventService.endSession(source)
+    pendingHandshakeSecrets[source] = nil
     print('[PlayerService] Player ' .. source .. ' left')
     PlayerService.registry[source] = nil
 end)
