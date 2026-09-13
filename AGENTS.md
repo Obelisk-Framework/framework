@@ -97,6 +97,9 @@ set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem
 - `plugins/` - Optional feature plugins, loaded as part of core (no fxmanifest.lua of their own; registered in `plugins/registry.json`)
 - `cli/` - Node.js code generators
 
+> **NEVER commit anything inside `plugins/` except `plugins/.gitkeep`.**
+> Plugins live in their own repositories (e.g. `Obelisk-Framework/oblsk_auditlog`) and are placed into `plugins/` locally; `plugins/*` is gitignored on purpose. Do not force-add plugin files.
+
 ## Common Patterns
 
 **Register Action**: `ActionService.register('action_id', handler, options)`
