@@ -12,7 +12,7 @@ A developer-first FiveM framework, built for the developer writing the plugin, n
 - **Dual-dialect ORM** — an Eloquent-inspired ORM (models, query builder, migrations) that generates correct SQL for both MySQL/MariaDB and PostgreSQL, switchable via a single convar.
 - **Modules & Plugins** — a clear split between core-owned modules and third-party plugins, both scaffolded by the CLI and registered automatically so they load as part of core.
 - **CLI generators** — `obelisk make:module`, `make:plugin`, `make:model`, `make:migration`, `make:action`, `make:policy`, and more, all scaffolding to the framework's own conventions.
-- **Docker-ready** — the infrastructure repo provides a `docker-compose` setup for MariaDB/PostgreSQL, with update scripts that pull the latest FXServer build for you.
+- **Docker-ready** — the separate [`infrastructure`](https://github.com/Obelisk-Framework/infrastructure) repository runs FXServer with MariaDB or PostgreSQL and manages FXServer updates.
 
 ## Key Concepts
 
@@ -64,13 +64,17 @@ If any policy returns `false`, the interaction or action is cancelled.
 
 ## Getting Started
 
+For framework and CLI development:
+
 ```bash
-git clone git@github.com:Obelisk-Framework/framework.git
+git clone https://github.com/Obelisk-Framework/framework.git
 cd framework
 npm install
+npm run cli -- --help
+npm test
 ```
 
-Full setup, module/plugin authoring, and CLI reference live in the **[documentation site](https://obelisk-framework.github.io/docs/)**.
+To run FXServer, use the separate [`infrastructure`](https://github.com/Obelisk-Framework/infrastructure) repository. Full server setup, module/plugin authoring, and CLI reference live on the **[documentation site](https://obelisk-framework.github.io/docs/)**.
 
 ## Contributing
 
