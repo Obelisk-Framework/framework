@@ -3,5 +3,5 @@ node_modules
 modules/*
 plugins/*
 .superpowers/
-docs/superpowers/
+docs/
 storage/
