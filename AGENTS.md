@@ -25,7 +25,7 @@ npm run make:policy  # Generate authorization policy
 
 ### Database & Server
 ```bash
-# Start MariaDB (requires Docker) — profile flag required, no implicit default
+# Start MariaDB (requires the infrastructure repo's docker-compose setup)
 docker-compose --profile mariadb up -d mariadb
 
 # View MariaDB logs
@@ -56,7 +56,7 @@ Required: One of these resources
 
 Server.cfg example:
 ```cfg
-ensure ghmattimysql
+ensure oblsk_connector
 ensure obelisk
 set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem"
 ```
@@ -69,7 +69,7 @@ set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem
 - **Naming**: CamelCase for functions, snake_case for table names and action IDs
 - **Imports**: Use `return ModuleName` at end of files; require() from bootstrap files
 - **Type Hints**: Use LuaLS annotations (`@param`, `@return`, `@table`)
-- **Async**: Prefer Sync versions for simplicity (`findSync()`, `getSync()`)
+- **Async**: Prefer the bare synchronous methods for simplicity (`find()`, `get()`); use explicit `...Async` methods for callbacks
 - **Error Handling**: Use `pcall()` in service handlers; print to console for logging
 - **Hooks**: Use `Hooks.runHook()` for extensibility points before/after operations
 
@@ -100,7 +100,7 @@ set mysql_connection_string "mysql://obelisk:obelisk_password@mariadb:3306/fivem
 ## Common Patterns
 
 **Register Action**: `ActionService.register('action_id', handler, options)`
-**Query Models**: `Model:newQuery():where(...):first(callback)` or `:firstSync()`
+**Query Models**: `Model:newQuery():where(...):first()` or `:firstAsync(callback)`
 **Migrations**: Use `Schema.create/drop` with fluent table methods
 **Policies**: Register with `PolicyService.register()`, attach to actions/interactions
 **Notifications**: `NotificationService.success(source, title, description, duration)`

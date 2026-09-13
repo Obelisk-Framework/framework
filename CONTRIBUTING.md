@@ -5,9 +5,8 @@ Thanks for taking the time to contribute.
 ## Getting set up
 
 ```bash
-git clone git@github.com:Obelisk-Framework/core.git
-cd core
-docker compose up -d   # starts MariaDB
+git clone git@github.com:Obelisk-Framework/framework.git
+cd framework
 npm install
 ```
 
