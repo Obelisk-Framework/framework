@@ -1,18 +1,18 @@
 # Obelisk Framework
 
-[![CI](https://github.com/Obelisk-Framework/core/actions/workflows/ci.yml/badge.svg)](https://github.com/Obelisk-Framework/core/actions/workflows/ci.yml)
+[![CI](https://github.com/Obelisk-Framework/framework/actions/workflows/ci.yml/badge.svg)](https://github.com/Obelisk-Framework/framework/actions/workflows/ci.yml)
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](LICENSE)
 
 A developer-first FiveM framework, built for the developer writing the plugin, not just the server owner running it. A dual-dialect Lua ORM, a module and plugin system, a Vue 3 NUI, and one CLI that scaffolds all of it to the same conventions core itself follows.
 
-**[Read the docs →](https://obelisk-framework.github.io/fraamework/)**
+**[Read the docs →](https://obelisk-framework.github.io/docs/)**
 
 ## Features
 
 - **Dual-dialect ORM** — an Eloquent-inspired ORM (models, query builder, migrations) that generates correct SQL for both MySQL/MariaDB and PostgreSQL, switchable via a single convar.
 - **Modules & Plugins** — a clear split between core-owned modules and third-party plugins, both scaffolded by the CLI and registered automatically so they load as part of core.
 - **CLI generators** — `obelisk make:module`, `make:plugin`, `make:model`, `make:migration`, `make:action`, `make:policy`, and more, all scaffolding to the framework's own conventions.
-- **Docker-ready** — a `docker-compose` setup for MariaDB/PostgreSQL, with update scripts that pull the latest FXServer build for you.
+- **Docker-ready** — the separate [`infrastructure`](https://github.com/Obelisk-Framework/infrastructure) repository runs FXServer with MariaDB or PostgreSQL and manages FXServer updates.
 
 ## Key Concepts
 
@@ -64,14 +64,17 @@ If any policy returns `false`, the interaction or action is cancelled.
 
 ## Getting Started
 
+For framework and CLI development:
+
 ```bash
-git clone git@github.com:Obelisk-Framework/core.git
-cd core
-docker compose up -d   # starts MariaDB
+git clone https://github.com/Obelisk-Framework/framework.git
+cd framework
 npm install
+npm run cli -- --help
+npm test
 ```
 
-Full setup, module/plugin authoring, and CLI reference live in the **[documentation site](https://obelisk-framework.github.io/core/)**.
+To run FXServer, use the separate [`infrastructure`](https://github.com/Obelisk-Framework/infrastructure) repository. Full server setup, module/plugin authoring, and CLI reference live on the **[documentation site](https://obelisk-framework.github.io/docs/)**.
 
 ## Contributing
 
