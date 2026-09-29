@@ -311,9 +311,18 @@ function Database.newTransaction()
     --- Queue a raw statement.
     --- @param query string
     --- @param params table|nil
+    --- @param options table|nil supports expectedAffectedRows for guarded writes
     --- @return table tx (chainable)
-    function tx:add(query, params)
-        table.insert(self.queries, { query = query, params = params or {} })
+    function tx:add(query, params, options)
+        local expected = options and options.expectedAffectedRows
+        if expected ~= nil and (type(expected) ~= 'number' or expected < 0 or expected ~= math.floor(expected)) then
+            error('Database transaction expectedAffectedRows must be a non-negative integer', 2)
+        end
+        table.insert(self.queries, {
+            query = query,
+            params = params or {},
+            expectedAffectedRows = expected,
+        })
         return self
     end
 
@@ -360,39 +369,53 @@ function Database.transaction(callback)
 end
 
 --- Commit a list of { query, params } statements atomically.
---- Prefers the connector's native batch-transaction API; otherwise falls back
---- to a manual START TRANSACTION / COMMIT wrapper (see caveat below).
+--- Batches with affected-row invariants require oblsk_connector's checked native transaction path.
 --- @param queries table Array of { query = string, params = table }
 --- @return boolean success
 function Database.commitTransaction(queries)
+    local requiresAffectedRows = false
+    for _, q in ipairs(queries) do
+        if q.expectedAffectedRows ~= nil then
+            requiresAffectedRows = true
+            break
+        end
+    end
+
+    local resName = Database.connector
+    if requiresAffectedRows and resName ~= 'oblsk_connector' then
+        print('[Database] Transaction rejected: expectedAffectedRows requires oblsk_connector.')
+        return false
+    end
+
     local success, result = pcall(function()
-        -- Any connector that exports transactionSync gets the native atomic
-        -- path. oblsk_connector is listed here so it wires up automatically
-        -- once it gains a transaction endpoint.
-        local resName = Database.connector
         if resName == 'oxmysql' or resName == 'ghmattimysql' or resName == 'oblsk_connector' then
             local connector = exports[resName]
             if connector and connector.transactionSync then
-                -- Connectors take an array of { query = , values = }.
                 local batch = {}
                 for _, q in ipairs(queries) do
-                    batch[#batch + 1] = { query = q.query, values = q.params }
+                    batch[#batch + 1] = {
+                        query = q.query,
+                        values = q.params,
+                        expectedAffectedRows = q.expectedAffectedRows,
+                    }
                 end
                 return connector:transactionSync(batch)
             end
         end
-
         return nil
     end)
 
     if success and result ~= nil then
         return result and true or false
     end
+    if requiresAffectedRows then
+        if not success then
+            error('[Database] Native transaction outcome unknown; do not retry automatically: ' .. tostring(result), 2)
+        end
+        return false
+    end
 
-    -- Fallback: connectors without a batch-transaction API (oblsk_connector /
-    -- mysql-async) and the in-memory store. Best effort only — with a
-    -- connection-pooling connector this is NOT guaranteed atomic, which is why
-    -- the native path above is strongly preferred.
+    -- Legacy callers without row invariants retain the existing fallback.
     return Database.commitTransactionFallback(queries)
 end
 
