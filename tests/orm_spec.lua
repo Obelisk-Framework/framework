@@ -1818,6 +1818,72 @@ test('transaction: queues statements in order and commits them', function()
     eqList(committed[2].params, {100, 2})
 end)
 
+test('transaction: preserves expected affected-row invariants', function()
+    local committed
+    local original = Database.commitTransaction
+    Database.commitTransaction = function(queries) committed = queries return true end
+
+    local ok = Database.transaction(function(tx)
+        tx:add('UPDATE stock SET qty = qty - 1 WHERE id = ? AND qty >= 1', {7}, { expectedAffectedRows = 1 })
+    end)
+
+    Database.commitTransaction = original
+
+    eq(ok, true)
+    eq(committed[1].expectedAffectedRows, 1)
+end)
+
+test('commitTransaction: forwards expected affected rows to oblsk_connector', function()
+    local savedConnector, captured = Database.connector, nil
+    exports.oblsk_connector = {
+        transactionSync = function(_, batch) captured = batch return true end,
+    }
+    Database.connector = 'oblsk_connector'
+
+    local ok = Database.commitTransaction({ {
+        query = 'UPDATE stock SET qty = qty - 1 WHERE id = ?',
+        params = {7},
+        expectedAffectedRows = 1,
+    } })
+
+    exports.oblsk_connector = nil
+    Database.connector = savedConnector
+    eq(ok, true)
+    eq(captured[1].expectedAffectedRows, 1)
+end)
+
+test('commitTransaction: rejects row invariants on connectors that cannot enforce them', function()
+    local savedConnector, called = Database.connector, false
+    exports.oxmysql = { transactionSync = function() called = true return true end }
+    Database.connector = 'oxmysql'
+
+    local ok = Database.commitTransaction({ {
+        query = 'UPDATE stock SET qty = qty - 1 WHERE id = ?',
+        params = {7},
+        expectedAffectedRows = 1,
+    } })
+
+    exports.oxmysql = nil
+    Database.connector = savedConnector
+    eq(ok, false)
+    eq(called, false)
+end)
+
+test('transaction: rejects invalid expected affected-row invariants', function()
+    local called = false
+    local original = Database.commitTransaction
+    Database.commitTransaction = function() called = true return true end
+
+    local ok = Database.transaction(function(tx)
+        tx:add('UPDATE stock SET qty = qty - 1 WHERE id = ?', {7}, { expectedAffectedRows = 0.5 })
+    end)
+
+    Database.commitTransaction = original
+
+    eq(ok, false)
+    eq(called, false)
+end)
+
 test('transaction: a callback error aborts without committing', function()
     local called = false
     local original = Database.commitTransaction
