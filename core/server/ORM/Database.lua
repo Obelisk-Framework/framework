@@ -148,19 +148,26 @@ function Database.query(query, params)
     return Database.executeQuery(query, params)
 end
 
+--- Run a synchronous-looking operation in a yieldable runtime thread.
+--- Connector calls already await asynchronous I/O; callback APIs only need
+--- this scheduling boundary, not a second implementation of the operation.
+--- @param operation function
+--- @param callback function|nil Receives the operation's result
+function Database.runAsync(operation, callback)
+    Citizen.CreateThread(function()
+        local result = operation()
+        if callback then
+            callback(result)
+        end
+    end)
+end
+
 --- Execute query asynchronously
 --- @param query string SQL query
 --- @param params table Parameters
 --- @param callback function Callback function
 function Database.queryAsync(query, params, callback)
-    params = params or {}
-
-    Citizen.CreateThread(function()
-        local result = Database.executeQuery(query, params)
-        if callback then
-            callback(result)
-        end
-    end)
+    Database.runAsync(function() return Database.query(query, params) end, callback)
 end
 
 --- Insert query sync
@@ -178,15 +185,7 @@ end
 --- @param params table Parameters
 --- @param callback function Callback with insertId
 function Database.insertAsync(query, params, callback)
-    params = params or {}
-
-    Citizen.CreateThread(function()
-        local result = Database.executeQuery(query, params)
-        local insertId = result and result.insertId or 0
-        if callback then
-            callback(insertId)
-        end
-    end)
+    Database.runAsync(function() return Database.insert(query, params) end, callback)
 end
 
 --- Update query sync
@@ -204,15 +203,7 @@ end
 --- @param params table Parameters
 --- @param callback function Callback with affectedRows
 function Database.updateAsync(query, params, callback)
-    params = params or {}
-
-    Citizen.CreateThread(function()
-        local result = Database.executeQuery(query, params)
-        local affectedRows = result and result.affectedRows or 0
-        if callback then
-            callback(affectedRows)
-        end
-    end)
+    Database.runAsync(function() return Database.update(query, params) end, callback)
 end
 
 --- Delete query sync (alias for update)
