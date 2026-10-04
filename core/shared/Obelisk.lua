@@ -73,16 +73,13 @@ if isServer then
         error('Obelisk.onServer can only be called from the client', 2)
     end
 
-    --- Secure variant of onClient: the underlying net event name is a
-    --- one-time HMAC-derived name that changes on every send (see
-    --- SecureEventService). Requires the player to have completed the
-    --- session handshake (see PlayerService's playerJoining hook); events
-    --- from players with no active session are silently dropped by
-    --- SecureEventService itself.
+    --- Legacy name for stable, rate-limited client events. Security comes
+    --- from server-side payload validation and authorization, not the name.
     --- @param eventName string
-    --- @param callback function(player, ...)
-    function Obelisk.onClientSecure(eventName, callback)
-        SecureEventService.onClientSecure(eventName, callback)
+    --- @param callback function(player, ...) must enforce domain rules and replay safety
+    --- @param options table|nil validate/authorize hooks and rateLimit overrides
+    function Obelisk.onClientSecure(eventName, callback, options)
+        SecureEventService.onClientSecure(eventName, callback, options)
     end
 
     --- @param eventName string

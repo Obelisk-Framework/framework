@@ -1,9 +1,6 @@
---- Derives one-time net event names from a per-player session secret.
---- Pure function — no state, no I/O. Callers (SecureEventService on both
---- sides) own the counter bookkeeping; this module only computes the name
---- for a given (secret, logicalEvent, direction, counter) tuple, and it
---- must produce byte-identical output on client and server for the same
---- inputs, since both sides derive the same name independently.
+--- Deprecated compatibility helper for external plugins using the old protocol.
+--- Framework events no longer use derived names, secrets or counters.
+--- A client-visible secret never substitutes for server-side authorization.
 EventNaming = EventNaming or {}
 
 --- @param sessionSecret string per-player secret exchanged at handshake

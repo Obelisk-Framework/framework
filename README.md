@@ -149,6 +149,55 @@ return check
 
 If any attached policy returns `false`, execution is cancelled.
 
+### Client/server events
+
+`Obelisk.onClientSecure`, `emitClientSecure`, `onServerSecure`, and `emitServerSecure`
+keep their plugin-facing signatures, but now use **stable names**, not rotating
+HMAC names. No handshake is required. The `Secure` suffix is a compatibility name,
+not a promise that a client or its payload can be trusted.
+
+Server receivers resolve the native sender to a `Player` and limit each
+player/event to **20 attempts per 1,000 ms** by default, including rejected
+payloads. An optional third argument to `onClientSecure` adds synchronous guards:
+
+```lua
+Obelisk.onClientSecure('garage:open', function(player, garageId)
+    GarageService.open(player, garageId)
+end, {
+    validate = function(player, garageId)
+        return type(garageId) == 'number' and garageId > 0
+            and garageId < math.huge and garageId % 1 == 0
+    end,
+    authorize = function(player, garageId)
+        return GarageService.canOpen(player, garageId) == true
+    end,
+    rateLimit = { max = 5, windowMs = 1000 },
+})
+```
+
+Guards must return literal `true`; false, nil, or errors reject the request.
+Validation runs before authorization, and both run before the handler. Existing
+two-argument registrations still work: their handlers **must** enforce payload
+shape, ownership, permissions, distance and other domain rules themselves. Client
+receivers accept only server-origin events, but clients remain untrusted.
+
+Replay-sensitive operations (purchases, rewards, etc.) must atomically consume a
+**server-issued, player-bound operation ID** or enforce an equivalent one-use
+state transition before side effects. Consume before yielding; use a database
+constraint/transaction when persistence is involved. Rate limits are not replay
+protection. Do not accept a fresh client-generated ID as proof of a new operation.
+
+**Rollout:** restart the bundled resource on server and clients together. Old
+rotating-name clients and new stable-name servers cannot communicate through
+these APIs. Plugins calling the four wrappers need no send/receive changes;
+plugins using raw derived names or the old handshake must migrate. Native names
+are `obelisk:secure:client_to_server:<logicalEvent>` and
+`obelisk:secure:server_to_client:<logicalEvent>`; ordinary event APIs are unchanged.
+`SecureEventService.startSession` remains a no-op, `endSession` clears rate buckets,
+and `EventNaming.deriveName` is retained only as a deprecated compatibility helper.
+Rollback by reverting this change and restarting server and clients together;
+there is no data migration.
+
 ### Modules and plugins
 
 Modules contain first-party domain behavior maintained with the framework. Plugins provide optional, third-party, or server-specific functionality. Both follow the same conventions and load as part of the core resource.
