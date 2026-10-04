@@ -575,23 +575,7 @@ end
 --- Execute the query and return results (async)
 --- @param callback function
 function QueryBuilder:getAsync(callback)
-    local sql, params = self:toSql()
-    Database.queryAsync(sql, params, function(results)
-        if not self.model then
-            callback(results)
-            return
-        end
-        local models = {}
-        for _, result in ipairs(results) do
-            table.insert(models, self.model:newFromQuery(result))
-        end
-        if #self.withPaths > 0 then
-            for _, path in ipairs(self.withPaths) do
-                self.model:eagerLoad(models, path)
-            end
-        end
-        callback(models)
-    end)
+    Database.runAsync(function() return self:get() end, callback)
 end
 
 --- Get first result synchronously
@@ -605,10 +589,7 @@ end
 --- Get first result (async)
 --- @param callback function
 function QueryBuilder:firstAsync(callback)
-    self:limit(1)
-    self:getAsync(function(results)
-        callback(results[1])
-    end)
+    Database.runAsync(function() return self:first() end, callback)
 end
 
 --- Get first result synchronously, or invoke a fallback if none is found.
@@ -640,13 +621,7 @@ end
 --- Count results (async)
 --- @param callback function
 function QueryBuilder:countAsync(callback)
-    local originalRaw = self.rawSelect
-    self:selectRaw('COUNT(*) as count')
-
-    self:firstAsync(function(result)
-        self.rawSelect = originalRaw
-        callback(tonumber(result and result.count) or 0)
-    end)
+    Database.runAsync(function() return self:count() end, callback)
 end
 
 --- Insert data (sync)
@@ -661,8 +636,7 @@ end
 --- @param data table Key-value pairs
 --- @param callback function Receives insertId
 function QueryBuilder:insertAsync(data, callback)
-    local sql, values = self:buildInsertSql(data)
-    Database.insertAsync(sql, values, callback)
+    Database.runAsync(function() return self:insert(data) end, callback)
 end
 
 --- Build the INSERT SQL + values, shared by insert()/insertAsync()
@@ -699,8 +673,7 @@ end
 --- @param data table Key-value pairs
 --- @param callback function Receives affectedRows
 function QueryBuilder:updateAsync(data, callback)
-    local sql, values = self:buildUpdateSql(data)
-    Database.updateAsync(sql, values, callback)
+    Database.runAsync(function() return self:update(data) end, callback)
 end
 
 --- Build the UPDATE SQL + values, shared by update()/updateAsync()
@@ -742,8 +715,7 @@ end
 --- Delete records (async)
 --- @param callback function
 function QueryBuilder:deleteAsync(callback)
-    local sql = self:buildDeleteSql()
-    Database.updateAsync(sql, self.params, callback)
+    Database.runAsync(function() return self:delete() end, callback)
 end
 
 --- Build the DELETE SQL, shared by delete()/deleteAsync()

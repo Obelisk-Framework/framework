@@ -278,7 +278,7 @@ end
 --- Fetch every row (async).
 --- @param callback function
 function BaseModel:allAsync(callback)
-    self:newQuery():getAsync(callback)
+    Database.runAsync(function() return self:all() end, callback)
 end
 
 --- Find synchronously
@@ -294,8 +294,7 @@ end
 --- @param id any
 --- @param callback function
 function BaseModel:findAsync(id, callback)
-    -- See find(): firstAsync() is already model-aware, result is pre-wrapped.
-    self:newQuery():where(self.primaryKey, id):firstAsync(callback)
+    Database.runAsync(function() return self:find(id) end, callback)
 end
 
 --- Create a new model instance from query result
@@ -331,11 +330,7 @@ end
 --- @param attributes table
 --- @param callback function
 function BaseModel:createAsync(attributes, callback)
-    local instance = self.new(attributes)
-    instance.table = self.table
-    instance.primaryKey = self.primaryKey
-    instance.timestamps = self.timestamps
-    instance:saveAsync(callback)
+    Database.runAsync(function() return self:create(attributes) end, callback)
 end
 
 --- Apply each key/value pair in `attributes` as an AND'd WHERE clause on
@@ -401,13 +396,7 @@ end
 --- @param values table|nil
 --- @param callback function
 function BaseModel:firstOrCreateAsync(attributes, values, callback)
-    applyAttributeWhere(self:newQuery(), attributes):firstAsync(function(found)
-        if found then
-            callback(found)
-            return
-        end
-        self:createAsync(mergeAttributes(attributes, values), callback)
-    end)
+    Database.runAsync(function() return self:firstOrCreate(attributes, values) end, callback)
 end
 
 --- Find the first model matching `attributes`; if found, apply `values` and
@@ -435,18 +424,7 @@ end
 --- @param values table|nil
 --- @param callback function
 function BaseModel:updateOrCreateAsync(attributes, values, callback)
-    applyAttributeWhere(self:newQuery(), attributes):firstAsync(function(found)
-        if found then
-            if values then
-                for key, value in pairs(values) do
-                    found:set(key, value)
-                end
-            end
-            found:saveAsync(callback)
-            return
-        end
-        self:createAsync(mergeAttributes(attributes, values), callback)
-    end)
+    Database.runAsync(function() return self:updateOrCreate(attributes, values) end, callback)
 end
 
 --- Save synchronously
@@ -487,34 +465,7 @@ end
 --- Save the model (async)
 --- @param callback function
 function BaseModel:saveAsync(callback)
-    local wasExisting = self.exists
-    local before = wasExisting and self:copyTable(self.original) or nil
-
-    if self.timestamps then
-        if not self.exists then
-            self.attributes.created_at = Database.now()
-        end
-        self.attributes.updated_at = Database.now()
-    end
-
-    local writeAttributes = self:encodeJsonCasts(self.attributes)
-
-    if self.exists then
-        local pk = self.attributes[self.primaryKey]
-        self:newQuery():where(self.primaryKey, pk):updateAsync(writeAttributes, function(affected)
-            self.original = self:copyTable(self.attributes)
-            self:dispatchHooks('afterSave', { action = 'update', before = before, after = self:copyTable(self.attributes) })
-            if callback then callback(self) end
-        end)
-    else
-        self:newQuery():insertAsync(writeAttributes, function(insertId)
-            self.attributes[self.primaryKey] = insertId
-            self.exists = true
-            self.original = self:copyTable(self.attributes)
-            self:dispatchHooks('afterSave', { action = 'insert', before = nil, after = self:copyTable(self.attributes) })
-            if callback then callback(self) end
-        end)
-    end
+    Database.runAsync(function() return self:save() end, callback)
 end
 
 --- Update specific attributes and persist the instance
@@ -549,14 +500,7 @@ function BaseModel:deleteAsync(callback)
         if callback then callback(false) end
         return
     end
-
-    local pk = self.attributes[self.primaryKey]
-    local before = self:copyTable(self.attributes)
-    self:newQuery():where(self.primaryKey, pk):deleteAsync(function(affected)
-        self.exists = false
-        self:dispatchHooks('afterDelete', { before = before })
-        if callback then callback(true) end
-    end)
+    Database.runAsync(function() return self:delete() end, callback)
 end
 
 --- Set attribute value
@@ -778,82 +722,6 @@ function BaseModel:load(relationName)
     return self.relations[relationName]
 end
 
---- One entry per relation type for BaseModel:loadAsync(): run(self,
---- relationName, relation, callback) resolves the relation for this one
---- instance, caches it into self.relations[relationName], and invokes
---- `callback` with the result once the query completes.
-local LOAD_ASYNC_STRATEGIES = {
-    hasOne = function(self, relationName, relation, callback)
-        -- firstAsync() is model-aware and already returns a wrapped model
-        -- instance (or nil) -- do not re-wrap it.
-        relation.relatedModel:newQuery():where(relation.foreignKey, self.attributes[relation.localKey]):firstAsync(function(result)
-            if result then
-                self.relations[relationName] = result
-            end
-            callback(self.relations[relationName])
-        end)
-    end,
-    hasMany = function(self, relationName, relation, callback)
-        -- getAsync() is model-aware and already returns wrapped model instances.
-        relation.relatedModel:newQuery():where(relation.foreignKey, self.attributes[relation.localKey]):getAsync(function(models)
-            self.relations[relationName] = models
-            callback(models)
-        end)
-    end,
-    belongsTo = function(self, relationName, relation, callback)
-        relation.relatedModel:findAsync(self.attributes[relation.foreignKey], function(model)
-            self.relations[relationName] = model
-            callback(model)
-        end)
-    end,
-    belongsToMany = function(self, relationName, relation, callback)
-        local localId = self.attributes[self.primaryKey]
-        local query = relation.relatedModel:newQuery()
-            :join(relation.pivotTable,
-                  relation.relatedModel.table .. '.' .. relation.relatedModel.primaryKey,
-                  '=',
-                  relation.pivotTable .. '.' .. relation.relatedPivotKey)
-            :where(relation.pivotTable .. '.' .. relation.foreignPivotKey, localId)
-
-        -- getAsync() is model-aware and already returns wrapped model instances.
-        query:getAsync(function(models)
-            self.relations[relationName] = models
-            callback(models)
-        end)
-    end,
-    morphOne = function(self, relationName, relation, callback)
-        relation.relatedModel:newQuery()
-            :where(relation.ownerTypeKey, relation.ownerTypeValue)
-            :where(relation.ownerIdKey, self.attributes[relation.localKey])
-            :firstAsync(function(result)
-                if result then self.relations[relationName] = result end
-                callback(self.relations[relationName])
-            end)
-    end,
-    morphMany = function(self, relationName, relation, callback)
-        relation.relatedModel:newQuery()
-            :where(relation.ownerTypeKey, relation.ownerTypeValue)
-            :where(relation.ownerIdKey, self.attributes[relation.localKey])
-            :getAsync(function(models)
-                self.relations[relationName] = models
-                callback(models)
-            end)
-    end,
-    morphTo = function(self, relationName, relation, callback)
-        local ownerType = self.attributes[relation.ownerTypeKey]
-        local ownerId   = self.attributes[relation.ownerIdKey]
-        local model = ownerType and _G[ownerType]
-        if model and ownerId then
-            model:newQuery():where(model.primaryKey, ownerId):firstAsync(function(result)
-                self.relations[relationName] = result
-                callback(result)
-            end)
-        else
-            callback(nil)
-        end
-    end,
-}
-
 --- Load a relationship (lazy loading, async)
 --- @param relationName string
 --- @param callback function
@@ -867,18 +735,7 @@ function BaseModel:loadAsync(relationName, callback)
         return
     end
 
-    -- getmetatable(self).__relationDefs, not self[relationName] -- an
-    -- instance property lookup for relationName would re-enter the lazy-
-    -- relation __index hook and recurse; the class registry is unaffected.
-    local class = getmetatable(self)
-    local relation = (class.__relationDefs[relationName] or class[relationName])(self)
-
-    local strategy = LOAD_ASYNC_STRATEGIES[relation.type]
-    assert(strategy, ("loadAsync: unknown relation type %q"):format(relation.type))
-    strategy(self, relationName, relation, function(result)
-        self.__loaded[relationName] = true
-        callback(result)
-    end)
+    Database.runAsync(function() return self:load(relationName) end, callback)
 end
 
 --- Shared by the hasOne and hasMany strategies below -- identical batching,
