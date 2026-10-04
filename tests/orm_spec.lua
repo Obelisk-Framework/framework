@@ -226,13 +226,11 @@ test('QueryBuilder.insert: sync form returns insertId with no callback', functio
 end)
 
 test('QueryBuilder.insertAsync: calls back with insertId', function()
-    local original = Database.insertAsync
-    local capturedCallback
-    Database.insertAsync = function(sql, values, callback) capturedCallback = callback end
+    local original = Database.insert
+    Database.insert = function(sql, values) return 7 end
     local received
     QueryBuilder.new('widgets'):insertAsync({name = 'a'}, function(id) received = id end)
-    capturedCallback(7)
-    Database.insertAsync = original
+    Database.insert = original
     eq(received, 7, 'insertAsync: callback receives insertId')
 end)
 
@@ -245,13 +243,11 @@ test('QueryBuilder.update: sync form returns affectedRows with no callback', fun
 end)
 
 test('QueryBuilder.updateAsync: calls back with affectedRows', function()
-    local original = Database.updateAsync
-    local capturedCallback
-    Database.updateAsync = function(sql, values, callback) capturedCallback = callback end
+    local original = Database.update
+    Database.update = function(sql, values) return 1 end
     local received
     QueryBuilder.new('widgets'):where('id', 1):updateAsync({name = 'b'}, function(affected) received = affected end)
-    capturedCallback(1)
-    Database.updateAsync = original
+    Database.update = original
     eq(received, 1, 'updateAsync: callback receives affectedRows')
 end)
 
@@ -264,13 +260,11 @@ test('QueryBuilder.delete: sync form returns affectedRows with no callback', fun
 end)
 
 test('QueryBuilder.deleteAsync: calls back with affectedRows', function()
-    local original = Database.updateAsync
-    local capturedCallback
-    Database.updateAsync = function(sql, values, callback) capturedCallback = callback end
+    local original = Database.update
+    Database.update = function(sql, values) return 2 end
     local received
     QueryBuilder.new('widgets'):where('id', 1):deleteAsync(function(affected) received = affected end)
-    capturedCallback(2)
-    Database.updateAsync = original
+    Database.update = original
     eq(received, 2, 'deleteAsync: callback receives affectedRows')
 end)
 
@@ -822,7 +816,7 @@ end)
 
 test('count (async): coerces a string count (pg bigint) to a number', function()
     local qb = QueryBuilder.new('users')
-    qb.firstAsync = function(_, callback) callback({count = '7'}) end
+    qb.first = function() return {count = '7'} end
     local received
     qb:countAsync(function(n) received = n end)
     eq(received, 7)
@@ -1526,13 +1520,13 @@ end)
 test('BaseModel.firstOrCreateAsync: no match creates via the async path', function()
     local Widget = BaseModel:extend('widgets')
 
-    local originalQueryAsync, originalInsertAsync = Database.queryAsync, Database.insertAsync
-    Database.queryAsync = function(sql, params, callback) callback({}) end
-    Database.insertAsync = function(sql, values, callback) callback(7) end
+    local originalQuery, originalInsert = Database.query, Database.insert
+    Database.query = function() return {} end
+    Database.insert = function() return 7 end
 
     local received
     Widget:firstOrCreateAsync({sku = 'abc'}, {name = 'async gizmo'}, function(widget) received = widget end)
-    Database.queryAsync, Database.insertAsync = originalQueryAsync, originalInsertAsync
+    Database.query, Database.insert = originalQuery, originalInsert
 
     truthy(received ~= nil, 'firstOrCreateAsync: callback received an instance')
     eq(received.id, 7)
@@ -1575,13 +1569,13 @@ end)
 test('BaseModel.updateOrCreateAsync: found match applies values via the async path', function()
     local Widget = BaseModel:extend('widgets')
 
-    local originalQueryAsync, originalUpdateAsync = Database.queryAsync, Database.updateAsync
-    Database.queryAsync = function(sql, params, callback) callback({{id = 1, sku = 'abc', name = 'old name'}}) end
-    Database.updateAsync = function(sql, values, callback) callback(1) end
+    local originalQuery, originalUpdate = Database.query, Database.update
+    Database.query = function() return {{id = 1, sku = 'abc', name = 'old name'}} end
+    Database.update = function() return 1 end
 
     local received
     Widget:updateOrCreateAsync({sku = 'abc'}, {name = 'async new name'}, function(widget) received = widget end)
-    Database.queryAsync, Database.updateAsync = originalQueryAsync, originalUpdateAsync
+    Database.query, Database.update = originalQuery, originalUpdate
 
     truthy(received ~= nil, 'updateOrCreateAsync: callback received an instance')
     eq(received.name, 'async new name')
@@ -2412,14 +2406,14 @@ end)
 test('BaseModel:allAsync() calls back with every row', function()
     local Widget = BaseModel:extend('widgets')
 
-    local original = Database.queryAsync
-    Database.queryAsync = function(sql, params, callback)
-        callback({{ id = 1 }, { id = 2 }})
+    local original = Database.query
+    Database.query = function()
+        return {{ id = 1 }, { id = 2 }}
     end
 
     local result
     Widget:allAsync(function(widgets) result = widgets end)
-    Database.queryAsync = original
+    Database.query = original
 
     eq(#result, 2, 'allAsync should call back with all rows')
 end)
