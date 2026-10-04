@@ -1,70 +1,55 @@
 -- core/client/Services/SecureEventService.lua
---- Client half of the one-time event naming scheme. Mirrors the server's
---- counter bookkeeping so both sides derive the same next name without
---- ever transmitting the counter itself. See
---- core/server/Services/SecureEventService.lua for the receive-side
---- rolling registration this mirrors, and
---- docs/superpowers/specs/2026-08-20-anticheat-design.md for the design.
+--- Stable client/server secure event names. The compatibility session API is
+--- intentionally a no-op: stable names need no handshake or client state.
 SecureEventService = SecureEventService or {}
 
-local session = nil -- { secret, counters = {[direction..':'..logicalEvent]=n}, pendingHandlers = {...} }
 local registeredCallbacks = {}
 
-local function counterKey(direction, logicalEvent)
-    return direction .. ':' .. logicalEvent
+local function eventName(direction, logicalEvent)
+    return 'obelisk:secure:' .. direction .. ':' .. logicalEvent
 end
 
-function SecureEventService.startSession(sessionSecret)
-    session = { secret = sessionSecret, counters = {}, pendingHandlers = {} }
-    for logicalEvent, callback in pairs(registeredCallbacks) do
-        SecureEventService._armNext(logicalEvent, callback)
+local function validateRegistration(logicalEvent, callback)
+    if type(logicalEvent) ~= 'string' or logicalEvent == '' then
+        error('SecureEventService event name must be a non-empty string', 3)
+    end
+    if type(callback) ~= 'function' then
+        error('SecureEventService callback must be a function', 3)
     end
 end
 
-function SecureEventService._armNext(logicalEvent, callback)
-    if not session then return end
-
-    local key = counterKey('server_to_client', logicalEvent)
-    local counter = session.counters[key] or 0
-    local name = EventNaming.deriveName(session.secret, logicalEvent, 'server_to_client', counter)
-
-    local previousRef = session.pendingHandlers[key]
-    if previousRef then
-        RemoveEventHandler(previousRef)
-    end
-
-    RegisterNetEvent(name)
-    local handlerRef
-    handlerRef = AddEventHandler(name, function(...)
-        session.counters[key] = counter + 1
-        SecureEventService._armNext(logicalEvent, callback)
-        callback(...)
-    end)
-    session.pendingHandlers[key] = handlerRef
+function SecureEventService.startSession(_ignoredSecret)
+    -- Retained for compatibility with callers using the former handshake API.
 end
 
---- Registers a handler for a server->client logical event. Client only.
+--- Registers exactly one server->client handler for a logical event.
 function SecureEventService.onServerSecure(logicalEvent, callback)
+    validateRegistration(logicalEvent, callback)
+
+    local alreadyRegistered = registeredCallbacks[logicalEvent] ~= nil
     registeredCallbacks[logicalEvent] = callback
-    if session then
-        SecureEventService._armNext(logicalEvent, callback)
-    end
+    if alreadyRegistered then return end
+
+    local name = eventName('server_to_client', logicalEvent)
+    RegisterNetEvent(name)
+    AddEventHandler(name, function(...)
+        if source ~= 65535 then
+            return
+        end
+
+        local ok, err = pcall(registeredCallbacks[logicalEvent], ...)
+        if not ok then
+            print('[SecureEventService] callback error for ' .. name .. ': ' .. tostring(err))
+        end
+    end)
 end
 
---- Sends to the server using the current one-time name for this logical
---- event, then advances the counter.
+--- Sends a client->server event immediately using its stable native name.
 function SecureEventService.emitServerSecure(logicalEvent, ...)
-    if not session then
-        print('[SecureEventService] emitServerSecure: no active session yet')
-        return
+    if type(logicalEvent) ~= 'string' or logicalEvent == '' then
+        error('SecureEventService event name must be a non-empty string', 2)
     end
-
-    local key = counterKey('client_to_server', logicalEvent)
-    local counter = session.counters[key] or 0
-    local name = EventNaming.deriveName(session.secret, logicalEvent, 'client_to_server', counter)
-    session.counters[key] = counter + 1
-
-    TriggerServerEvent(name, ...)
+    TriggerServerEvent(eventName('client_to_server', logicalEvent), ...)
 end
 
 return SecureEventService

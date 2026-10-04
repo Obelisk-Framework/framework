@@ -30,20 +30,18 @@ local function freshPlayerService()
     _G.SpawnManagerService = {
         markConnecting = function(player) end,
     }
-    -- PlayerService's playerJoining/playerDropped handlers now also call
-    -- SecureEventService.startSession/endSession (handshake secret storage,
-    -- see obelisk:requestHandshake); stub it since these tests don't assert
-    -- on SecureEventService behavior. Also stub TriggerClientEvent, since
-    -- some tests below override it themselves for their own assertions.
-    _G.SecureEventService = _G.SecureEventService or {
-        startSession = function() end,
-        endSession = function() end,
+    -- No handshake/session should be started. Disconnect clears rate buckets.
+    _G.SecureEventService = {
+        startSession = function() error('joining must not start a secure session') end,
+        endSession = function(source) _G.cleanedSecureSource = source end,
     }
+    _G.cleanedSecureSource = nil
     _G.TriggerClientEvent = _G.TriggerClientEvent or function() end
     -- capture the two Obelisk.on registrations PlayerService installs
     local handlers = {}
     local realOn = Obelisk.on
     Obelisk.on = function(name, fn) handlers[name] = fn; realOn(name, fn) end
+    Obelisk.onClient = function() error('PlayerService must not register a handshake receiver') end
     dofile(ROOT .. '/core/server/Services/PlayerService.lua')
     return PlayerService, handlers
 end
@@ -74,6 +72,7 @@ test('playerDropped: removes the Player', function()
     _G.source = nil
 
     eq(PlayerService.get(7), nil)
+    eq(_G.cleanedSecureSource, 7, 'disconnect must clear secure event rate buckets')
 end)
 
 test('Player:emit forwards to Obelisk.emitClient with self as the player', function()

@@ -1,112 +1,119 @@
 -- core/server/Services/SecureEventService.lua
---- Server half of the one-time event naming scheme. Every logical event
---- registered via onClientSecure gets exactly one live net event handler
---- PER SESSION at any moment — the name for the next expected send — and
---- that handler re-registers the following name before invoking the
---- caller's callback, so the window where no handler is registered is zero.
---- See docs/superpowers/specs/2026-08-20-anticheat-design.md
---- ("Event-name randomization") for the full design rationale.
+--- Stable, authenticated client-to-server event registration.
 SecureEventService = SecureEventService or {}
 
--- [playerId] = { secret, counters = {[direction..':'..logicalEvent]=n}, pendingHandlers = {...} }
-SecureEventService._sessions = SecureEventService._sessions or {}
+local registrations = {}
 
--- Registered once per logicalEvent via onClientSecure; replayed for every
--- session (including sessions that start after the call).
-local registeredCallbacks = {}
+local DEFAULT_MAX, DEFAULT_WINDOW = 20, 1000
 
-local function counterKey(direction, logicalEvent)
-    return direction .. ':' .. logicalEvent
+local function positiveInteger(value)
+    return type(value) == 'number' and value > 0 and value < math.huge and value == math.floor(value)
 end
 
-function SecureEventService.startSession(playerId, sessionSecret)
-    SecureEventService._sessions[playerId] = {
-        secret = sessionSecret,
-        counters = {},
-        pendingHandlers = {},
+local function validName(name)
+    return type(name) == 'string' and name ~= ''
+end
+
+local function config(options)
+    if options == nil then options = {} end
+    if type(options) ~= 'table' then return nil end
+    for _, key in ipairs({'validate', 'authorize'}) do
+        if options[key] ~= nil and type(options[key]) ~= 'function' then return nil end
+    end
+    local limit = options.rateLimit
+    if limit ~= nil then
+        if type(limit) ~= 'table' or not positiveInteger(limit.max)
+            or not positiveInteger(limit.windowMs) then return nil end
+    end
+    return {
+        validate = options.validate,
+        authorize = options.authorize,
+        max = limit and limit.max or DEFAULT_MAX,
+        windowMs = limit and limit.windowMs or DEFAULT_WINDOW,
     }
-    for logicalEvent, callback in pairs(registeredCallbacks) do
-        SecureEventService._armNext(playerId, logicalEvent, callback)
-    end
 end
 
+local function allowed(registration, nativeSource)
+    local now = GetGameTimer()
+    local bucket = registration.buckets[nativeSource]
+    if not bucket or now < bucket.started or now - bucket.started >= registration.options.windowMs then
+        bucket = { started = now, count = 0 }
+        registration.buckets[nativeSource] = bucket
+    end
+    if bucket.count >= registration.options.max then return false end
+    bucket.count = bucket.count + 1
+    return true
+end
+
+function SecureEventService.startSession(_playerId, _ignoredSecret)
+    -- Compatibility only. Stable event registrations are not session based.
+end
+
+--- Clears per-player rate buckets on disconnect; handlers stay registered.
+--- @param playerId number
 function SecureEventService.endSession(playerId)
-    local session = SecureEventService._sessions[playerId]
-    if not session then return end
-    for _, handlerRef in pairs(session.pendingHandlers) do
-        RemoveEventHandler(handlerRef)
+    for _, registration in pairs(registrations) do
+        registration.buckets[playerId] = nil
     end
-    SecureEventService._sessions[playerId] = nil
 end
 
---- Registers the net event handler for the NEXT expected one-time name for
---- this (playerId, logicalEvent) pair, removing whatever was registered
---- before it. Exposed as a module function (not local) so both
---- startSession and the rolling re-arm after receipt can call it.
-function SecureEventService._armNext(playerId, logicalEvent, callback)
-    local session = SecureEventService._sessions[playerId]
-    if not session then return end
+--- Stable client events. The handler/guards must enforce domain rules and replay safety.
+--- @param logicalEvent string
+--- @param callback function(player, ...)
+--- @param options table|nil Synchronous validate/authorize(player, ...) guards must return true;
+--- rateLimit = {max = positive integer, windowMs = positive integer} (default 20/1000).
+function SecureEventService.onClientSecure(logicalEvent, callback, options)
+    assert(validName(logicalEvent), 'logicalEvent must be a non-empty string')
+    assert(type(callback) == 'function', 'callback must be a function')
+    local normalized = config(options)
+    assert(normalized, 'invalid SecureEventService options')
 
-    local key = counterKey('client_to_server', logicalEvent)
-    local counter = session.counters[key] or 0
-    local name = EventNaming.deriveName(session.secret, logicalEvent, 'client_to_server', counter)
-
-    local previousRef = session.pendingHandlers[key]
-    if previousRef then
-        RemoveEventHandler(previousRef)
+    local registration = registrations[logicalEvent]
+    if registration then
+        registration.callback = callback
+        registration.options = normalized
+        return true
     end
 
-    RegisterNetEvent(name)
-    local handlerRef
-    -- Net events are registered by NAME only — FXServer will invoke this
-    -- handler for whichever client actually triggers `name`, not
-    -- necessarily the `playerId` this name was armed for. Always resolve
-    -- the player from the FXServer-native global `source` (matching
-    -- Obelisk.onClient's convention exactly), never from the closure —
-    -- otherwise a client who learns/guesses another player's one-time name
-    -- would have their payload misattributed to the intended player.
-    handlerRef = AddEventHandler(name, function(...)
-        session.counters[key] = counter + 1
-        -- Re-arm the next name before invoking the callback: if the
-        -- callback yields or triggers further events, the next expected
-        -- name must already be live.
-        SecureEventService._armNext(playerId, logicalEvent, callback)
+    registration = { callback = callback, options = normalized, buckets = {} }
+    registrations[logicalEvent] = registration
+    local eventName = 'obelisk:secure:client_to_server:' .. logicalEvent
+    RegisterNetEvent(eventName)
+    AddEventHandler(eventName, function(...)
+        -- `source` is the native event source; capture it before any calls.
+        local nativeSource = source
+        if not positiveInteger(nativeSource) then return end
 
-        local player = PlayerService.get(source)
-        if not player then
-            print('[SecureEventService] dropped ' .. logicalEvent .. ': no Player for source ' .. tostring(source))
-            return
+        local player = PlayerService and PlayerService.get and PlayerService.get(nativeSource) or nil
+        if not player then return end
+        if not allowed(registration, nativeSource) then return end
+
+        local payload = table.pack(...)
+        local current = registration.options
+        local callback = registration.callback
+        if current.validate then
+            local ok, result = pcall(current.validate, player, table.unpack(payload, 1, payload.n))
+            if not ok or result ~= true then return end
         end
-        callback(player, ...)
+        if current.authorize then
+            local ok, result = pcall(current.authorize, player, table.unpack(payload, 1, payload.n))
+            if not ok or result ~= true then return end
+        end
+
+        local ok, err = pcall(callback, player, table.unpack(payload, 1, payload.n))
+        if not ok then
+            print('[SecureEventService] callback error for ' .. logicalEvent .. ': ' .. tostring(err))
+        end
     end)
-    session.pendingHandlers[key] = handlerRef
+    return true
 end
 
---- Registers a handler for a client->server logical event across every
---- current and future session. Server only.
-function SecureEventService.onClientSecure(logicalEvent, callback)
-    registeredCallbacks[logicalEvent] = callback
-    for playerId in pairs(SecureEventService._sessions) do
-        SecureEventService._armNext(playerId, logicalEvent, callback)
-    end
-end
-
---- Sends to one client using its current one-time name for this logical
---- event, then advances the counter so the next send gets a fresh name.
 function SecureEventService.emitClientSecure(logicalEvent, player, ...)
+    if not validName(logicalEvent) or not player or type(player.getSource) ~= 'function' then return false end
     local playerId = player:getSource()
-    local session = SecureEventService._sessions[playerId]
-    if not session then
-        print('[SecureEventService] emitClientSecure: no session for player ' .. tostring(playerId))
-        return
-    end
-
-    local key = counterKey('server_to_client', logicalEvent)
-    local counter = session.counters[key] or 0
-    local name = EventNaming.deriveName(session.secret, logicalEvent, 'server_to_client', counter)
-    session.counters[key] = counter + 1
-
-    TriggerClientEvent(name, playerId, ...)
+    if not positiveInteger(playerId) then return false end
+    TriggerClientEvent('obelisk:secure:server_to_client:' .. logicalEvent, playerId, ...)
+    return true
 end
 
 return SecureEventService

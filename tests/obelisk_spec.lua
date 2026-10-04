@@ -152,6 +152,29 @@ test('client: onClient throws', function()
     truthy(not ok, 'expected an error')
 end)
 
+test('secure wrappers preserve plugin arguments and forward server guards', function()
+    local captured
+    _G.SecureEventService = {
+        onClientSecure = function(...) captured = table.pack(...) end,
+        emitClientSecure = function(...) captured = table.pack(...) end,
+        onServerSecure = function(...) captured = table.pack(...) end,
+        emitServerSecure = function(...) captured = table.pack(...) end,
+    }
+    local callback, options, player = function() end, {validate = function() return true end}, fakePlayer(3)
+    local server = loadObeliskAs(true)
+    server.onClientSecure('plugin:request', callback, options)
+    eq(captured[1], 'plugin:request'); eq(captured[2], callback); eq(captured[3], options)
+    server.emitClientSecure('plugin:response', player, 'ok', nil)
+    eq(captured.n, 4); eq(captured[2], player); eq(captured[3], 'ok')
+    truthy(not pcall(server.emitServerSecure)); truthy(not pcall(server.onServerSecure))
+    local client = loadObeliskAs(false)
+    client.onServerSecure('plugin:response', callback)
+    eq(captured[1], 'plugin:response'); eq(captured[2], callback)
+    client.emitServerSecure('plugin:request', 'ok', nil)
+    eq(captured.n, 3); eq(captured[1], 'plugin:request'); eq(captured[2], 'ok')
+    truthy(not pcall(client.emitClientSecure)); truthy(not pcall(client.onClientSecure))
+end)
+
 --------------------------------------------------------------------------------
 -- Runner
 --------------------------------------------------------------------------------
