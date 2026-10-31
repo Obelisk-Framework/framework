@@ -1,3 +1,7 @@
+# Visual Evidence
+
+- Always store screenshot and GIF evidence under `.github/screenshots/` at the repository root.
+
 # AGENTS.md - Obelisk Framework Development Guide
 
 ## Build & Development Commands
